@@ -52,13 +52,14 @@ import { PaletteManager } from './palettes.js';
  * @param  {Function} callback - The function to call when the font load completes
  */
 function loadFromFile(path, callback) {
-    require('fs').readFile(path, function(err, buffer) {
-        if (err) {
-            return callback(err.message);
-        }
-
-        callback(null, buffer);
-    });
+    import('fs').then(fs => {
+        fs.readFile(path, function(err, buffer) {
+            if (err) {
+                return callback(err.message);
+            }
+            callback(null, buffer);
+        });
+    }).catch(() => callback('Font could not be loaded: fs unavailable'));
 }
 
 /**
@@ -89,45 +90,49 @@ function loadFromUrl(url, callback) {
 
         request.send();
 
-    } else if ( isNode() ) {
-        // Node environment, we use the http/https libraries (to avoid extra dependencies like axios).
 
-        const lib = url.startsWith('https:') ? require('https') : require('http');
 
-        const req = lib.request(url, res => {
-            // Follow redirections
-            if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
-                return loadFromUrl(res.headers.location, callback);
-            }
 
-            res.setEncoding('binary');
 
-            const chunks = [];
 
-            res.on('data', (chunk) => {
-                // Convert binary to Buffer and append.
-                chunks.push(Buffer.from(chunk, 'binary'));
-            });
 
-            res.on('end', () => {
-                // group chunks into a single response Buffer
-                const b = Buffer.concat(chunks);
-                // convert Buffer to ArrayBuffer for compatibility with XHR interface
-                const ab = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+
+
+
+    } else if (isNode()) {
+        // Node environment; prefer global fetch if available (Node 18+)
+        if (typeof fetch === 'function') {
+            fetch(url).then(async (res) => {
+                if (res.status === 301 || res.status === 302) {
+                    const loc = res.headers.get('location');
+                    if (loc) return loadFromUrl(loc, callback);
+                }
+                const ab = await res.arrayBuffer();
                 callback(null, ab);
-            });
-
-            res.on('error', (error) => {
-                callback(error, undefined);
-            });
-
-        });
-
-        req.on('error', error => {
-            callback(error, undefined);
-        });
-
-        req.end();
+            }).catch(err => callback(err, undefined));
+        } else {
+            // Fallback to built-in http/https via dynamic import
+            const isHttps = url.startsWith('https:');
+            (isHttps ? import('https') : import('http')).then(mod => {
+                const lib = mod.default || mod;
+                const request = lib.request(url, res => {
+                    if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+                        return loadFromUrl(res.headers.location, callback);
+                    }
+                    res.setEncoding('binary');
+                    const chunks = [];
+                    res.on('data', chunk => chunks.push(Buffer.from(chunk, 'binary')));
+                    res.on('end', () => {
+                        const b = Buffer.concat(chunks);
+                        const ab = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+                        callback(null, ab);
+                    });
+                    res.on('error', (error) => callback(error, undefined));
+                });
+                request.on('error', error => callback(error, undefined));
+                request.end();
+            }).catch(() => callback('Font could not be loaded: http(s) unavailable', undefined));
+        }
 
     }
 }
@@ -576,8 +581,8 @@ function load(url, callback, opt = {}) {
  * @param  {Object} opt - opt.lowMemory
  * @return {opentype.Font}
  */
-function loadSync(url, opt) {
-    return parseBuffer(require('fs').readFileSync(url), opt);
+function loadSync() {
+    throw new Error('loadSync is only supported in Node.js; use parse(fs.readFileSync(...))');
 }
 
 export {

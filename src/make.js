@@ -1,6 +1,6 @@
 // Writing utility functions for common formats
-import table from './table.js'
-import { masks } from './parse.js'
+import table from './table.js';
+// import { masks } from './parse.js';
 import { sizeOf } from './types.js';
 
 export function ItemVariationStore(vstore, fvar) {
@@ -16,7 +16,7 @@ export function ItemVariationStore(vstore, fvar) {
     for(let n = 0; n < subTableCount; n++) {
         fields.push(
             { name: `itemVariationDataOffsets_${n}`, type: 'ULONG', value: 0 },
-        )
+        );
     }
     
     const t = new table.Record('ItemVariationStore', fields);
@@ -78,4 +78,19 @@ export function ItemVariationData(ivd, namePrefix) {
     }
     
     return fields;
+}
+
+// VariationStore wrapper used in CFF2: USHORT length followed by ItemVariationStore
+// https://learn.microsoft.com/en-us/typography/opentype/spec/otvarcommonformats#variation-store
+export function VariationStore(vstore, fvar) {
+    // Build the inner ItemVariationStore first
+    const inner = ItemVariationStore(vstore, fvar);
+    // Wrap with a length field equal to the size of the inner store only
+    const t = new table.Record('VariationStore', [
+        { name: 'length', type: 'USHORT', value: 0 },
+        { name: 'itemVariationStore', type: 'RECORD', value: inner },
+    ]);
+    t.length = inner.sizeOf();
+    t.itemVariationStore = inner;
+    return t;
 }

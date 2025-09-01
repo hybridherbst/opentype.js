@@ -1,6 +1,6 @@
-'use strict';
+import path from 'node:path';
 
-module.exports = {
+export default {
   'ban-foreach': {
     meta: {
       type: 'suggestion',
@@ -9,11 +9,11 @@ module.exports = {
     create(context) {
       return {
         CallExpression(node) {
-          if (node.callee.property && node.callee.property.name === 'forEach') {
-            context.report({node, message: 'Use for() loops instead of .forEach()'})
+          if (node.callee && node.callee.property && node.callee.property.name === 'forEach') {
+            context.report({ node, message: 'Use for() loops instead of .forEach()' });
           }
         },
-      }
+      };
     },
   },
   'import-extensions': {
@@ -25,7 +25,7 @@ module.exports = {
       const checkImportPath = (node) => {
         const importPath = node.source.value;
         const isRelative = importPath.startsWith('.') || importPath.startsWith('/');
-        const extensionMissing = require('path').extname(importPath) === '';
+        const extensionMissing = path.extname(importPath) === '';
         if (!isRelative || !extensionMissing) {
           return;
         }

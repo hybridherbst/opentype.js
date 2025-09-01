@@ -33,7 +33,6 @@ function constant(v) {
 }
 
 // OpenType data types //////////////////////////////////////////////////////
-
 /**
  * Convert an 8-bit unsigned integer to a list of 1 byte.
  * @param {number}
@@ -323,8 +322,7 @@ sizeOf.NUMBER32 = constant(5);
 encode.REAL = function(v) {
     let value = v.toString();
 
-    // Some numbers use an epsilon to encode the value. (e.g. JavaScript will store 0.0000001 as 1e-7)
-    // This code converts it back to a number without the epsilon.
+    // Normalize numbers with epsilon notation (e.g., 1e-7) to fixed form when possible
     const m = /\.(\d*?)(?:9{5,20}|0{5,20})\d{0,2}(?:e(.+)|$)/.exec(value);
     if (m) {
         const epsilon = parseFloat('1e' + ((m[2] ? +m[2] : 0) + m[1].length));
@@ -332,25 +330,42 @@ encode.REAL = function(v) {
     }
 
     let nibbles = '';
+    let hasDigit = false;
+    let seenDot = false;
     for (let i = 0, ii = value.length; i < ii; i += 1) {
         const c = value[i];
-        if (c === 'e') {
-            nibbles += value[++i] === '-' ? 'c' : 'b';
+        if (c === 'e' || c === 'E') {
+            nibbles += (value[i + 1] === '-') ? 'c' : 'b';
+            i += (value[i + 1] === '-' || value[i + 1] === '+') ? 1 : 0;
+            hasDigit = true;
         } else if (c === '.') {
+            // If dot appears before any digit, insert a leading zero nibble
+            if (!hasDigit) nibbles += '0';
             nibbles += 'a';
+            seenDot = true;
         } else if (c === '-') {
             nibbles += 'e';
-        } else if(nibbles.length || c !== '0') { // omit leading zeroes
-            nibbles += c;
+        } else if (c >= '0' && c <= '9') {
+            // Keep leading zeros after a decimal point; otherwise skip until a non-zero digit
+            if (hasDigit || c !== '0' || seenDot) {
+                nibbles += c;
+                if (c !== '0' || !seenDot) hasDigit = true;
+            }
         }
     }
 
+    // If we didn't emit any digit (e.g., value was 0), emit a single zero digit.
+    if (nibbles.length === 0) {
+        nibbles = '0';
+        hasDigit = true; // for completeness
+    }
+
+    // Terminator nibble: append 'f' if odd length, else 'ff'.
     nibbles += (nibbles.length & 1) ? 'f' : 'ff';
     const out = [30];
     for (let i = 0, ii = nibbles.length; i < ii; i += 2) {
         out.push(parseInt(nibbles.substr(i, 2), 16));
     }
-
     return out;
 };
 
@@ -800,11 +815,10 @@ encode.DICT = function(m) {
         // Object.keys() return string keys, but our keys are always numeric.
         const k = parseInt(keys[i], 0);
         const v = m[k];
-        if(v.blend) {
-            v.value.push(v.blend);
-        }
+        // Build operands without mutating v.value (important when size/encode is called repeatedly)
+        const operandValue = v.blend ? (Array.isArray(v.value) ? v.value.concat([v.blend]) : [v.value, v.blend]) : v.value;
         // Value comes before the key.
-        const enc1 = encode.OPERAND(v.value, v.type);
+        const enc1 = encode.OPERAND(operandValue, v.type);
         const enc2 = encode.OPERATOR(k);
         for (let j = 0; j < enc1.length; j++) {
             d.push(enc1[j]);
@@ -964,7 +978,7 @@ encode.OBJECT = function(v) {
     const encodingFunction = encode[v.type];
     if(encodingFunction === undefined) {
 
-        console.log('~~~~~~~~~~~~~', v)
+        console.log('~~~~~~~~~~~~~', v);
     }
     check.argument(encodingFunction !== undefined, 'No encoding function for type ' + v.type);
     return encodingFunction(v.value);

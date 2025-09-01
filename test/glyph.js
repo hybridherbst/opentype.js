@@ -1,7 +1,7 @@
 import assert  from 'assert';
 import { parse, Glyph, Path } from '../src/opentype.js';
 import { readFileSync } from 'fs';
-import util from './testutil.js';
+import * as util from './testutil.js';
 const loadSync = (url, opt) => parse(readFileSync(url), opt);
 
 const emojiFont = loadSync('./test/fonts/OpenMojiCOLRv0-subset.otf');

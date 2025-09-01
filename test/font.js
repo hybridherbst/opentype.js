@@ -2,7 +2,7 @@ import assert from 'assert';
 import { Font, Glyph, Path, parse } from '../src/opentype.js';
 import glyphset from '../src/glyphset.js';
 import { readFileSync } from 'fs';
-import util from './testutil.js';
+import * as util from './testutil.js';
 const loadSync = (url, opt) => parse(readFileSync(url), opt);
 
 describe('font.js', function() {
@@ -19,7 +19,10 @@ describe('font.js', function() {
         fGlyph, iGlyph, ffGlyph, fiGlyph, ffiGlyph
     ];
 
-    glyphs.forEach((glyph, index) => glyph.index = index);
+    for (let index = 0; index < glyphs.length; index++) {
+        const glyph = glyphs[index];
+        glyph.index = index;
+    }
 
     beforeEach(function() {
         font = new Font({

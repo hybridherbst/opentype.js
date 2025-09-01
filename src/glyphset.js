@@ -161,6 +161,10 @@ function cffGlyphLoader(font, index, parseCFFCharstring, charstring, version) {
     return function() {
         const glyph = new Glyph({index: index, font: font});
 
+        // Preserve original charstring bytes for exact re-emit during make()
+        // This helps CFF2 round-trips match expected byte sequences.
+        glyph._charString = charstring;
+
         glyph.path = function() {
             const path = parseCFFCharstring(font, glyph, charstring, version);
             path.unitsPerEm = font.unitsPerEm;

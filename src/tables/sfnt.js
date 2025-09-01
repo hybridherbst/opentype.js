@@ -85,7 +85,7 @@ function makeSfntTable(tables) {
 
     for (let i = 0; i < tables.length; i += 1) {
         const t = tables[i];
-        console.log(t)
+        console.log(t);
         check.argument(t.tableName.length === 4, 'Table name' + t.tableName + ' is invalid.');
         const tableLength = t.sizeOf();
         const tableRecord = makeTableRecord(t.tableName, computeCheckSum(t.encode()), offset, tableLength);
@@ -337,7 +337,10 @@ function fontToSfntTable(font) {
 
     const postTable = post.make(font);
     const useCFFtable = font.tables.cff || font.tables.cff2;
-    console.log(useCFFtable, font.tables.cff2);
+    // Prefer CFF2 by default when variation data exists; allow forcing CFF1 via font.options.forceCFF1
+    const forceCFF1 = font.options && font.options.forceCFF1;
+    const preferCFF2 = !forceCFF1 && (font.tables.cff2 || (font.tables.fvar && (font.tables.gvar || font.tables.cff2)));
+    const cffVersionToWrite = preferCFF2 ? 2 : 1;
     const cffTable = cff.make(font.glyphs, {
         version: font.getEnglishName('version'),
         fullName: englishFullName,
@@ -347,7 +350,7 @@ function fontToSfntTable(font) {
         unitsPerEm: font.unitsPerEm,
         fontBBox: [0, globals.yMin, globals.ascender, globals.advanceWidthMax],
         topDict: useCFFtable && useCFFtable.topDict || {},
-    }, font.tables.cff2 ? 2 : 1);
+    }, cffVersionToWrite);
 
     const metaTable = (font.metas && Object.keys(font.metas).length > 0) ? meta.make(font.metas) : undefined;
 

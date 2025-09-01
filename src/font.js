@@ -170,6 +170,9 @@ function Font(options) {
             return null;
         }
     });
+
+    // Capture creation options for writer decisions (e.g., forceCFF1)
+    this.options = options || {};
 }
 
 /**
@@ -208,6 +211,51 @@ Font.prototype.charToGlyph = function(c) {
     }
 
     return glyph;
+};
+
+/**
+ * Instantiate a static font at given variation coords or a named instance.
+ * Bakes current deltas into outlines and strips variation tables.
+ * @param {Object|string} coordsOrName e.g., {wght:700} or 'Bold'
+ * @returns {Font} a new Font object with static outlines
+ */
+Font.prototype.instantiate = function(coordsOrName) {
+    const f = new Font({
+        empty: true,
+        familyName: this.getEnglishName('fontFamily') || ' ',
+        styleName: this.getEnglishName('fontSubfamily') || ' ',
+        unitsPerEm: this.unitsPerEm,
+        ascender: this.ascender,
+        descender: this.descender,
+        version: this.getEnglishName('version') || 'Version 0.1',
+        tables: {}
+    });
+
+    // Copy glyphs with deltas baked
+    const coords = typeof coordsOrName === 'string'
+        ? (this.variation && this.variation.process.getInstanceCoordsByName && this.variation.process.getInstanceCoordsByName(coordsOrName))
+        : coordsOrName;
+
+    for (let i = 0; i < this.glyphs.length; i++) {
+        const g = this.glyphs.get(i);
+        const ng = g.clone && g.clone() || Object.assign(Object.create(Object.getPrototypeOf(g)), g);
+        if (ng.getBlendPath) {
+            const blended = ng.getBlendPath(this, coords);
+            if (blended) ng.path = blended;
+        }
+        f.glyphs.push(ng);
+    }
+
+    // Copy non-variation tables; strip variation data
+    f.tables = JSON.parse(JSON.stringify(this.tables || {}));
+    delete f.tables.fvar;
+    delete f.tables.gvar;
+    if (f.tables.cff2) {
+        // Convert to CFF1 write by default when instantiating
+        delete f.tables.cff2;
+        f.options = Object.assign({}, this.options, { forceCFF1: true });
+    }
+    return f;
 };
 
 /**
@@ -660,13 +708,14 @@ Font.prototype.download = function(fileName) {
             console.warn('Font file could not be downloaded. Try using a different browser.');
         }
     } else {
-        const fs = require('fs');
         const buffer = Buffer.alloc(arrayBuffer.byteLength);
         const view = new Uint8Array(arrayBuffer);
         for (let i = 0; i < buffer.length; ++i) {
             buffer[i] = view[i];
         }
-        fs.writeFileSync(fileName, buffer);
+        import('fs').then(fs => fs.writeFileSync(fileName, buffer)).catch(() => {
+            console.warn('Font file could not be written (fs unavailable).');
+        });
     }
 };
 

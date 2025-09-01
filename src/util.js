@@ -164,7 +164,7 @@ function chunkArray(array, chunks) {
         if(!chunkedArray[i]) {
             chunkedArray[i] = [];
         }
-        chunkedArray[i].push(element)
+        chunkedArray[i].push(element);
         return chunkedArray;
     }, []);
 }
