@@ -1,7 +1,7 @@
 import assert from 'assert';
-import { parse } from '../src/opentype.js';
+import { parse, Font, Glyph, Path } from '../src/opentype.js';
+import { VariationManager } from '../src/variation.js';
 import { readFileSync } from 'fs';
-import exp from 'constants';
 const loadSync = (url, opt) => parse(readFileSync(url), opt);
 
 describe('variation.js', function() {
@@ -183,6 +183,173 @@ describe('variation.js', function() {
                 {w: 450, lsb: 0, gX: 0},
                 {w: 450, lsb: 0, gX: 450},
             ]);
+        });
+    });
+
+    describe('addAxis', function() {
+        it('can add a new variation axis to a static font', function() {
+            // Create a simple static font
+            const notdefPath = new Path();
+            notdefPath.moveTo(0, 0);
+            notdefPath.lineTo(400, 0);
+            notdefPath.lineTo(400, 700);
+            notdefPath.lineTo(0, 700);
+            notdefPath.closePath();
+
+            const aPath = new Path();
+            aPath.moveTo(0, 0);
+            aPath.lineTo(200, 700);
+            aPath.lineTo(400, 0);
+            aPath.closePath();
+
+            const font = new Font({
+                familyName: 'Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200,
+                glyphs: [
+                    new Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: notdefPath }),
+                    new Glyph({ name: 'A', unicode: 65, advanceWidth: 500, path: aPath })
+                ]
+            });
+
+            // Initialize variation manager
+            font.variation = new VariationManager(font);
+
+            // Add a weight axis
+            const axis = font.variation.addAxis({
+                tag: 'wght',
+                name: 'Weight',
+                minValue: 100,
+                defaultValue: 400,
+                maxValue: 900
+            });
+
+            assert.equal(axis.tag, 'wght');
+            assert.equal(axis.minValue, 100);
+            assert.equal(axis.defaultValue, 400);
+            assert.equal(axis.maxValue, 900);
+            assert.ok(font.tables.fvar);
+            assert.equal(font.tables.fvar.axes.length, 1);
+        });
+
+        it('can add an axis with delta generator', function() {
+            const basePath = new Path();
+            basePath.moveTo(0, 0);
+            basePath.lineTo(100, 0);
+            basePath.lineTo(100, 100);
+            basePath.lineTo(0, 100);
+            basePath.closePath();
+
+            const font = new Font({
+                familyName: 'Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200,
+                glyphs: [
+                    new Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: new Path() }),
+                    new Glyph({ name: 'A', unicode: 65, advanceWidth: 500, path: basePath })
+                ]
+            });
+
+            font.variation = new VariationManager(font);
+
+            // Add a custom axis with deltas
+            font.variation.addAxis({
+                tag: 'TEST',
+                name: 'Test Axis',
+                minValue: 0,
+                defaultValue: 0,
+                maxValue: 100,
+                deltaGenerator: (glyph) => {
+                    if (!glyph.path || !glyph.path.commands || glyph.path.commands.length === 0) {
+                        return null;
+                    }
+                    // Simple delta: move all points by 10 units
+                    const deltas = [];
+                    const deltasY = [];
+                    for (const cmd of glyph.path.commands) {
+                        if (cmd.x !== undefined) {
+                            deltas.push(10);
+                            deltasY.push(10);
+                        }
+                    }
+                    // Add phantom point deltas
+                    deltas.push(0, 0, 0, 0);
+                    deltasY.push(0, 0, 0, 0);
+                    return { deltas, deltasY };
+                }
+            });
+
+            assert.ok(font.tables.gvar);
+            assert.ok(font.tables.gvar.glyphVariations[1]);
+            assert.equal(font.tables.gvar.glyphVariations[1].headers.length, 1);
+        });
+
+        it('can roundtrip a font with a new axis', function() {
+            const basePath = new Path();
+            basePath.moveTo(0, 0);
+            basePath.lineTo(100, 0);
+            basePath.lineTo(100, 100);
+            basePath.lineTo(0, 100);
+            basePath.closePath();
+
+            const font = new Font({
+                familyName: 'TestVF',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200,
+                glyphs: [
+                    new Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: new Path() }),
+                    new Glyph({ name: 'A', unicode: 65, advanceWidth: 500, path: basePath })
+                ]
+            });
+
+            font.variation = new VariationManager(font);
+            font.variation.addAxis({
+                tag: 'wght',
+                name: 'Weight',
+                minValue: 100,
+                defaultValue: 400,
+                maxValue: 900
+            });
+
+            // Export and re-import
+            const buffer = font.toArrayBuffer();
+            const font2 = parse(buffer);
+
+            assert.ok(font2.tables.fvar);
+            assert.equal(font2.tables.fvar.axes.length, 1);
+            assert.equal(font2.tables.fvar.axes[0].tag, 'wght');
+            assert.equal(font2.tables.fvar.axes[0].minValue, 100);
+            assert.equal(font2.tables.fvar.axes[0].maxValue, 900);
+        });
+
+        it('computeDeltas correctly calculates path differences', function() {
+            const basePath = new Path();
+            basePath.moveTo(0, 0);
+            basePath.lineTo(100, 0);
+            basePath.lineTo(100, 100);
+            basePath.closePath();
+
+            const targetPath = new Path();
+            targetPath.moveTo(10, 10);
+            targetPath.lineTo(110, 10);
+            targetPath.lineTo(110, 110);
+            targetPath.closePath();
+
+            const result = VariationManager.computeDeltas(basePath, targetPath);
+            
+            assert.ok(result);
+            // 3 moveTo/lineTo commands with x,y = 6 points + 4 phantom points = 10
+            assert.equal(result.deltas.length, 7); // 3 coords + 4 phantom
+            assert.equal(result.deltasY.length, 7);
+            // Check first point delta (0,0) -> (10,10) = delta of 10,10
+            assert.equal(result.deltas[0], 10);
+            assert.equal(result.deltasY[0], 10);
         });
     });
 

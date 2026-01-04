@@ -734,6 +734,98 @@ encode.VARDELTAS = function(deltas) {
     return result;
 };
 
+/**
+ * Encode a list of packed point numbers for variation tables (gvar/cvar).
+ *
+ * Packed point numbers are used in 'gvar' and 'cvar' tables to specify
+ * which points have explicit deltas. Point numbers are stored as deltas 
+ * from the previous value.
+ *
+ * If points is an empty array or all points are included, a special encoding is used.
+ *
+ * @see https://learn.microsoft.com/en-us/typography/opentype/spec/otvarcommonformats#packed-point-numbers
+ * @param {Array<number>} points - Array of point numbers (must be sorted in ascending order)
+ * @param {boolean} [allPoints=false] - If true, encode as "all points" (count = 0)
+ * @return {Array<number>} Encoded bytes
+ */
+encode.PACKEDPOINTS = function(points, allPoints = false) {
+    const result = [];
+    
+    // Special case: all points - encode as count = 0
+    if (allPoints || !points || points.length === 0) {
+        result.push(0);
+        return result;
+    }
+    
+    const count = points.length;
+    
+    // Encode count: if <= 127, use 1 byte; otherwise use 2 bytes with high bit set
+    if (count <= 127) {
+        result.push(count);
+    } else {
+        // High bit set indicates 2-byte count
+        result.push(0x80 | ((count >> 8) & 0x7F));
+        result.push(count & 0xFF);
+    }
+    
+    // Convert point numbers to deltas
+    const deltas = [];
+    let lastPoint = 0;
+    for (let i = 0; i < points.length; i++) {
+        deltas.push(points[i] - lastPoint);
+        lastPoint = points[i];
+    }
+    
+    // Encode deltas as runs
+    let pos = 0;
+    while (pos < deltas.length) {
+        // Determine if this run should use words (16-bit) or bytes (8-bit)
+        // A run can have at most 128 elements (0x7F + 1)
+        let runLength = 0;
+        let useWords = deltas[pos] > 255;
+        
+        // Count run length with same encoding type
+        while (pos + runLength < deltas.length && runLength < 128) {
+            const delta = deltas[pos + runLength];
+            if (useWords) {
+                // Check if we should switch to byte encoding
+                if (delta <= 255 && pos + runLength + 1 < deltas.length && deltas[pos + runLength + 1] <= 255) {
+                    break;
+                }
+            } else {
+                // Check if we need to switch to word encoding
+                if (delta > 255) {
+                    break;
+                }
+            }
+            runLength++;
+        }
+        
+        if (runLength === 0) {
+            runLength = 1;
+        }
+        
+        // Write control byte: high bit = word flag, low 7 bits = count - 1
+        const controlByte = (useWords ? 0x80 : 0) | (runLength - 1);
+        result.push(controlByte);
+        
+        // Write the delta values
+        for (let i = 0; i < runLength; i++) {
+            const delta = deltas[pos + i];
+            if (useWords) {
+                result.push((delta >> 8) & 0xFF);
+                result.push(delta & 0xFF);
+            } else {
+                result.push(delta & 0xFF);
+            }
+        }
+        
+        pos += runLength;
+    }
+    
+    return result;
+};
+
 // Convert a list of values to a CFF INDEX structure.
 // The values should be objects containing name / type / value.
 /**

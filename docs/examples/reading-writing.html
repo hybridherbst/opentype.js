@@ -129,7 +129,10 @@
             <button id="gen-snap-series" type="button">Generate snapped series</button>
         </div>
     <div id="snap-results" class="mt-8"></div>
-    <div class="mt-6 note">Note: Creating a new SNAP axis with live deltas isn’t currently supported by the writer; use the series to test different snapping levels.</div>
+    <div class="row-flex mt-6">
+        <button id="create-snap-vf" type="button">Create Variable Font with SNAP Axis</button>
+        <span class="note">(Creates a new variable font where the SNAP axis controls the snapping effect)</span>
+    </div>
     </div>
 
     <div id="glyphs"></div>
@@ -448,6 +451,103 @@ genSnapSeriesBtn.addEventListener('click', () => {
         a.download = `${(guessFileName(variant) || 'font').replace(/\.(otf|ttf)$/i,'')}-snap${strengthPct}.${ext}`;
         a.textContent = `Download ${strengthPct}%`;
         snapResults.appendChild(a);
+    }
+});
+
+// Create a variable font with SNAP axis
+document.getElementById('create-snap-vf').addEventListener('click', () => {
+    if (!currentFont) return;
+    
+    // Clone the font to work with
+    const vfFont = cloneFontDeep(currentFont);
+    
+    // Import VariationManager if not present
+    if (!vfFont.variation) {
+        // Create a new VariationManager for the font
+        const { VariationManager } = opentype;
+        vfFont.variation = new VariationManager(vfFont);
+    }
+    
+    const snapParams = getSnapParams();
+    
+    // Get snapped coordinates for each glyph ahead of time
+    const snappedPaths = new Map();
+    for (let i = 0; i < vfFont.glyphs.length; i++) {
+        const glyph = vfFont.glyphs.get(i);
+        if (!glyph || !glyph.path || !glyph.path.commands || glyph.path.commands.length === 0) {
+            continue;
+        }
+        // Clone the path and apply snapping
+        const snappedCommands = glyph.path.commands.map(cmd => {
+            const newCmd = { ...cmd };
+            snapCommand(newCmd, snapParams);
+            return newCmd;
+        });
+        snappedPaths.set(i, snappedCommands);
+    }
+    
+    // Add SNAP axis with delta generator
+    try {
+        vfFont.variation.addAxis({
+            tag: 'SNAP',
+            name: 'Snapping',
+            minValue: 0,
+            defaultValue: 0,
+            maxValue: 100,
+            deltaGenerator: (glyph) => {
+                const snappedCommands = snappedPaths.get(glyph.index);
+                if (!snappedCommands) return null;
+                
+                const baseCommands = glyph.path.commands;
+                if (baseCommands.length !== snappedCommands.length) return null;
+                
+                const deltas = [];
+                const deltasY = [];
+                
+                for (let i = 0; i < baseCommands.length; i++) {
+                    const base = baseCommands[i];
+                    const target = snappedCommands[i];
+                    
+                    if (base.x !== undefined && target.x !== undefined) {
+                        deltas.push(Math.round(target.x - base.x));
+                        deltasY.push(Math.round(target.y - base.y));
+                    }
+                    if (base.x1 !== undefined && target.x1 !== undefined) {
+                        deltas.push(Math.round(target.x1 - base.x1));
+                        deltasY.push(Math.round(target.y1 - base.y1));
+                    }
+                    if (base.x2 !== undefined && target.x2 !== undefined) {
+                        deltas.push(Math.round(target.x2 - base.x2));
+                        deltasY.push(Math.round(target.y2 - base.y2));
+                    }
+                }
+                
+                // Phantom points (LSB, RSB, TSB, BSB)
+                deltas.push(0, 0, 0, 0);
+                deltasY.push(0, 0, 0, 0);
+                
+                return { deltas, deltasY };
+            }
+        });
+        
+        // Add instances for common snap levels
+        vfFont.variation.addInstance({ name: 'No Snap', coordinates: { ...vfFont.variation.getDefaultCoordinates(), SNAP: 0 } });
+        vfFont.variation.addInstance({ name: 'Light Snap', coordinates: { ...vfFont.variation.getDefaultCoordinates(), SNAP: 25 } });
+        vfFont.variation.addInstance({ name: 'Medium Snap', coordinates: { ...vfFont.variation.getDefaultCoordinates(), SNAP: 50 } });
+        vfFont.variation.addInstance({ name: 'Heavy Snap', coordinates: { ...vfFont.variation.getDefaultCoordinates(), SNAP: 100 } });
+        
+        // Export the font
+        const ext = vfFont.outlinesFormat === 'cff' ? 'otf' : 'ttf';
+        const blob = new Blob([vfFont.toArrayBuffer()], { type: `font/${ext}` });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${(guessFileName(vfFont) || 'font').replace(/\.(otf|ttf)$/i,'')}-SNAP-VF.${ext}`;
+        a.click();
+        
+        alert('Variable font with SNAP axis created! The SNAP axis varies from 0 (no snapping) to 100 (full snapping effect).');
+    } catch (e) {
+        console.error('Error creating SNAP variable font:', e);
+        alert('Error creating variable font: ' + e.message);
     }
 });
 

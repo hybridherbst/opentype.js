@@ -153,4 +153,73 @@ describe('tables/gvar.js', function() {
             assert.equal(font.glyphs.get(6).toPathData({}, font), transformedPathData);
         });
     });
+    
+    describe('gvar table roundtrip', function() {
+        it('should roundtrip gvar table with shared tuples', function() {
+            const font = fonts.gvarTest1;
+            // Force load all glyph paths
+            for (let i = 0; i < font.numGlyphs; i++) {
+                const glyph = font.glyphs.get(i);
+                if (glyph) glyph.path;
+            }
+            
+            // Write and re-parse
+            const buffer = font.toArrayBuffer();
+            const font2 = parse(buffer);
+            
+            // Verify gvar exists and has correct structure
+            assert.ok(font2.tables.gvar);
+            assert.ok(font2.tables.gvar.glyphVariations);
+            assert.deepEqual(Object.keys(font2.tables.gvar.glyphVariations).length, 
+                             Object.keys(font.tables.gvar.glyphVariations).length);
+            
+            // Check shared tuples
+            assert.deepEqual(font2.tables.gvar.sharedTuples, font.tables.gvar.sharedTuples);
+        });
+        
+        it('should preserve delta values after roundtrip', function() {
+            const font = fonts.gvarTest1;
+            // Force load all glyph paths
+            for (let i = 0; i < font.numGlyphs; i++) {
+                const glyph = font.glyphs.get(i);
+                if (glyph) glyph.path;
+            }
+            
+            // Get original deltas
+            const originalDeltas0 = font.tables.gvar.glyphVariations[0].headers[0].deltas.slice();
+            const originalDeltasY0 = font.tables.gvar.glyphVariations[0].headers[0].deltasY.slice();
+            
+            // Write and re-parse
+            const buffer = font.toArrayBuffer();
+            const font2 = parse(buffer);
+            
+            // Force load glyph paths in font2
+            for (let i = 0; i < font2.numGlyphs; i++) {
+                const glyph = font2.glyphs.get(i);
+                if (glyph) glyph.path;
+            }
+            
+            // Compare deltas
+            const roundtrippedDeltas0 = font2.tables.gvar.glyphVariations[0].headers[0].deltas;
+            const roundtrippedDeltasY0 = font2.tables.gvar.glyphVariations[0].headers[0].deltasY;
+            
+            assert.deepEqual(roundtrippedDeltas0, originalDeltas0);
+            assert.deepEqual(roundtrippedDeltasY0, originalDeltasY0);
+        });
+        
+        it('should handle phantom points only for empty glyphs', function() {
+            const font = fonts.gvarTest1;
+            // Glyph 1 is typically space with no points
+            const glyph = font.glyphs.get(1);
+            glyph.path;
+            
+            const variation = font.tables.gvar.glyphVariations[1];
+            if (variation && variation.headers && variation.headers.length > 0) {
+                // Should have deltas for phantom points (4 points)
+                const deltas = variation.headers[0].deltas;
+                assert.ok(deltas);
+                assert.equal(deltas.length, 4);
+            }
+        });
+    });
 });

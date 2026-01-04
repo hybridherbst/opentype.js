@@ -42,4 +42,25 @@ describe('tables/cvar.js', function() {
                 Array(11).fill(font.tables.cvt.length));
         });
     });
+    
+    describe('cvar table roundtrip', function() {
+        it('should roundtrip cvar table structure', function() {
+            const font = fonts.cvarTest1;
+            
+            // Get original cvar data
+            const originalHeaderCount = font.tables.cvar.headers.length;
+            const originalPeakTuple0 = font.tables.cvar.headers[0].peakTuple.slice();
+            const originalDeltas0 = font.tables.cvar.headers[0].deltas.slice();
+            
+            // Write and re-parse
+            const buffer = font.toArrayBuffer();
+            const font2 = parse(buffer);
+            
+            // Verify cvar exists and has correct structure
+            assert.ok(font2.tables.cvar);
+            assert.equal(font2.tables.cvar.headers.length, originalHeaderCount);
+            assert.deepEqual(font2.tables.cvar.headers[0].peakTuple, originalPeakTuple0);
+            assert.deepEqual(font2.tables.cvar.headers[0].deltas, originalDeltas0);
+        });
+    });
 });

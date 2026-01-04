@@ -39,6 +39,7 @@ import meta from './tables/meta.js';
 import gasp from './tables/gasp.js';
 import svg from './tables/svg.js';
 import { PaletteManager } from './palettes.js';
+import { VariationManager } from './variation.js';
 /**
  * The opentype library.
  * @namespace opentype
@@ -590,6 +591,7 @@ export {
     Glyph,
     Path,
     BoundingBox,
+    VariationManager,
     parse as _parse,
     parseBuffer as parse,
     load,

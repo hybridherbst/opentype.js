@@ -265,3 +265,58 @@ describe('opentype.js on low memory mode', function() {
         }, /The unicode value "0" is reserved for the glyph name ".null" and cannot be used by any other glyph./);
     });
 });
+
+describe('font roundtrip', function() {
+    it('can roundtrip a CFF font', function() {
+        const font = loadSync('./test/fonts/FiraSansMedium.woff');
+        assert.equal(font.glyphs.length, 1147);
+        
+        // Ensure toArrayBuffer works without errors
+        const buffer = font.toArrayBuffer();
+        assert.ok(buffer instanceof ArrayBuffer);
+        assert.ok(buffer.byteLength > 0);
+        
+        // Re-parse the buffer and verify basic properties
+        const font2 = parse(buffer);
+        assert.equal(font2.glyphs.length, font.glyphs.length);
+        assert.equal(font2.unitsPerEm, font.unitsPerEm);
+        
+        // Verify glyph access works (tests lazy loading)
+        const glyph0 = font2.glyphs.get(0);
+        assert.ok(glyph0, 'Should be able to access glyph 0 after roundtrip');
+        assert.ok(glyph0.path, 'Glyph should have a path');
+    });
+
+    it('can roundtrip a TrueType font', function() {
+        const font = loadSync('./test/fonts/Roboto-Black.ttf');
+        assert.equal(font.glyphs.length, 1294);
+        
+        const buffer = font.toArrayBuffer();
+        assert.ok(buffer instanceof ArrayBuffer);
+        assert.ok(buffer.byteLength > 0);
+        
+        const font2 = parse(buffer);
+        assert.equal(font2.glyphs.length, font.glyphs.length);
+        assert.equal(font2.unitsPerEm, font.unitsPerEm);
+        
+        const glyph0 = font2.glyphs.get(0);
+        assert.ok(glyph0, 'Should be able to access glyph 0 after roundtrip');
+    });
+
+    it('can roundtrip a variable TTF font', function() {
+        const font = loadSync('./test/fonts/RobotoFlex-Variable.ttf');
+        assert.ok(font.tables.fvar, 'Should have fvar table');
+        
+        const buffer = font.toArrayBuffer();
+        assert.ok(buffer instanceof ArrayBuffer);
+        
+        const font2 = parse(buffer);
+        assert.ok(font2.tables.fvar, 'Roundtripped font should have fvar table');
+        assert.equal(font2.tables.fvar.axes.length, font.tables.fvar.axes.length);
+        
+        // Verify gvar roundtrip
+        if (font.tables.gvar) {
+            assert.ok(font2.tables.gvar, 'Roundtripped font should have gvar table');
+        }
+    });
+});

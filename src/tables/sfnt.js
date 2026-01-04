@@ -21,11 +21,15 @@ import gsub from './gsub.js';
 import meta from './meta.js';
 import colr from './colr.js';
 import cpal from './cpal.js';
+import cvt from './cvt.js';
+import fpgm from './fpgm.js';
+import prep from './prep.js';
 import fvar from './fvar.js';
 import stat from './stat.js';
 import avar from './avar.js';
 import cvar from './cvar.js';
 import gvar from './gvar.js';
+import hvar from './hvar.js';
 import gasp from './gasp.js';
 import svg from './svg.js';
 
@@ -85,7 +89,6 @@ function makeSfntTable(tables) {
 
     for (let i = 0; i < tables.length; i += 1) {
         const t = tables[i];
-        console.log(t);
         check.argument(t.tableName.length === 4, 'Table name' + t.tableName + ' is invalid.');
         const tableLength = t.sizeOf();
         const tableRecord = makeTableRecord(t.tableName, computeCheckSum(t.encode()), offset, tableLength);
@@ -367,9 +370,13 @@ function fontToSfntTable(font) {
         colr,
         stat,
         avar,
+        cvt,
+        fpgm,
+        prep,
         cvar,
         fvar, 
         gvar,
+        hvar,
         gasp,
         svg,
     };
