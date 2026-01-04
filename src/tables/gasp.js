@@ -29,14 +29,18 @@ function parseGaspTable(data, start) {
 
 
 function makeGaspTable(gasp) {
+    const ranges = (gasp && Array.isArray(gasp.gaspRanges)) ? gasp.gaspRanges : [];
+    const version = (gasp && typeof gasp.version === 'number') ? gasp.version : 0x0001;
+
     const result = new table.Table('gasp', [
-        {name: 'version', type: 'USHORT', value: 0x0001},
-        {name: 'numRanges', type: 'USHORT', value: gasp.numRanges},
+        { name: 'version', type: 'USHORT', value: version },
+        { name: 'numRanges', type: 'USHORT', value: ranges.length },
     ]);
 
-    for (let i in gasp.numRanges) {
-        result.fields.push({name: 'rangeMaxPPEM', type: 'USHORT', value: gasp.numRanges[i].rangeMaxPPEM});
-        result.fields.push({name: 'rangeGaspBehavior', type: 'USHORT', value: gasp.numRanges[i].rangeGaspBehavior});
+    for (let i = 0; i < ranges.length; i++) {
+        const r = ranges[i] || {};
+        result.fields.push({ name: `rangeMaxPPEM${i}`, type: 'USHORT', value: r.rangeMaxPPEM | 0 });
+        result.fields.push({ name: `rangeGaspBehavior${i}`, type: 'USHORT', value: r.rangeGaspBehavior | 0 });
     }
 
     return result;

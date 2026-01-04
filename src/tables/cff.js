@@ -489,11 +489,8 @@ function gatherCFF2FontDicts(data, start, fdArray) {
                 const subrOffset = privateOffset + privateDict.subrs;
                 try {
                     const dumpStart = start + subrOffset;
-                    const c = parse.getULong(data, dumpStart);
-                    const os = parse.getByte(data, dumpStart + 4);
-                    const peek = [];
-                    for (let k = 0; k < 16; k++) peek.push(parse.getByte(data, dumpStart + k));
-                    console.log('[CFF2 parse] LocalSubr at %d count=%d offSize=%d bytes=%j', subrOffset, c, os, peek);
+                    // quick sanity read to avoid out-of-bounds without logging
+                    parse.getULong(data, dumpStart);
                 } catch (e) { /* ignore */ }
                 const subrIndex = parseCFFIndex(data, subrOffset + start, undefined, 2);
                 fontDict._subrs = subrIndex.objects;
@@ -1672,15 +1669,11 @@ function parseCFFTable(data, start, font, opt) {
         if (!fdArrayIndexOffset) {
             throw new Error('This is a CFF2 font, but FDArray information is missing');
         }
-        // DEBUG: inspect FDArray INDEX header bytes
+        // Validate FDArray INDEX header bytes without logging
         try {
             const dumpStart = start + fdArrayIndexOffset;
-            const count = parse.getULong(data, dumpStart);
-            const offSize = parse.getByte(data, dumpStart + 4);
-            console.log('[CFF2 parse] FDArray at %d count=%d offSize=%d', fdArrayIndexOffset, count, offSize);
-            const b0 = [];
-            for (let i = 0; i < 16; i++) b0.push(parse.getByte(data, dumpStart + i));
-            console.log('[CFF2 parse] FDArray bytes:', b0);
+            parse.getULong(data, dumpStart);
+            parse.getByte(data, dumpStart + 4);
         } catch (e) { /* ignore */ }
         const fdArrayIndex = parseCFFIndex(data, start + fdArrayIndexOffset, null, header.formatMajor);
 
@@ -1935,10 +1928,12 @@ function glyphToOps(glyph, version, font) {
     // and they are already defined on the glyph. In the future we'll need an algorithm that finds
     // candidates for sub routines and extracts them from the glyphs, replacing the actual commands
     if (glyph.subrs && glyph.gsubrs && glyph.subrs.length === glyph.gsubrs.length) {
-        const cffTable = font.tables[version < 2 ? 'cff' : 'cff2'];
-        if (!cffTable) return;
-        const fdIndex = cffTable.topDict._fdSelect ? cffTable.topDict._fdSelect[glyph.index] : 0;
-        const fdDict = cffTable.topDict._fdArray[fdIndex];
+        const cffTable = font && font.tables && font.tables[version < 2 ? 'cff' : 'cff2'];
+        if (!cffTable || !cffTable.topDict) return ops;
+        const sel = cffTable.topDict._fdSelect || cffTable.topDict.fdSelect;
+        const arr = cffTable.topDict._fdArray || cffTable.topDict.fdArray;
+        const fdIndex = sel && sel[glyph.index] !== undefined ? sel[glyph.index] : 0;
+        const fdDict = Array.isArray(arr) ? arr[fdIndex] : undefined;
         for (let i = 0; i < glyph.subrs.length; i++) {
             let v = glyph.subrs[i];
             let name = 'subr';
@@ -1952,7 +1947,8 @@ function glyphToOps(glyph, version, font) {
                 }
                 v -= font.gsubrsBias;
             } else {
-                v -= fdDict._subrsBias;
+                const bias = fdDict && typeof fdDict._subrsBias === 'number' ? fdDict._subrsBias : 0;
+                v -= bias;
             }
             ops.push({ name: `${name}Index`, type: 'NUMBER', value: v });
             ops.push({ name, type: 'OP', value: op });
@@ -2059,8 +2055,9 @@ function makeCharStringsIndex(glyphs, version) {
 
     for (let i = 0; i < glyphs.length; i += 1) {
         const glyph = glyphs.get(i);
-        const ops = glyphToOps(glyph, version, glyphs.font);
-        t.charStrings.push({ name: glyph.name, type: 'CHARSTRING', value: ops });
+        if (!glyph) continue;
+        const ops = glyphToOps(glyph, version, glyphs.font) || [];
+        t.charStrings.push({ name: glyph.name || ('glyph_' + i), type: 'CHARSTRING', value: ops });
     }
 
     return t;
@@ -2317,7 +2314,6 @@ function makeCFFTable(glyphs, options, version) {
                 if (localSubrIndexes[i]) {
                     // Stabilize: iteratively compute self-referential size for 'subrs' operand
                     const basePriv = makePrivateDict(baseAttrs, strings, 2);
-                    try { console.log('[CFF2 make] baseAttrs keys=%j', Object.keys(baseAttrs)); } catch (e) { /* ignore */ }
                     s = basePriv.sizeOf();
                     let prev;
                     let attempts = 0;
@@ -2328,13 +2324,7 @@ function makeCFFTable(glyphs, options, version) {
                         Object.defineProperty(withSubrs, '__keepDefaults', { value: true, enumerable: false });
                         priv = makePrivateDict(withSubrs, strings, 2);
                         s = priv.sizeOf();
-                        try {
-                            // eslint-disable-next-line no-console
-                            console.log('[CFF2 make] FD[%d] subrs fp iter=%d prev=%d -> size=%d', i, attempts, prev, s);
-                            console.log('[CFF2 make] priv ops (iter %d): %j', attempts, Object.keys(priv.dict).map(k => Number(k)).sort((a, b) => a - b));
-                            const bs = table.make(priv).encode();
-                            console.log('[CFF2 make] priv bytes (iter %d) len=%d head=%j', attempts, bs.length, Array.prototype.slice.call(bs, 0, 32));
-                        } catch (e) { /* ignore */ }
+                        try { /* encode for size check */ table.make(priv).encode(); } catch (e) { /* ignore */ }
                         attempts++;
                     } while (s !== prev && attempts < 10);
                     // Ensure the encoded 'subrs' equals the final size 's'
@@ -2353,26 +2343,18 @@ function makeCFFTable(glyphs, options, version) {
                 privateTables[i] = priv;
                 privateOffsets[i] = current;
                 privateSizes[i] = s;
-                try {
-                    const privBytes = table.make(priv).encode();
-                    console.log('[CFF2 make] PrivateDICT[%d] bytes len=%d first16=%j', i, privBytes.length, Array.prototype.slice.call(privBytes, 0, 16));
-                } catch (e) { /* ignore */ }
+                try { /* ensure encodable */ table.make(priv).encode(); } catch (e) { /* ignore */ }
                 current += s;
                 // Account for Local Subrs INDEX bytes after the Private DICT
                 if (localSubrIndexes[i]) {
                     current += localSubrIndexes[i].sizeOf();
                 }
             }
-            try {
-                console.log('[CFF2 make] priv sizes=%j offsets=%j', privateSizes, privateOffsets);
-            } catch (e) { /* ignore */ }
+            
             // Update Font DICTs with final [size, offset]
             for (let i = 0; i < fdCount; i++) {
                 t.fontDictIndex.fontDicts[i].value = makeFontDict({ private: [privateSizes[i], privateOffsets[i]] });
-                try {
-                    const bytes = table.make(t.fontDictIndex.fontDicts[i].value).encode();
-                    console.log('[CFF2 make] FontDICT[%d] bytes len=%d', i, bytes.length);
-                } catch (e) { /* ignore */ }
+                try { /* ensure encodable */ table.make(t.fontDictIndex.fontDicts[i].value).encode(); } catch (e) { /* ignore */ }
             }
             // Rebuild Top DICT with updated offsets and update header length
             t.topDict = makeTopDict(attrs, strings, cffVersion);
@@ -2397,15 +2379,7 @@ function makeCFFTable(glyphs, options, version) {
             }
         }
 
-        // DEBUG: log computed offsets and sizes to diagnose layout issues
-        try {
-            /* eslint-disable no-console */
-            console.log('[CFF2 make] topDictLength=%d hdrSize=%d', t.header.topDictLength, t.header.hdrSize);
-            console.log('[CFF2 make] offsets: vstore=%s charStrings=%s fdArray=%s fdSelect=%s',
-                String(attrs.vstore), String(attrs.charStrings), String(attrs.fdArray), String(attrs.fdSelect));
-            console.log('[CFF2 make] sizes: topDict=%d globalSubr=%d varStore=%s charStringsIndex=%d fontDictIndex=%d',
-                t.topDict.sizeOf(), t.globalSubrIndex.sizeOf(), vstore ? t.VariationStore.sizeOf() : 'n/a', t.charStringsIndex.sizeOf(), t.fontDictIndex.sizeOf());
-        } catch (e) { /* ignore */ }
+        
 
         // Append Private DICTs and Local Subrs
         for (let i = 0; i < fdCount; i++) {

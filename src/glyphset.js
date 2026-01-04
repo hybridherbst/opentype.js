@@ -67,7 +67,11 @@ if(typeof Symbol !== 'undefined' && Symbol.iterator) {
 GlyphSet.prototype.get = function(index) {
     // this.glyphs[index] is 'undefined' when low memory mode is on. glyph is pushed on request only.
     if (this.glyphs[index] === undefined) {
-        this.font._push(index);
+        if (this.font._push) {
+            this.font._push(index);
+        } else {
+            throw new Error(`Glyph ${index} not loaded and no _push function available`);
+        }
         if (typeof this.glyphs[index] === 'function') {
             this.glyphs[index] = this.glyphs[index]();
         }
@@ -85,9 +89,12 @@ GlyphSet.prototype.get = function(index) {
         } else if (this.font.glyphNames.names) {
             glyph.name = this.font.glyphNames.glyphIndexToName(index);
         }
-
-        this.glyphs[index].advanceWidth = this.font._hmtxTableData[index].advanceWidth;
-        this.glyphs[index].leftSideBearing = this.font._hmtxTableData[index].leftSideBearing;
+        // In low-memory mode, metrics are stored in font._hmtxTableData; otherwise they were
+        // already applied in parseHmtxTableAll. Only read the map when an entry exists.
+        if (this.font._hmtxTableData && this.font._hmtxTableData[index] !== undefined) {
+            this.glyphs[index].advanceWidth = this.font._hmtxTableData[index].advanceWidth;
+            this.glyphs[index].leftSideBearing = this.font._hmtxTableData[index].leftSideBearing;
+        }
     } else {
         if (typeof this.glyphs[index] === 'function') {
             this.glyphs[index] = this.glyphs[index]();
