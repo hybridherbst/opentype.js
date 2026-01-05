@@ -353,9 +353,17 @@ export class VariationManager {
         const defaultPeakTuple = new Array(axisCount).fill(0);
         defaultPeakTuple[axisIndex] = 1.0;
         
+        // Collect advanceWidth deltas for hvar table
+        const advanceWidthDeltas = [];
+        let hasAdvanceWidthDeltas = false;
+        
         // Generate deltas for each glyph
         for (let i = 0; i < font.glyphs.length; i++) {
             const glyph = font.glyphs.get(i);
+            
+            // Initialize advance width delta for this glyph (default 0)
+            advanceWidthDeltas[i] = 0;
+            
             if (!glyph || !glyph.path || !glyph.path.commands || glyph.path.commands.length === 0) {
                 continue;
             }
@@ -369,6 +377,21 @@ export class VariationManager {
             const deltaArray = Array.isArray(deltaResult) ? deltaResult : [deltaResult];
             
             for (const item of deltaArray) {
+                // Collect advanceWidthDelta if provided (for both min and max directions)
+                if (item.advanceWidthDelta !== undefined && item.advanceWidthDelta !== 0) {
+                    // Check if this is the max direction (peakTuple[axisIndex] = 1)
+                    const peakValue = item.peakTuple ? 
+                        (item.peakTuple.length === 1 ? item.peakTuple[0] : item.peakTuple[axisIndex]) : 1;
+                    
+                    if (peakValue === 1) {
+                        // Max direction - store directly
+                        advanceWidthDeltas[i] = item.advanceWidthDelta;
+                        hasAdvanceWidthDeltas = true;
+                    }
+                    // Note: Min direction deltas would need a separate region in hvar
+                    // For now we only support max direction in hvar generation
+                }
+                
                 if (!item.deltas && !item.deltasY) {
                     continue;
                 }
@@ -406,6 +429,58 @@ export class VariationManager {
         const minPeakTuple = new Array(axisCount).fill(0);
         minPeakTuple[axisIndex] = -1.0;
         gvar.sharedTuples.push([...minPeakTuple]);
+        
+        // Generate hvar table if we have any advanceWidth deltas
+        if (hasAdvanceWidthDeltas) {
+            this._generateHvarTable(axisIndex, advanceWidthDeltas);
+        }
+    }
+    
+    /**
+     * Generate or update hvar table for advanceWidth variation.
+     * @private
+     * @param {number} axisIndex - Index of the axis in fvar
+     * @param {number[]} advanceWidthDeltas - Array of advanceWidth deltas per glyph (at max axis value)
+     */
+    _generateHvarTable(axisIndex, advanceWidthDeltas) {
+        const font = this.font;
+        const axisCount = font.tables.fvar.axes.length;
+        
+        // Create variation region for max direction of this axis
+        const regionAxes = [];
+        for (let a = 0; a < axisCount; a++) {
+            if (a === axisIndex) {
+                // This axis: max direction (0 to 1)
+                regionAxes.push({ startCoord: 0, peakCoord: 1, endCoord: 1 });
+            } else {
+                // Other axes: neutral (no effect)
+                regionAxes.push({ startCoord: 0, peakCoord: 0, endCoord: 0 });
+            }
+        }
+        
+        // Build delta sets - one per glyph
+        const deltaSets = advanceWidthDeltas.map(delta => [Math.round(delta)]);
+        
+        // Build the hvar table
+        font.tables.hvar = {
+            version: [1, 0],
+            itemVariationStore: {
+                format: 1,
+                variationRegions: [
+                    { regionAxes }
+                ],
+                itemVariationSubtables: [
+                    {
+                        regionIndexes: [0],
+                        deltaSets: deltaSets
+                    }
+                ]
+            },
+            advanceWidth: {
+                format: 0,
+                map: advanceWidthDeltas.map((_, i) => ({ outerIndex: 0, innerIndex: i }))
+            }
+        };
     }
 
     /**

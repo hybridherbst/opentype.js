@@ -38,3 +38,4 @@ import './tables/name.js';
 import './tables/sfnt.js';
 import './tables/stat.js';
 import './tables/svg.js';
+import './fontspector.js';

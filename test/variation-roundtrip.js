@@ -500,7 +500,8 @@ describe('variation roundtrip', function() {
     });
     
     // Issue: advanceWidth variation should be exported and preserved via hvar table
-    it('should preserve advanceWidth variation after roundtrip', function() {
+    // This test manually creates hvar to verify hvar parsing/encoding works
+    it('should preserve advanceWidth variation after roundtrip when hvar is manually created', function() {
         const aPath = new Path();
         aPath.moveTo(100, 0);
         aPath.lineTo(250, 700);
@@ -585,6 +586,78 @@ describe('variation roundtrip', function() {
         const buffer = font.toArrayBuffer();
         const parsed = parse(buffer);
 
+        const glyphA = parsed.charToGlyph('A');
+        
+        // Get transformed glyph at max weight
+        const defT = parsed.variation.process.getTransform(glyphA.index, {wght: 400});
+        const maxT = parsed.variation.process.getTransform(glyphA.index, {wght: 900});
+        
+        // At default, advanceWidth should be 500
+        assert.equal(defT.advanceWidth, 500, 'Default advanceWidth should be 500');
+        
+        // At max weight, advanceWidth should be 500 + 100 = 600
+        assert.equal(maxT.advanceWidth, 600, 'Max advanceWidth should be 600 (500 + 100)');
+    });
+    
+    // Issue: advanceWidth variation should be AUTO-GENERATED via hvar table when using addAxis
+    // with advanceWidthDeltaGenerator - THIS TEST SHOULD INITIALLY FAIL
+    it('should auto-generate hvar table when advanceWidthDeltas are provided', function() {
+        const aPath = new Path();
+        aPath.moveTo(100, 0);
+        aPath.lineTo(250, 700);
+        aPath.lineTo(400, 0);
+        aPath.closePath();
+
+        const font = new Font({
+            familyName: 'TestVF',
+            styleName: 'Regular',
+            unitsPerEm: 1000,
+            ascender: 800,
+            descender: -200,
+            glyphs: [
+                new Glyph({name: '.notdef', unicode: 0, advanceWidth: 500, path: new Path()}),
+                new Glyph({name: 'A', unicode: 65, advanceWidth: 500, path: aPath})
+            ]
+        });
+
+        font.variation = new VariationManager(font);
+
+        // Add the axis with BOTH point deltas AND advanceWidth deltas
+        font.variation.addAxis({
+            tag: 'wght',
+            name: 'Weight',
+            minValue: 100,
+            defaultValue: 400,
+            maxValue: 900,
+            deltaGenerator: (glyph) => {
+                if (glyph.name === 'A') {
+                    return {
+                        deltas: [-20, 0, 20, 0, 0, 0, 0],
+                        deltasY: [0, 0, 0, 0, 0, 0, 0],
+                        advanceWidthDelta: 100  // Width should increase by 100 at max weight
+                    };
+                }
+                if (glyph.name === '.notdef') {
+                    return {
+                        deltas: [0, 0, 0, 0, 0, 0, 0, 0],
+                        deltasY: [0, 0, 0, 0, 0, 0, 0, 0],
+                        advanceWidthDelta: 0
+                    };
+                }
+                return null;
+            }
+        });
+
+        // CRITICAL: hvar table should be auto-generated
+        assert.ok(font.tables.hvar, 'hvar table should be auto-generated when advanceWidthDelta is provided');
+        
+        // Export and re-import
+        const buffer = font.toArrayBuffer();
+        const parsed = parse(buffer);
+
+        // Verify hvar was exported
+        assert.ok(parsed.tables.hvar, 'Parsed font should have hvar table');
+        
         const glyphA = parsed.charToGlyph('A');
         
         // Get transformed glyph at max weight

@@ -1731,7 +1731,8 @@
                                         results.push({
                                             peakTuple: deltaSet.peakTuple,
                                             deltas: glyphDeltas.deltas,
-                                            deltasY: glyphDeltas.deltasY
+                                            deltasY: glyphDeltas.deltasY,
+                                            advanceWidthDelta: glyphDeltas.advanceWidthDelta  // Include width delta
                                         });
                                     }
                                 }
@@ -1862,8 +1863,13 @@
                     deltaX.push(0, 0, 0, 0);
                     deltaY.push(0, 0, 0, 0);
                     
+                    // Calculate advanceWidth delta
+                    const baseWidth = getGlyphWidth(basePoints) + 1;
+                    const targetWidth = getGlyphWidth(targetPoints) + 1;
+                    const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
+                    
                     const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
-                    deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY });
+                    deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
                 }
                 
                 if (deltas.size > 0) {
@@ -1895,8 +1901,13 @@
                         deltaX.push(0, 0, 0, 0);
                         deltaY.push(0, 0, 0, 0);
                         
+                        // Mirrored advanceWidth delta (negate the min delta)
+                        const baseWidth = getGlyphWidth(basePoints) + 1;
+                        const targetWidth = getGlyphWidth(targetPoints) + 1;
+                        const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
+                        
                         const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
-                        mirroredDeltas.set(glyphName, { deltas: deltaX, deltasY: deltaY });
+                        mirroredDeltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
                     }
                     
                     if (mirroredDeltas.size > 0) {
@@ -1932,8 +1943,13 @@
                     deltaX.push(0, 0, 0, 0);
                     deltaY.push(0, 0, 0, 0);
                     
+                    // Calculate advanceWidth delta
+                    const baseWidth = getGlyphWidth(basePoints) + 1;
+                    const targetWidth = getGlyphWidth(targetPoints) + 1;
+                    const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
+                    
                     const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
-                    deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY });
+                    deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
                 }
                 
                 if (deltas.size > 0) {
@@ -1963,8 +1979,13 @@
                         deltaX.push(0, 0, 0, 0);
                         deltaY.push(0, 0, 0, 0);
                         
+                        // Mirrored advanceWidth delta (negate the max delta)
+                        const baseWidth = getGlyphWidth(basePoints) + 1;
+                        const targetWidth = getGlyphWidth(targetPoints) + 1;
+                        const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
+                        
                         const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
-                        mirroredDeltas.set(glyphName, { deltas: deltaX, deltasY: deltaY });
+                        mirroredDeltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
                     }
                     
                     if (mirroredDeltas.size > 0) {
