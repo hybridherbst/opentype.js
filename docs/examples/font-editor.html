@@ -803,6 +803,8 @@
                 'Y': [[0, 10], [3, 10], [4, 7], [5, 10], [8, 10], [4, 0], [3, 0]],
                 'Z': [[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [0, 3], [8, 3], [8, 0]],
             },
+            // Explicit glyph widths (advance widths). If not set, computed from rightmost point + 1
+            glyphWidths: {},
             currentGlyph: 'A',
             selectedPoint: -1,
             zoom: 20,
@@ -816,7 +818,7 @@
             vf: {
                 enabled: false,
                 axes: [],  // [{tag, name, minValue, defaultValue, maxValue}]
-                masters: [], // [{name, coords: {tag: value}, glyphs: {...}}]
+                masters: [], // [{name, coords: {tag: value}, glyphs: {...}, glyphWidths: {...}}]
                 instances: [], // [{name, coords: {tag: value}}]
                 currentMaster: 0, // Index of active master being edited
                 previewCoords: {} // Current preview position in design space
@@ -1089,7 +1091,7 @@
 
             // Draw glyph bounds
             const points = state.glyphs[state.currentGlyph] || [];
-            const glyphWidth = getGlyphWidth(points) + 1;
+            const glyphWidth = getCurrentGlyphWidth() + 1;
             const capHeight = 10;
 
             ctx.strokeStyle = '#3a5060';
@@ -1154,10 +1156,16 @@
             let x = 20;
             const y = 20;
 
-            // Use interpolated glyphs if VF is enabled
-            const glyphs = state.vf.enabled && state.vf.axes.length > 0
-                ? interpolateGlyphs(state.vf.previewCoords)
-                : state.glyphs;
+            // Use interpolated glyphs and widths if VF is enabled
+            let glyphs, widths;
+            if (state.vf.enabled && state.vf.axes.length > 0) {
+                const interp = interpolateGlyphs(state.vf.previewCoords);
+                glyphs = interp.glyphs;
+                widths = interp.widths;
+            } else {
+                glyphs = state.glyphs;
+                widths = state.glyphWidths;
+            }
 
             ctx.save();
             ctx.translate(0, h);
@@ -1172,7 +1180,7 @@
                         ctx.lineTo(x + points[i][0] * scale, y + points[i][1] * scale);
                     }
                     ctx.closePath();
-                    x += (getGlyphWidth(points) + 1) * scale;
+                    x += (getGlyphWidth(points, char, widths) + 1) * scale;
                 } else {
                     x += 5 * scale;
                 }
@@ -1182,9 +1190,43 @@
             ctx.restore();
         }
 
-        function getGlyphWidth(points) {
+        // Get glyph width - uses stored width if available, otherwise computes from points
+        function getGlyphWidth(points, char = null, widthsObj = null) {
+            // Check for explicit stored width
+            if (char && widthsObj && widthsObj[char] !== undefined) {
+                return widthsObj[char];
+            }
+            // Fallback: compute from rightmost point
             if (!points || points.length === 0) return 5;
             return Math.max(...points.map(p => p[0]));
+        }
+        
+        // Get glyph width for current state (considering VF mode)
+        function getCurrentGlyphWidth(char = null) {
+            const targetChar = char || state.currentGlyph;
+            const points = state.glyphs[targetChar] || [];
+            
+            // If in VF mode, use current master's width
+            if (state.vf.enabled && state.vf.masters.length > 0) {
+                const master = state.vf.masters[state.vf.currentMaster];
+                if (master && master.glyphWidths) {
+                    return getGlyphWidth(points, targetChar, master.glyphWidths);
+                }
+            }
+            
+            // Otherwise use state.glyphWidths
+            return getGlyphWidth(points, targetChar, state.glyphWidths);
+        }
+        
+        // Set glyph width for current state
+        function setGlyphWidth(char, width) {
+            if (state.vf.enabled && state.vf.masters.length > 0) {
+                const master = state.vf.masters[state.vf.currentMaster];
+                if (!master.glyphWidths) master.glyphWidths = {};
+                master.glyphWidths[char] = width;
+            } else {
+                state.glyphWidths[char] = width;
+            }
         }
 
         function renderGlyphGrid() {
@@ -1447,6 +1489,7 @@
                     }
                     
                     let defaultGlyphs;
+                    let defaultWidths = {};
                     if (font.tables.gvar && font.variation) {
                         // TrueType VF: extract points at default coords for consistency
                         defaultGlyphs = {};
@@ -1460,6 +1503,9 @@
                                     const transformedPoints = extractTransformedPoints(transform.points, font.unitsPerEm);
                                     if (transformedPoints.length > 0) {
                                         defaultGlyphs[char] = transformedPoints;
+                                        // Capture advanceWidth (convert from unitsPerEm to editor units)
+                                        const editorScale = 10 / font.unitsPerEm;
+                                        defaultWidths[char] = Math.round(transform.advanceWidth * editorScale) - 1;
                                     }
                                 }
                             }
@@ -1475,7 +1521,8 @@
                     state.vf.masters.push({
                         name: 'Default',
                         coords: defaultCoords,
-                        glyphs: defaultGlyphs
+                        glyphs: defaultGlyphs,
+                        glyphWidths: defaultWidths
                     });
                     
                     // Import axis extremes as additional masters if we have gvar data
@@ -1485,6 +1532,8 @@
                             if (axis.minValue !== axis.defaultValue) {
                                 const minCoords = { ...defaultCoords, [axis.tag]: axis.minValue };
                                 const minGlyphs = {};
+                                const minWidths = {};
+                                const editorScale = 10 / font.unitsPerEm;
                                 
                                 for (const code of charCodes) {
                                     const char = String.fromCharCode(code);
@@ -1498,6 +1547,7 @@
                                                 const transformedPoints = extractTransformedPoints(transform.points, font.unitsPerEm);
                                                 if (transformedPoints.length > 0) {
                                                     minGlyphs[char] = transformedPoints;
+                                                    minWidths[char] = Math.round(transform.advanceWidth * editorScale) - 1;
                                                 }
                                             } else {
                                                 minGlyphs[char] = defaultGlyphs[char] ? [...defaultGlyphs[char].map(p => [...p])] : [];
@@ -1514,7 +1564,8 @@
                                     state.vf.masters.push({
                                         name: `${axis.name || axis.tag} Min`,
                                         coords: minCoords,
-                                        glyphs: minGlyphs
+                                        glyphs: minGlyphs,
+                                        glyphWidths: minWidths
                                     });
                                 }
                             }
@@ -1523,6 +1574,8 @@
                             if (axis.maxValue !== axis.defaultValue) {
                                 const maxCoords = { ...defaultCoords, [axis.tag]: axis.maxValue };
                                 const maxGlyphs = {};
+                                const maxWidths = {};
+                                const editorScale = 10 / font.unitsPerEm;
                                 
                                 for (const code of charCodes) {
                                     const char = String.fromCharCode(code);
@@ -1537,6 +1590,7 @@
                                                 const transformedPoints = extractTransformedPoints(transform.points, font.unitsPerEm);
                                                 if (transformedPoints.length > 0) {
                                                     maxGlyphs[char] = transformedPoints;
+                                                    maxWidths[char] = Math.round(transform.advanceWidth * editorScale) - 1;
                                                 }
                                             } else {
                                                 // Fallback to default master glyph
@@ -1555,7 +1609,8 @@
                                     state.vf.masters.push({
                                         name: `${axis.name || axis.tag} Max`,
                                         coords: maxCoords,
-                                        glyphs: maxGlyphs
+                                        glyphs: maxGlyphs,
+                                        glyphWidths: maxWidths
                                     });
                                 }
                             }
@@ -1665,6 +1720,11 @@
                 ? state.vf.masters[0].glyphs
                 : state.glyphs;
             
+            // Get base widths (from default master or state)
+            const baseWidths = state.vf.enabled && state.vf.masters.length > 0 && state.vf.masters[0].glyphWidths
+                ? state.vf.masters[0].glyphWidths
+                : state.glyphWidths;
+            
             let glyphIndex = 2;
             for (const [char, points] of Object.entries(baseGlyphs)) {
                 const path = new opentype.Path();
@@ -1681,7 +1741,7 @@
                     name: glyphName,
                     unicode: char.charCodeAt(0),
                     path: path,
-                    advanceWidth: (getGlyphWidth(points) + 1) * TTF_SCALE
+                    advanceWidth: (getGlyphWidth(points, char, baseWidths) + 1) * TTF_SCALE
                 }));
                 glyphIndexMap.set(glyphName, glyphIndex++);
             }
@@ -1863,9 +1923,9 @@
                     deltaX.push(0, 0, 0, 0);
                     deltaY.push(0, 0, 0, 0);
                     
-                    // Calculate advanceWidth delta
-                    const baseWidth = getGlyphWidth(basePoints) + 1;
-                    const targetWidth = getGlyphWidth(targetPoints) + 1;
+                    // Calculate advanceWidth delta using explicit widths from masters
+                    const baseWidth = getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
+                    const targetWidth = getGlyphWidth(targetPoints, char, minMaster.glyphWidths) + 1;
                     const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
                     
                     const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -1902,8 +1962,8 @@
                         deltaY.push(0, 0, 0, 0);
                         
                         // Mirrored advanceWidth delta (negate the min delta)
-                        const baseWidth = getGlyphWidth(basePoints) + 1;
-                        const targetWidth = getGlyphWidth(targetPoints) + 1;
+                        const baseWidth = getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
+                        const targetWidth = getGlyphWidth(targetPoints, char, minMaster.glyphWidths) + 1;
                         const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
                         
                         const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -1943,9 +2003,9 @@
                     deltaX.push(0, 0, 0, 0);
                     deltaY.push(0, 0, 0, 0);
                     
-                    // Calculate advanceWidth delta
-                    const baseWidth = getGlyphWidth(basePoints) + 1;
-                    const targetWidth = getGlyphWidth(targetPoints) + 1;
+                    // Calculate advanceWidth delta using explicit widths from masters
+                    const baseWidth = getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
+                    const targetWidth = getGlyphWidth(targetPoints, char, maxMaster.glyphWidths) + 1;
                     const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
                     
                     const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -1980,8 +2040,8 @@
                         deltaY.push(0, 0, 0, 0);
                         
                         // Mirrored advanceWidth delta (negate the max delta)
-                        const baseWidth = getGlyphWidth(basePoints) + 1;
-                        const targetWidth = getGlyphWidth(targetPoints) + 1;
+                        const baseWidth = getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
+                        const targetWidth = getGlyphWidth(targetPoints, char, maxMaster.glyphWidths) + 1;
                         const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
                         
                         const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -2385,21 +2445,27 @@
         // Interpolation helpers for variable font preview
         function interpolateGlyphs(coords) {
             if (state.vf.masters.length < 2) {
-                return state.glyphs;
+                return { glyphs: state.glyphs, widths: state.glyphWidths };
             }
             
             // Simple linear interpolation between masters
             // For a full implementation, this would need proper delta computation
-            const result = {};
+            const resultGlyphs = {};
+            const resultWidths = {};
             
             for (const char of Object.keys(state.glyphs)) {
-                const masterPoints = state.vf.masters
+                const masterData = state.vf.masters
                     .filter(m => m.glyphs[char])
-                    .map(m => ({ coords: m.coords, points: m.glyphs[char] }));
+                    .map(m => ({ 
+                        coords: m.coords, 
+                        points: m.glyphs[char],
+                        width: getGlyphWidth(m.glyphs[char], char, m.glyphWidths)
+                    }));
                 
-                if (masterPoints.length === 0) continue;
-                if (masterPoints.length === 1) {
-                    result[char] = masterPoints[0].points;
+                if (masterData.length === 0) continue;
+                if (masterData.length === 1) {
+                    resultGlyphs[char] = masterData[0].points;
+                    resultWidths[char] = masterData[0].width;
                     continue;
                 }
                 
@@ -2407,27 +2473,29 @@
                 // Simplified: just use first axis for now
                 const axis = state.vf.axes[0];
                 if (!axis) {
-                    result[char] = masterPoints[0].points;
+                    resultGlyphs[char] = masterData[0].points;
+                    resultWidths[char] = masterData[0].width;
                     continue;
                 }
                 
                 const targetVal = coords[axis.tag] ?? axis.defaultValue;
                 
                 // Sort masters by distance to target on this axis
-                masterPoints.sort((a, b) => {
+                masterData.sort((a, b) => {
                     const aDist = Math.abs((a.coords[axis.tag] ?? axis.defaultValue) - targetVal);
                     const bDist = Math.abs((b.coords[axis.tag] ?? axis.defaultValue) - targetVal);
                     return aDist - bDist;
                 });
                 
-                const m1 = masterPoints[0];
-                const m2 = masterPoints[1] || m1;
+                const m1 = masterData[0];
+                const m2 = masterData[1] || m1;
                 
                 const v1 = m1.coords[axis.tag] ?? axis.defaultValue;
                 const v2 = m2.coords[axis.tag] ?? axis.defaultValue;
                 
                 if (v1 === v2 || m1 === m2) {
-                    result[char] = m1.points;
+                    resultGlyphs[char] = m1.points;
+                    resultWidths[char] = m1.width;
                     continue;
                 }
                 
@@ -2438,17 +2506,21 @@
                 const p2 = m2.points;
                 
                 if (p1.length !== p2.length) {
-                    result[char] = p1; // Can't interpolate different point counts
+                    resultGlyphs[char] = p1; // Can't interpolate different point counts
+                    resultWidths[char] = m1.width;
                     continue;
                 }
                 
-                result[char] = p1.map((pt, i) => [
+                resultGlyphs[char] = p1.map((pt, i) => [
                     pt[0] + (p2[i][0] - pt[0]) * t,
                     pt[1] + (p2[i][1] - pt[1]) * t
                 ]);
+                
+                // Interpolate width
+                resultWidths[char] = m1.width + (m2.width - m1.width) * t;
             }
             
-            return result;
+            return { glyphs: resultGlyphs, widths: resultWidths };
         }
 
         // Initialize

@@ -1,7 +1,9 @@
 import assert from 'assert';
 import { hex, unhex } from '../testutil.js';
 import fvar from '../../src/tables/fvar.js';
-import { Font, loadSync, parse } from '../../src/opentype.js';
+import { Font, parse } from '../../src/opentype.js';
+import { readFileSync } from 'fs';
+const loadSync = (url, opt) => parse(readFileSync(url), opt);
 
 describe('tables/fvar.js', function() {
     const testFont = loadSync('./test/fonts/VARTest.ttf');

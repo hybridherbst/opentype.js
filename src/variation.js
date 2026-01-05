@@ -353,16 +353,19 @@ export class VariationManager {
         const defaultPeakTuple = new Array(axisCount).fill(0);
         defaultPeakTuple[axisIndex] = 1.0;
         
-        // Collect advanceWidth deltas for hvar table
-        const advanceWidthDeltas = [];
-        let hasAdvanceWidthDeltas = false;
+        // Collect advanceWidth deltas for hvar table (both min and max directions)
+        const advanceWidthDeltasMin = [];
+        const advanceWidthDeltasMax = [];
+        let hasMinDeltas = false;
+        let hasMaxDeltas = false;
         
         // Generate deltas for each glyph
         for (let i = 0; i < font.glyphs.length; i++) {
             const glyph = font.glyphs.get(i);
             
-            // Initialize advance width delta for this glyph (default 0)
-            advanceWidthDeltas[i] = 0;
+            // Initialize advance width deltas for this glyph (default 0)
+            advanceWidthDeltasMin[i] = 0;
+            advanceWidthDeltasMax[i] = 0;
             
             if (!glyph || !glyph.path || !glyph.path.commands || glyph.path.commands.length === 0) {
                 continue;
@@ -379,17 +382,19 @@ export class VariationManager {
             for (const item of deltaArray) {
                 // Collect advanceWidthDelta if provided (for both min and max directions)
                 if (item.advanceWidthDelta !== undefined && item.advanceWidthDelta !== 0) {
-                    // Check if this is the max direction (peakTuple[axisIndex] = 1)
+                    // Check direction from peakTuple
                     const peakValue = item.peakTuple ? 
                         (item.peakTuple.length === 1 ? item.peakTuple[0] : item.peakTuple[axisIndex]) : 1;
                     
                     if (peakValue === 1) {
-                        // Max direction - store directly
-                        advanceWidthDeltas[i] = item.advanceWidthDelta;
-                        hasAdvanceWidthDeltas = true;
+                        // Max direction
+                        advanceWidthDeltasMax[i] = item.advanceWidthDelta;
+                        hasMaxDeltas = true;
+                    } else if (peakValue === -1) {
+                        // Min direction
+                        advanceWidthDeltasMin[i] = item.advanceWidthDelta;
+                        hasMinDeltas = true;
                     }
-                    // Note: Min direction deltas would need a separate region in hvar
-                    // For now we only support max direction in hvar generation
                 }
                 
                 if (!item.deltas && !item.deltasY) {
@@ -431,8 +436,8 @@ export class VariationManager {
         gvar.sharedTuples.push([...minPeakTuple]);
         
         // Generate hvar table if we have any advanceWidth deltas
-        if (hasAdvanceWidthDeltas) {
-            this._generateHvarTable(axisIndex, advanceWidthDeltas);
+        if (hasMinDeltas || hasMaxDeltas) {
+            this._generateHvarTable(axisIndex, advanceWidthDeltasMin, advanceWidthDeltasMax, hasMinDeltas, hasMaxDeltas);
         }
     }
     
@@ -440,45 +445,78 @@ export class VariationManager {
      * Generate or update hvar table for advanceWidth variation.
      * @private
      * @param {number} axisIndex - Index of the axis in fvar
-     * @param {number[]} advanceWidthDeltas - Array of advanceWidth deltas per glyph (at max axis value)
+     * @param {number[]} deltasMin - Array of advanceWidth deltas per glyph (at min axis value)
+     * @param {number[]} deltasMax - Array of advanceWidth deltas per glyph (at max axis value)
+     * @param {boolean} hasMinDeltas - Whether there are any min direction deltas
+     * @param {boolean} hasMaxDeltas - Whether there are any max direction deltas
      */
-    _generateHvarTable(axisIndex, advanceWidthDeltas) {
+    _generateHvarTable(axisIndex, deltasMin, deltasMax, hasMinDeltas, hasMaxDeltas) {
         const font = this.font;
         const axisCount = font.tables.fvar.axes.length;
         
-        // Create variation region for max direction of this axis
-        const regionAxes = [];
-        for (let a = 0; a < axisCount; a++) {
-            if (a === axisIndex) {
-                // This axis: max direction (0 to 1)
-                regionAxes.push({ startCoord: 0, peakCoord: 1, endCoord: 1 });
-            } else {
-                // Other axes: neutral (no effect)
-                regionAxes.push({ startCoord: 0, peakCoord: 0, endCoord: 0 });
+        const variationRegions = [];
+        const regionIndexMap = {};
+        let regionIndex = 0;
+        
+        // Create region for min direction (-1 to 0) if we have min deltas
+        if (hasMinDeltas) {
+            const minRegionAxes = [];
+            for (let a = 0; a < axisCount; a++) {
+                if (a === axisIndex) {
+                    minRegionAxes.push({ startCoord: -1, peakCoord: -1, endCoord: 0 });
+                } else {
+                    minRegionAxes.push({ startCoord: 0, peakCoord: 0, endCoord: 0 });
+                }
             }
+            variationRegions.push({ regionAxes: minRegionAxes });
+            regionIndexMap.min = regionIndex++;
         }
         
-        // Build delta sets - one per glyph
-        const deltaSets = advanceWidthDeltas.map(delta => [Math.round(delta)]);
+        // Create region for max direction (0 to 1) if we have max deltas
+        if (hasMaxDeltas) {
+            const maxRegionAxes = [];
+            for (let a = 0; a < axisCount; a++) {
+                if (a === axisIndex) {
+                    maxRegionAxes.push({ startCoord: 0, peakCoord: 1, endCoord: 1 });
+                } else {
+                    maxRegionAxes.push({ startCoord: 0, peakCoord: 0, endCoord: 0 });
+                }
+            }
+            variationRegions.push({ regionAxes: maxRegionAxes });
+            regionIndexMap.max = regionIndex++;
+        }
+        
+        // Build delta sets - one per glyph, with deltas for each region
+        const glyphCount = Math.max(deltasMin.length, deltasMax.length);
+        const deltaSets = [];
+        const regionIndexes = [];
+        
+        if (hasMinDeltas) regionIndexes.push(regionIndexMap.min);
+        if (hasMaxDeltas) regionIndexes.push(regionIndexMap.max);
+        
+        for (let i = 0; i < glyphCount; i++) {
+            const glyphDeltas = [];
+            if (hasMinDeltas) glyphDeltas.push(Math.round(deltasMin[i] || 0));
+            if (hasMaxDeltas) glyphDeltas.push(Math.round(deltasMax[i] || 0));
+            deltaSets.push(glyphDeltas);
+        }
         
         // Build the hvar table
         font.tables.hvar = {
             version: [1, 0],
             itemVariationStore: {
                 format: 1,
-                variationRegions: [
-                    { regionAxes }
-                ],
+                variationRegions: variationRegions,
                 itemVariationSubtables: [
                     {
-                        regionIndexes: [0],
+                        regionIndexes: regionIndexes,
                         deltaSets: deltaSets
                     }
                 ]
             },
             advanceWidth: {
                 format: 0,
-                map: advanceWidthDeltas.map((_, i) => ({ outerIndex: 0, innerIndex: i }))
+                map: deltaSets.map((_, i) => ({ outerIndex: 0, innerIndex: i }))
             }
         };
     }

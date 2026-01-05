@@ -1,5 +1,7 @@
 import assert from 'assert';
-import { loadSync } from '../../src/opentype.js';
+import { parse } from '../../src/opentype.js';
+import { readFileSync } from 'fs';
+const loadSync = (url, opt) => parse(readFileSync(url), opt);
 import svg from '../../src/tables/svg.js';
 import { decodeSvgDocument } from '../../src/svgimages.js';
 
