@@ -2,6 +2,7 @@
 // https://www.microsoft.com/typography/OTSPEC/loca.htm
 
 import parse from '../parse.js';
+import table from '../table.js';
 
 // Parse the `loca` table. This table stores the offsets to the locations of the glyphs in the font,
 // relative to the beginning of the glyphData table.
@@ -28,4 +29,26 @@ function parseLocaTable(data, start, numGlyphs, shortVersion) {
     return glyphOffsets;
 }
 
-export default { parse: parseLocaTable };
+/**
+ * Make a loca table from glyph offsets.
+ * @param {Array} offsets - Array of glyph offsets from glyf.make
+ * @param {boolean} useShort - Whether to use short (16-bit) format
+ * @returns {Table} The loca table
+ */
+function makeLocaTable(offsets, useShort) {
+    const fields = [];
+    
+    for (let i = 0; i < offsets.length; i++) {
+        if (useShort) {
+            // Short version: store offset / 2 as USHORT
+            fields.push({ name: `offset_${i}`, type: 'USHORT', value: Math.floor(offsets[i] / 2) });
+        } else {
+            // Long version: store offset as ULONG
+            fields.push({ name: `offset_${i}`, type: 'ULONG', value: offsets[i] });
+        }
+    }
+    
+    return new table.Table('loca', fields);
+}
+
+export default { parse: parseLocaTable, make: makeLocaTable };

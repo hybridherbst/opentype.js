@@ -341,6 +341,38 @@
             color: #ff6a6a;
         }
 
+        .master-item .master-actions, .instance-item .instance-actions {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+        }
+
+        .master-item .edit-btn, .instance-item .edit-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 12px;
+            padding: 2px;
+        }
+
+        .master-item .edit-btn:hover, .instance-item .edit-btn:hover {
+            color: var(--accent);
+        }
+
+        .master-item .delete-btn, .instance-item .delete-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+            padding: 2px;
+        }
+
+        .master-item .delete-btn:hover, .instance-item .delete-btn:hover {
+            color: #ff6a6a;
+        }
+
         /* Variable Font Panel */
         .vf-panel {
             border-top: 1px solid var(--border);
@@ -549,6 +581,7 @@
             <div class="header-actions">
                 <button id="import-font" class="btn">Import Font</button>
                 <button id="add-glyph" class="btn">+ Add Glyph</button>
+                <button id="delete-glyph" class="btn">− Delete Glyph</button>
                 <button id="download-font" class="btn btn-primary">Download .OTF</button>
             </div>
         </header>
@@ -709,6 +742,34 @@
 
     <input type="file" id="font-file" accept=".ttf,.otf,.woff" style="display:none">
 
+    <!-- Import Options Modal -->
+    <div class="modal-overlay" id="import-modal">
+        <div class="modal">
+            <h3>Import Font Options</h3>
+            <div class="form-row">
+                <label><input type="checkbox" id="import-overwrite" checked> Overwrite existing glyphs</label>
+            </div>
+            <div class="form-row">
+                <label><input type="checkbox" id="import-vf-data" checked> Import variable font data (if present)</label>
+            </div>
+            <div class="form-row">
+                <label>Character range:</label>
+                <select id="import-range">
+                    <option value="uppercase">A-Z (uppercase)</option>
+                    <option value="lowercase">a-z (lowercase)</option>
+                    <option value="both">A-Z and a-z</option>
+                    <option value="digits">0-9 (digits)</option>
+                    <option value="all">All printable ASCII</option>
+                </select>
+            </div>
+            <div id="import-pending-file" style="display:none;"></div>
+            <div class="btn-row">
+                <button class="btn" id="import-cancel">Cancel</button>
+                <button class="btn btn-primary" id="import-confirm">Import</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         import * as opentype from "/dist/opentype.module.js";
 
@@ -798,8 +859,16 @@
             document.getElementById('delete-point').addEventListener('click', deleteSelectedPoint);
             document.getElementById('download-font').addEventListener('click', downloadFont);
             document.getElementById('import-font').addEventListener('click', () => document.getElementById('font-file').click());
-            document.getElementById('font-file').addEventListener('change', importFont);
+            document.getElementById('font-file').addEventListener('change', showImportModal);
             document.getElementById('add-glyph').addEventListener('click', addNewGlyph);
+            document.getElementById('delete-glyph').addEventListener('click', deleteCurrentGlyph);
+            
+            // Import modal
+            document.getElementById('import-cancel').addEventListener('click', () => {
+                hideModal('import-modal');
+                document.getElementById('font-file').value = '';
+            });
+            document.getElementById('import-confirm').addEventListener('click', confirmImport);
 
             document.getElementById('preview-text').addEventListener('input', drawPreview);
 
@@ -1242,36 +1311,313 @@
             }
         }
 
-        async function importFont(e) {
+        function deleteCurrentGlyph() {
+            const chars = Object.keys(state.glyphs);
+            if (chars.length <= 1) {
+                alert('Cannot delete the last glyph');
+                return;
+            }
+            
+            if (!confirm(`Delete glyph "${state.currentGlyph}"?`)) {
+                return;
+            }
+            
+            delete state.glyphs[state.currentGlyph];
+            
+            // Also delete from all masters
+            if (state.vf.enabled) {
+                for (const master of state.vf.masters) {
+                    delete master.glyphs[state.currentGlyph];
+                }
+            }
+            
+            // Select first remaining glyph
+            state.currentGlyph = Object.keys(state.glyphs)[0];
+            state.selectedPoint = -1;
+            renderGlyphGrid();
+            updatePointList();
+            draw();
+        }
+
+        // Store pending import data
+        let pendingImportFont = null;
+
+        function showImportModal(e) {
             const file = e.target.files[0];
             if (!file) return;
+            
+            // Store the file reference
+            document.getElementById('import-pending-file').textContent = file.name;
+            showModal('import-modal');
+        }
+
+        async function confirmImport() {
+            const fileInput = document.getElementById('font-file');
+            const file = fileInput.files[0];
+            if (!file) {
+                hideModal('import-modal');
+                return;
+            }
+            
+            const overwrite = document.getElementById('import-overwrite').checked;
+            const importVF = document.getElementById('import-vf-data').checked;
+            const range = document.getElementById('import-range').value;
             
             try {
                 const buffer = await file.arrayBuffer();
                 const font = opentype.parse(buffer);
                 
-                // Clear existing glyphs
-                state.glyphs = {};
+                // Clear existing glyphs if overwrite is enabled
+                if (overwrite) {
+                    state.glyphs = {};
+                    state.vf = {
+                        enabled: false,
+                        axes: [],
+                        masters: [],
+                        instances: [],
+                        currentMaster: 0,
+                        previewCoords: {}
+                    };
+                }
                 
-                // Import glyphs (simplified - just import basic ASCII)
-                for (let i = 65; i <= 90; i++) { // A-Z
-                    const char = String.fromCharCode(i);
+                // Determine character range
+                let charCodes = [];
+                switch (range) {
+                    case 'uppercase':
+                        for (let i = 65; i <= 90; i++) charCodes.push(i);
+                        break;
+                    case 'lowercase':
+                        for (let i = 97; i <= 122; i++) charCodes.push(i);
+                        break;
+                    case 'both':
+                        for (let i = 65; i <= 90; i++) charCodes.push(i);
+                        for (let i = 97; i <= 122; i++) charCodes.push(i);
+                        break;
+                    case 'digits':
+                        for (let i = 48; i <= 57; i++) charCodes.push(i);
+                        break;
+                    case 'all':
+                        for (let i = 32; i <= 126; i++) charCodes.push(i);
+                        break;
+                }
+                
+                // Import glyphs
+                let importedCount = 0;
+                for (const code of charCodes) {
+                    const char = String.fromCharCode(code);
                     const glyph = font.charToGlyph(char);
-                    if (glyph && glyph.path) {
+                    if (glyph && glyph.path && glyph.path.commands.length > 0) {
+                        if (!overwrite && state.glyphs[char]) {
+                            continue; // Skip existing
+                        }
                         const points = extractPathPoints(glyph.path, font.unitsPerEm);
                         if (points.length > 0) {
                             state.glyphs[char] = points;
+                            importedCount++;
                         }
                     }
                 }
                 
+                // Import variable font data
+                if (importVF && font.tables.fvar && font.tables.fvar.axes) {
+                    state.vf.enabled = true;
+                    state.vf.axes = [];
+                    state.vf.masters = [];
+                    state.vf.instances = [];
+                    state.vf.previewCoords = {};
+                    
+                    // Import axes
+                    for (const axis of font.tables.fvar.axes) {
+                        state.vf.axes.push({
+                            tag: axis.tag.trim(),
+                            name: axis.name?.en || axis.tag.trim(),
+                            minValue: axis.minValue,
+                            defaultValue: axis.defaultValue,
+                            maxValue: axis.maxValue
+                        });
+                        state.vf.previewCoords[axis.tag.trim()] = axis.defaultValue;
+                    }
+                    
+                    // Create default master
+                    // For TrueType VFs, use extractTransformedPoints for consistency with min/max masters
+                    // For other fonts, use the already-imported state.glyphs
+                    const defaultCoords = {};
+                    for (const axis of state.vf.axes) {
+                        defaultCoords[axis.tag] = axis.defaultValue;
+                    }
+                    
+                    let defaultGlyphs;
+                    if (font.tables.gvar && font.variation) {
+                        // TrueType VF: extract points at default coords for consistency
+                        defaultGlyphs = {};
+                        for (const code of charCodes) {
+                            const char = String.fromCharCode(code);
+                            const glyph = font.charToGlyph(char);
+                            if (glyph && glyph.points && glyph.points.length > 0) {
+                                // Get transform at default coords to get the base points
+                                const transform = font.variation.getTransform(glyph.index, defaultCoords);
+                                if (transform && transform.points) {
+                                    const transformedPoints = extractTransformedPoints(transform.points, font.unitsPerEm);
+                                    if (transformedPoints.length > 0) {
+                                        defaultGlyphs[char] = transformedPoints;
+                                    }
+                                }
+                            }
+                            // Fallback to path-based extraction for CFF or if points not available
+                            if (!defaultGlyphs[char] && state.glyphs[char]) {
+                                defaultGlyphs[char] = JSON.parse(JSON.stringify(state.glyphs[char]));
+                            }
+                        }
+                    } else {
+                        defaultGlyphs = JSON.parse(JSON.stringify(state.glyphs));
+                    }
+                    
+                    state.vf.masters.push({
+                        name: 'Default',
+                        coords: defaultCoords,
+                        glyphs: defaultGlyphs
+                    });
+                    
+                    // Import axis extremes as additional masters if we have gvar data
+                    if (font.tables.gvar && font.variation) {
+                        for (const axis of state.vf.axes) {
+                            // Create master at min value (if different from default)
+                            if (axis.minValue !== axis.defaultValue) {
+                                const minCoords = { ...defaultCoords, [axis.tag]: axis.minValue };
+                                const minGlyphs = {};
+                                
+                                for (const code of charCodes) {
+                                    const char = String.fromCharCode(code);
+                                    const glyph = font.charToGlyph(char);
+                                    if (glyph && glyph.points && glyph.points.length > 0) {
+                                        try {
+                                            const coordsObj = {};
+                                            coordsObj[axis.tag] = axis.minValue;
+                                            const transform = font.variation.getTransform(glyph.index, coordsObj);
+                                            if (transform && transform.points) {
+                                                const transformedPoints = extractTransformedPoints(transform.points, font.unitsPerEm);
+                                                if (transformedPoints.length > 0) {
+                                                    minGlyphs[char] = transformedPoints;
+                                                }
+                                            } else {
+                                                minGlyphs[char] = defaultGlyphs[char] ? [...defaultGlyphs[char].map(p => [...p])] : [];
+                                            }
+                                        } catch (e) {
+                                            if (defaultGlyphs[char]) {
+                                                minGlyphs[char] = defaultGlyphs[char].map(p => [...p]);
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                if (Object.keys(minGlyphs).length > 0) {
+                                    state.vf.masters.push({
+                                        name: `${axis.name || axis.tag} Min`,
+                                        coords: minCoords,
+                                        glyphs: minGlyphs
+                                    });
+                                }
+                            }
+                            
+                            // Create master at max value (if different from default)
+                            if (axis.maxValue !== axis.defaultValue) {
+                                const maxCoords = { ...defaultCoords, [axis.tag]: axis.maxValue };
+                                const maxGlyphs = {};
+                                
+                                for (const code of charCodes) {
+                                    const char = String.fromCharCode(code);
+                                    const glyph = font.charToGlyph(char);
+                                    if (glyph && glyph.points && glyph.points.length > 0) {
+                                        // Get transformed path at max axis value
+                                        try {
+                                            const coordsObj = {};
+                                            coordsObj[axis.tag] = axis.maxValue;
+                                            const transform = font.variation.getTransform(glyph.index, coordsObj);
+                                            if (transform && transform.points) {
+                                                const transformedPoints = extractTransformedPoints(transform.points, font.unitsPerEm);
+                                                if (transformedPoints.length > 0) {
+                                                    maxGlyphs[char] = transformedPoints;
+                                                }
+                                            } else {
+                                                // Fallback to default master glyph
+                                                maxGlyphs[char] = defaultGlyphs[char] ? [...defaultGlyphs[char].map(p => [...p])] : [];
+                                            }
+                                        } catch (e) {
+                                            // Use default master glyph if transform fails
+                                            if (defaultGlyphs[char]) {
+                                                maxGlyphs[char] = defaultGlyphs[char].map(p => [...p]);
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                if (Object.keys(maxGlyphs).length > 0) {
+                                    state.vf.masters.push({
+                                        name: `${axis.name || axis.tag} Max`,
+                                        coords: maxCoords,
+                                        glyphs: maxGlyphs
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Import instances
+                    if (font.tables.fvar.instances) {
+                        for (const instance of font.tables.fvar.instances) {
+                            const coords = {};
+                            for (let i = 0; i < state.vf.axes.length; i++) {
+                                const axis = state.vf.axes[i];
+                                coords[axis.tag] = instance.coordinates[i] ?? axis.defaultValue;
+                            }
+                            state.vf.instances.push({
+                                name: instance.name?.en || 'Instance',
+                                coords: coords
+                            });
+                        }
+                    }
+                    
+                    // Update VF UI
+                    document.getElementById('toggle-vf').textContent = 'Disable';
+                    document.getElementById('vf-content').style.display = 'block';
+                    document.getElementById('vf-disabled').style.display = 'none';
+                    updateVFUI();
+                }
+                
                 state.currentGlyph = Object.keys(state.glyphs)[0] || 'A';
+                state.selectedPoint = -1;
                 renderGlyphGrid();
+                updatePointList();
                 draw();
-                alert('Imported ' + Object.keys(state.glyphs).length + ' glyphs from ' + file.name);
+                
+                const vfStatus = state.vf.enabled ? ` (Variable font: ${state.vf.axes.length} axes)` : '';
+                alert(`Imported ${importedCount} glyphs from ${file.name}${vfStatus}`);
             } catch (err) {
+                console.error('Import error:', err);
                 alert('Error importing font: ' + err.message);
             }
+            
+            hideModal('import-modal');
+            fileInput.value = '';
+        }
+
+        function extractTransformedPoints(transformPoints, unitsPerEm) {
+            const points = [];
+            const scale = 10 / unitsPerEm * 1.2;
+            
+            for (const pt of transformPoints) {
+                points.push([
+                    Math.round(pt.x * scale * 10) / 10,
+                    Math.round(pt.y * scale * 10) / 10
+                ]);
+            }
+            
+            return points;
+        }
+
+        async function importFont(e) {
+            // Deprecated - now uses showImportModal + confirmImport
+            showImportModal(e);
         }
 
         function extractPathPoints(path, unitsPerEm) {
@@ -1294,6 +1640,7 @@
         function downloadFont() {
             const TTF_SCALE = 80;
             const otGlyphs = [];
+            const glyphIndexMap = new Map(); // Map glyph name to index
 
             // .notdef glyph
             otGlyphs.push(new opentype.Glyph({
@@ -1302,6 +1649,7 @@
                 path: new opentype.Path(),
                 advanceWidth: 0
             }));
+            glyphIndexMap.set('.notdef', 0);
 
             // Space glyph
             otGlyphs.push(new opentype.Glyph({
@@ -1310,12 +1658,14 @@
                 path: new opentype.Path(),
                 advanceWidth: 5 * TTF_SCALE
             }));
+            glyphIndexMap.set('space', 1);
 
             // Add all glyphs (use default master for base glyphs)
             const baseGlyphs = state.vf.enabled && state.vf.masters.length > 0
                 ? state.vf.masters[0].glyphs
                 : state.glyphs;
             
+            let glyphIndex = 2;
             for (const [char, points] of Object.entries(baseGlyphs)) {
                 const path = new opentype.Path();
                 if (points.length > 0) {
@@ -1326,12 +1676,14 @@
                     path.closePath();
                 }
 
+                const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
                 otGlyphs.push(new opentype.Glyph({
-                    name: char.length === 1 ? char : 'glyph' + char.charCodeAt(0),
+                    name: glyphName,
                     unicode: char.charCodeAt(0),
                     path: path,
                     advanceWidth: (getGlyphWidth(points) + 1) * TTF_SCALE
                 }));
+                glyphIndexMap.set(glyphName, glyphIndex++);
             }
 
             const font = new opentype.Font({
@@ -1344,11 +1696,25 @@
             });
 
             // Add variable font data if enabled
-            if (state.vf.enabled && state.vf.axes.length > 0 && state.vf.masters.length > 1) {
+            const isVF = state.vf.enabled && state.vf.axes.length > 0;
+            if (isVF) {
                 try {
-                    // Add axes
+                    // Ensure VariationManager is initialized
+                    if (!font.variation) {
+                        font.variation = new opentype.VariationManager(font);
+                    }
+                    
+                    // Build all delta maps first (now returns array of {peakTuple, deltas} per axis)
+                    const allDeltas = new Map();
+                    const axisCount = state.vf.axes.length;
+                    state.vf.axes.forEach((axis, axisIndex) => {
+                        const axisDeltaSets = buildMasterDeltas(axis, TTF_SCALE, axisIndex, axisCount);
+                        allDeltas.set(axis.tag, axisDeltaSets);
+                    });
+                    
+                    // Add axes with their delta generators
                     for (const axis of state.vf.axes) {
-                        const masterDeltas = buildMasterDeltas(axis, TTF_SCALE);
+                        const axisDeltaSets = allDeltas.get(axis.tag);
                         
                         font.variation.addAxis({
                             tag: axis.tag,
@@ -1357,7 +1723,22 @@
                             defaultValue: axis.defaultValue,
                             maxValue: axis.maxValue,
                             deltaGenerator: (glyph) => {
-                                return masterDeltas.get(glyph.name) || null;
+                                // Return array of delta results with peakTuples
+                                const results = [];
+                                for (const deltaSet of axisDeltaSets) {
+                                    const glyphDeltas = deltaSet.deltas.get(glyph.name);
+                                    if (glyphDeltas) {
+                                        results.push({
+                                            peakTuple: deltaSet.peakTuple,
+                                            deltas: glyphDeltas.deltas,
+                                            deltasY: glyphDeltas.deltasY
+                                        });
+                                    }
+                                }
+                                if (results.length > 0) {
+                                    console.log(`Delta for ${glyph.name} on axis ${axis.tag}:`, results.length, 'variations');
+                                }
+                                return results.length > 0 ? results : null;
                             }
                         });
                     }
@@ -1369,57 +1750,231 @@
                             coordinates: instance.coords
                         });
                     }
+                    
+                    console.log('Variable font created with axes:', state.vf.axes);
+                    console.log('fvar table:', font.tables.fvar);
+                    console.log('gvar table:', font.tables.gvar);
                 } catch (e) {
-                    console.warn('Could not add variable font data:', e);
+                    console.error('Could not add variable font data:', e);
+                    alert('Warning: Variable font data could not be added: ' + e.message);
                 }
             }
 
-            const blob = new Blob([font.toArrayBuffer()], { type: 'font/otf' });
+            const buffer = font.toArrayBuffer();
+            
+            // Verify the exported font has VF tables
+            if (isVF) {
+                try {
+                    const verifyFont = opentype.parse(buffer);
+                    if (!verifyFont.tables.fvar) {
+                        console.warn('Exported font is missing fvar table!');
+                    } else {
+                        console.log('Verified fvar axes:', verifyFont.tables.fvar.axes.length);
+                    }
+                } catch (e) {
+                    console.warn('Could not verify exported font:', e);
+                }
+            }
+            
+            const blob = new Blob([buffer], { type: 'font/otf' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = state.vf.enabled ? 'custom-font-VF.otf' : 'custom-font.otf';
+            a.download = isVF ? 'custom-font-VF.otf' : 'custom-font.otf';
             a.click();
             URL.revokeObjectURL(url);
         }
 
         // Build delta data for an axis from masters
-        function buildMasterDeltas(axis, scale) {
-            const deltas = new Map();
-            const defaultMaster = state.vf.masters[0];
+        // Returns an array of { peakTuple, deltas } for min and max variations
+        function buildMasterDeltas(axis, scale, axisIndex, axisCount) {
+            const result = [];
             
-            // Find the master at max value for this axis
-            const maxMaster = state.vf.masters.find(m => 
-                m.coords[axis.tag] === axis.maxValue
-            );
-            
-            if (!maxMaster || maxMaster === defaultMaster) {
-                return deltas;
+            if (state.vf.masters.length < 1) {
+                console.warn('No masters defined');
+                return result;
             }
             
-            for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
-                const targetPoints = maxMaster.glyphs[char];
-                if (!targetPoints || basePoints.length !== targetPoints.length) {
-                    continue;
+            // Find the default master (coords match axis defaults)
+            let defaultMaster = state.vf.masters[0];
+            for (const master of state.vf.masters) {
+                const coordValue = master.coords[axis.tag];
+                if (coordValue === undefined || coordValue === axis.defaultValue) {
+                    let isDefault = true;
+                    // Check all axes
+                    for (const ax of state.vf.axes) {
+                        const v = master.coords[ax.tag];
+                        if (v !== undefined && v !== ax.defaultValue) {
+                            isDefault = false;
+                            break;
+                        }
+                    }
+                    if (isDefault) {
+                        defaultMaster = master;
+                        break;
+                    }
                 }
-                
-                const deltaX = [];
-                const deltaY = [];
-                
-                for (let i = 0; i < basePoints.length; i++) {
-                    deltaX.push(Math.round((targetPoints[i][0] - basePoints[i][0]) * scale));
-                    deltaY.push(Math.round((targetPoints[i][1] - basePoints[i][1]) * scale));
-                }
-                
-                // Add phantom points (LSB, RSB, TSB, BSB)
-                deltaX.push(0, 0, 0, 0);
-                deltaY.push(0, 0, 0, 0);
-                
-                const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
-                deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY });
             }
             
-            return deltas;
+            // Find masters at min and max for this axis
+            let minMaster = null;
+            let maxMaster = null;
+            let minAxisValue = axis.defaultValue;
+            let maxAxisValue = axis.defaultValue;
+            
+            for (const master of state.vf.masters) {
+                const masterAxisValue = master.coords[axis.tag];
+                if (masterAxisValue !== undefined && masterAxisValue !== axis.defaultValue) {
+                    if (masterAxisValue < axis.defaultValue && (minMaster === null || masterAxisValue < minAxisValue)) {
+                        minMaster = master;
+                        minAxisValue = masterAxisValue;
+                    }
+                    if (masterAxisValue > axis.defaultValue && (maxMaster === null || masterAxisValue > maxAxisValue)) {
+                        maxMaster = master;
+                        maxAxisValue = masterAxisValue;
+                    }
+                }
+            }
+            
+            // Build deltas for min direction (if we have a min master)
+            if (minMaster && minAxisValue !== axis.defaultValue) {
+                const deltas = new Map();
+                const minRange = axis.defaultValue - axis.minValue;
+                const masterOffset = axis.defaultValue - minAxisValue;
+                const deltaScale = minRange !== 0 && masterOffset !== 0 ? minRange / masterOffset : 1;
+                
+                // Create peak tuple (normalized: -1 at min)
+                const peakTuple = new Array(axisCount).fill(0);
+                peakTuple[axisIndex] = -1;
+                
+                for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
+                    const targetPoints = minMaster.glyphs[char];
+                    if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+                    
+                    const deltaX = [];
+                    const deltaY = [];
+                    
+                    for (let i = 0; i < basePoints.length; i++) {
+                        deltaX.push(Math.round((targetPoints[i][0] - basePoints[i][0]) * scale * deltaScale));
+                        deltaY.push(Math.round((targetPoints[i][1] - basePoints[i][1]) * scale * deltaScale));
+                    }
+                    
+                    deltaX.push(0, 0, 0, 0);
+                    deltaY.push(0, 0, 0, 0);
+                    
+                    const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                    deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY });
+                }
+                
+                if (deltas.size > 0) {
+                    result.push({ peakTuple, deltas });
+                    console.log(`Built min deltas for axis ${axis.tag}: ${deltas.size} glyphs, peak=${peakTuple}`);
+                }
+                
+                // If we have min master but NO max master, generate mirrored max deltas for extrapolation
+                if (!maxMaster || maxAxisValue === axis.defaultValue) {
+                    const mirroredDeltas = new Map();
+                    const peakTuple = new Array(axisCount).fill(0);
+                    peakTuple[axisIndex] = 1;  // Max direction
+                    
+                    for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
+                        const targetPoints = minMaster.glyphs[char];
+                        if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+                        
+                        const deltaX = [];
+                        const deltaY = [];
+                        
+                        // Negate the deltas for the max direction (extrapolation beyond default)
+                        for (let i = 0; i < basePoints.length; i++) {
+                            // Original min delta: (targetPoints - basePoints)
+                            // Mirrored max delta: -(targetPoints - basePoints) = (basePoints - targetPoints)
+                            deltaX.push(Math.round((basePoints[i][0] - targetPoints[i][0]) * scale * deltaScale));
+                            deltaY.push(Math.round((basePoints[i][1] - targetPoints[i][1]) * scale * deltaScale));
+                        }
+                        
+                        deltaX.push(0, 0, 0, 0);
+                        deltaY.push(0, 0, 0, 0);
+                        
+                        const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                        mirroredDeltas.set(glyphName, { deltas: deltaX, deltasY: deltaY });
+                    }
+                    
+                    if (mirroredDeltas.size > 0) {
+                        result.push({ peakTuple, deltas: mirroredDeltas });
+                        console.log(`Built mirrored max deltas for axis ${axis.tag}: ${mirroredDeltas.size} glyphs (extrapolation from min), peak=${peakTuple}`);
+                    }
+                }
+            }
+            
+            // Build deltas for max direction (if we have a max master)
+            if (maxMaster && maxAxisValue !== axis.defaultValue) {
+                const deltas = new Map();
+                const maxRange = axis.maxValue - axis.defaultValue;
+                const masterOffset = maxAxisValue - axis.defaultValue;
+                const deltaScale = maxRange !== 0 && masterOffset !== 0 ? maxRange / masterOffset : 1;
+                
+                // Create peak tuple (normalized: 1 at max)
+                const peakTuple = new Array(axisCount).fill(0);
+                peakTuple[axisIndex] = 1;
+                
+                for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
+                    const targetPoints = maxMaster.glyphs[char];
+                    if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+                    
+                    const deltaX = [];
+                    const deltaY = [];
+                    
+                    for (let i = 0; i < basePoints.length; i++) {
+                        deltaX.push(Math.round((targetPoints[i][0] - basePoints[i][0]) * scale * deltaScale));
+                        deltaY.push(Math.round((targetPoints[i][1] - basePoints[i][1]) * scale * deltaScale));
+                    }
+                    
+                    deltaX.push(0, 0, 0, 0);
+                    deltaY.push(0, 0, 0, 0);
+                    
+                    const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                    deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY });
+                }
+                
+                if (deltas.size > 0) {
+                    result.push({ peakTuple, deltas });
+                    console.log(`Built max deltas for axis ${axis.tag}: ${deltas.size} glyphs, peak=${peakTuple}`);
+                }
+                
+                // If we have max master but NO min master, generate mirrored min deltas for extrapolation
+                if (!minMaster || minAxisValue === axis.defaultValue) {
+                    const mirroredDeltas = new Map();
+                    const peakTuple = new Array(axisCount).fill(0);
+                    peakTuple[axisIndex] = -1;  // Min direction
+                    
+                    for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
+                        const targetPoints = maxMaster.glyphs[char];
+                        if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+                        
+                        const deltaX = [];
+                        const deltaY = [];
+                        
+                        // Negate the deltas for the min direction (extrapolation beyond default)
+                        for (let i = 0; i < basePoints.length; i++) {
+                            deltaX.push(Math.round((basePoints[i][0] - targetPoints[i][0]) * scale * deltaScale));
+                            deltaY.push(Math.round((basePoints[i][1] - targetPoints[i][1]) * scale * deltaScale));
+                        }
+                        
+                        deltaX.push(0, 0, 0, 0);
+                        deltaY.push(0, 0, 0, 0);
+                        
+                        const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                        mirroredDeltas.set(glyphName, { deltas: deltaX, deltasY: deltaY });
+                    }
+                    
+                    if (mirroredDeltas.size > 0) {
+                        result.push({ peakTuple, deltas: mirroredDeltas });
+                        console.log(`Built mirrored min deltas for axis ${axis.tag}: ${mirroredDeltas.size} glyphs (extrapolation from max), peak=${peakTuple}`);
+                    }
+                }
+            }
+            
+            return result;
         }
 
         // Variable Font Functions
@@ -1458,16 +2013,17 @@
             document.getElementById(id).classList.remove('active');
         }
 
-        function showMasterModal() {
+        function showMasterModal(masterIndex = -1) {
             const coordsEl = document.getElementById('master-coords');
             coordsEl.innerHTML = '';
             
             for (const axis of state.vf.axes) {
                 const row = document.createElement('div');
                 row.className = 'form-row';
+                const currentValue = masterIndex >= 0 ? state.vf.masters[masterIndex].coords[axis.tag] || axis.defaultValue : axis.defaultValue;
                 row.innerHTML = `
                     <label>${axis.name} (${axis.tag})</label>
-                    <input type="number" data-axis="${axis.tag}" value="${axis.defaultValue}" 
+                    <input type="number" data-axis="${axis.tag}" value="${currentValue}" 
                            min="${axis.minValue}" max="${axis.maxValue}">
                 `;
                 coordsEl.appendChild(row);
@@ -1477,20 +2033,33 @@
                 coordsEl.innerHTML = '<div class="vf-info">Add at least one axis first</div>';
             }
             
-            document.getElementById('master-name').value = '';
+            const nameInput = document.getElementById('master-name');
+            const saveBtn = document.getElementById('master-save');
+            
+            if (masterIndex >= 0) {
+                nameInput.value = state.vf.masters[masterIndex].name;
+                saveBtn.textContent = 'Update Master';
+                saveBtn.dataset.editIndex = masterIndex;
+            } else {
+                nameInput.value = '';
+                saveBtn.textContent = 'Add Master';
+                delete saveBtn.dataset.editIndex;
+            }
+            
             showModal('master-modal');
         }
 
-        function showInstanceModal() {
+        function showInstanceModal(instanceIndex = -1) {
             const coordsEl = document.getElementById('instance-coords');
             coordsEl.innerHTML = '';
             
             for (const axis of state.vf.axes) {
                 const row = document.createElement('div');
                 row.className = 'form-row';
+                const currentValue = instanceIndex >= 0 ? state.vf.instances[instanceIndex].coords[axis.tag] || axis.defaultValue : axis.defaultValue;
                 row.innerHTML = `
                     <label>${axis.name} (${axis.tag})</label>
-                    <input type="number" data-axis="${axis.tag}" value="${axis.defaultValue}"
+                    <input type="number" data-axis="${axis.tag}" value="${currentValue}"
                            min="${axis.minValue}" max="${axis.maxValue}">
                 `;
                 coordsEl.appendChild(row);
@@ -1500,7 +2069,19 @@
                 coordsEl.innerHTML = '<div class="vf-info">Add at least one axis first</div>';
             }
             
-            document.getElementById('instance-name').value = '';
+            const nameInput = document.getElementById('instance-name');
+            const saveBtn = document.getElementById('instance-save');
+            
+            if (instanceIndex >= 0) {
+                nameInput.value = state.vf.instances[instanceIndex].name;
+                saveBtn.textContent = 'Update Instance';
+                saveBtn.dataset.editIndex = instanceIndex;
+            } else {
+                nameInput.value = '';
+                saveBtn.textContent = 'Add Instance';
+                delete saveBtn.dataset.editIndex;
+            }
+            
             showModal('instance-modal');
         }
 
@@ -1561,12 +2142,22 @@
                 coords[input.dataset.axis] = parseFloat(input.value);
             });
             
-            // Copy current glyphs for this master
-            state.vf.masters.push({
-                name,
-                coords,
-                glyphs: JSON.parse(JSON.stringify(state.glyphs))
-            });
+            const saveBtn = document.getElementById('master-save');
+            const editIndex = saveBtn.dataset.editIndex;
+            
+            if (editIndex !== undefined) {
+                // Editing existing master
+                const masterIndex = parseInt(editIndex);
+                state.vf.masters[masterIndex].name = name;
+                state.vf.masters[masterIndex].coords = coords;
+            } else {
+                // Adding new master
+                state.vf.masters.push({
+                    name,
+                    coords,
+                    glyphs: JSON.parse(JSON.stringify(state.glyphs))
+                });
+            }
             
             hideModal('master-modal');
             updateVFUI();
@@ -1589,7 +2180,18 @@
                 coords[input.dataset.axis] = parseFloat(input.value);
             });
             
-            state.vf.instances.push({ name, coords });
+            const saveBtn = document.getElementById('instance-save');
+            const editIndex = saveBtn.dataset.editIndex;
+            
+            if (editIndex !== undefined) {
+                // Editing existing instance
+                const instanceIndex = parseInt(editIndex);
+                state.vf.instances[instanceIndex].name = name;
+                state.vf.instances[instanceIndex].coords = coords;
+            } else {
+                // Adding new instance
+                state.vf.instances.push({ name, coords });
+            }
             
             hideModal('instance-modal');
             updateVFUI();
@@ -1653,13 +2255,21 @@
                 item.innerHTML = `
                     <span class="name">${master.name}</span>
                     <span class="coords">${coordStr || 'Default'}</span>
-                    ${i > 0 ? `<button class="delete-btn" data-index="${i}">&times;</button>` : ''}
+                    <div class="master-actions">
+                        <button class="edit-btn" data-index="${i}" title="Edit master">✏️</button>
+                        ${i > 0 ? `<button class="delete-btn" data-index="${i}" title="Delete master">&times;</button>` : ''}
+                    </div>
                 `;
                 
                 item.addEventListener('click', e => {
-                    if (!e.target.classList.contains('delete-btn')) {
+                    if (!e.target.classList.contains('edit-btn') && !e.target.classList.contains('delete-btn')) {
                         selectMaster(i);
                     }
+                });
+                
+                item.querySelector('.edit-btn').addEventListener('click', e => {
+                    e.stopPropagation();
+                    showMasterModal(i);
                 });
                 
                 if (i > 0) {
@@ -1689,9 +2299,13 @@
                 item.innerHTML = `
                     <span class="name">${instance.name}</span>
                     <span class="coords">${coordStr}</span>
-                    <button class="delete-btn" data-index="${i}">&times;</button>
+                    <div class="instance-actions">
+                        <button class="edit-btn" data-index="${i}" title="Edit instance">✏️</button>
+                        <button class="delete-btn" data-index="${i}" title="Delete instance">&times;</button>
+                    </div>
                 `;
                 
+                item.querySelector('.edit-btn').addEventListener('click', () => showInstanceModal(i));
                 item.querySelector('.delete-btn').addEventListener('click', () => deleteInstance(i));
                 
                 list.appendChild(item);

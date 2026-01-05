@@ -32,6 +32,8 @@ import gvar from './gvar.js';
 import hvar from './hvar.js';
 import gasp from './gasp.js';
 import svg from './svg.js';
+import glyf from './glyf.js';
+import loca from './loca.js';
 
 function log2(v) {
     return Math.log(v) / Math.log(2) | 0;
@@ -64,8 +66,13 @@ function makeTableRecord(tag, checkSum, offset, length) {
 }
 
 function makeSfntTable(tables) {
+    // Determine signature based on outline format
+    // 'OTTO' = CFF outlines, 0x00010000 = TrueType outlines
+    const hasGlyf = tables.some(t => t.tableName === 'glyf');
+    const version = hasGlyf ? '\x00\x01\x00\x00' : 'OTTO';
+    
     const sfnt = new table.Table('sfnt', [
-        {name: 'version', type: 'TAG', value: 'OTTO'},
+        {name: 'version', type: 'TAG', value: version},
         {name: 'numTables', type: 'USHORT', value: 0},
         {name: 'searchRange', type: 'USHORT', value: 0},
         {name: 'entrySelector', type: 'USHORT', value: 0},
@@ -245,7 +252,15 @@ function fontToSfntTable(font) {
         numberOfHMetrics: font.glyphs.length,
     });
 
-    const maxpTable = maxp.make(font.glyphs.length);
+    // Determine if we need TrueType outlines (glyf) instead of CFF
+    // gvar table only works with TrueType outlines, so if we have gvar, we must use glyf+loca
+    // Also use TrueType outlines if the font was originally TrueType (outlinesFormat === 'truetype')
+    const hasGvarData = font.tables.gvar && font.tables.gvar.glyphVariations && 
+                        Object.keys(font.tables.gvar.glyphVariations).length > 0;
+    const isTrueTypeFont = font.outlinesFormat === 'truetype';
+    const useTrueTypeOutlines = hasGvarData || isTrueTypeFont;
+
+    const maxpTable = maxp.make(font.glyphs.length, useTrueTypeOutlines);
 
     const os2Table = os2.make(Object.assign({
         xAvgCharWidth: Math.round(globals.advanceWidthAvg),
@@ -339,26 +354,59 @@ function fontToSfntTable(font) {
     const ltagTable = (languageTags.length > 0 ? ltag.make(languageTags) : undefined);
 
     const postTable = post.make(font);
-    const useCFFtable = font.tables.cff || font.tables.cff2;
-    // Prefer CFF2 by default when variation data exists; allow forcing CFF1 via font.options.forceCFF1
-    const forceCFF1 = font.options && font.options.forceCFF1;
-    const preferCFF2 = !forceCFF1 && (font.tables.cff2 || (font.tables.fvar && (font.tables.gvar || font.tables.cff2)));
-    const cffVersionToWrite = preferCFF2 ? 2 : 1;
-    const cffTable = cff.make(font.glyphs, {
-        version: font.getEnglishName('version'),
-        fullName: englishFullName,
-        familyName: englishFamilyName,
-        weightName: englishStyleName,
-        postScriptName: postScriptName,
-        unitsPerEm: font.unitsPerEm,
-        fontBBox: [0, globals.yMin, globals.ascender, globals.advanceWidthMax],
-        topDict: useCFFtable && useCFFtable.topDict || {},
-    }, cffVersionToWrite);
-
+    
     const metaTable = (font.metas && Object.keys(font.metas).length > 0) ? meta.make(font.metas) : undefined;
 
     // The order does not matter because makeSfntTable() will sort them.
-    const tables = [headTable, hheaTable, maxpTable, os2Table, nameTable, cmapTable, postTable, cffTable, hmtxTable];
+    const tables = [headTable, hheaTable, maxpTable, os2Table, nameTable, cmapTable, postTable, hmtxTable];
+    
+    if (useTrueTypeOutlines) {
+        // Use TrueType outlines (glyf + loca) for variable fonts with gvar
+        const glyfResult = glyf.make(font.glyphs);
+        
+        // Determine if we can use short loca format (all offsets fit in 16-bit when divided by 2)
+        const maxOffset = glyfResult.offsets[glyfResult.offsets.length - 1];
+        const useShortLoca = maxOffset < 65536 * 2;
+        
+        // Update head table with indexToLocFormat
+        headTable.indexToLocFormat = useShortLoca ? 0 : 1;
+        // Update the actual field in the table
+        for (const field of headTable.fields) {
+            if (field.name === 'indexToLocFormat') {
+                field.value = useShortLoca ? 0 : 1;
+                break;
+            }
+        }
+        
+        // Create loca table
+        const locaTable = loca.make(glyfResult.offsets, useShortLoca);
+        tables.push(locaTable);
+        
+        // Create glyf table as a raw data table
+        const glyfTable = new table.Table('glyf', [
+            { name: 'glyphs', type: 'LITERAL', value: Array.from(glyfResult.glyfData) }
+        ]);
+        tables.push(glyfTable);
+    } else {
+        // Use CFF outlines for non-variable fonts
+        const useCFFtable = font.tables.cff || font.tables.cff2;
+        // Prefer CFF2 by default when variation data exists; allow forcing CFF1 via font.options.forceCFF1
+        const forceCFF1 = font.options && font.options.forceCFF1;
+        const preferCFF2 = !forceCFF1 && (font.tables.cff2 || (font.tables.fvar && font.tables.cff2));
+        const cffVersionToWrite = preferCFF2 ? 2 : 1;
+        const cffTable = cff.make(font.glyphs, {
+            version: font.getEnglishName('version'),
+            fullName: englishFullName,
+            familyName: englishFamilyName,
+            weightName: englishStyleName,
+            postScriptName: postScriptName,
+            unitsPerEm: font.unitsPerEm,
+            fontBBox: [0, globals.yMin, globals.ascender, globals.advanceWidthMax],
+            topDict: useCFFtable && useCFFtable.topDict || {},
+        }, cffVersionToWrite);
+        tables.push(cffTable);
+    }
+    
     if (ltagTable) {
         tables.push(ltagTable);
     }
@@ -388,9 +436,9 @@ function fontToSfntTable(font) {
     };
 
     for (let tableName in optionalTables) {
-        const table = font.tables[tableName];
-        if (table) {
-            const tableData = optionalTables[tableName].make.call(font, table, ...(optionalTableArgs[tableName] || []));
+        const optTable = font.tables[tableName];
+        if (optTable) {
+            const tableData = optionalTables[tableName].make.call(font, optTable, ...(optionalTableArgs[tableName] || []));
             if (tableData) {
                 tables.push(tableData);
             }

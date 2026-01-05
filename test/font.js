@@ -260,4 +260,59 @@ describe('glyphset.js', function() {
             assert.deepEqual(fillLogs, expectedColors);
         });
     });
+    
+    describe('instantiate', function() {
+        const vfFont = loadSync('./test/fonts/Changa-VariableFont_wght.ttf');
+        
+        it('should create a static font with valid glyphs', function() {
+            const staticFont = vfFont.instantiate({wght: 700});
+            
+            // Verify glyph count matches
+            assert.equal(staticFont.glyphs.length, vfFont.glyphs.length);
+            
+            // Verify glyphs can be accessed
+            const glyph = staticFont.glyphs.get(1);
+            assert.ok(glyph, 'Glyph 1 should be accessible');
+            assert.ok(glyph.path, 'Glyph 1 should have a path');
+            assert.ok(glyph.path.commands.length > 0, 'Glyph 1 path should have commands');
+        });
+        
+        it('should strip variation tables', function() {
+            const staticFont = vfFont.instantiate({wght: 400});
+            
+            assert.ok(!staticFont.tables.fvar, 'fvar should be removed');
+            assert.ok(!staticFont.tables.gvar, 'gvar should be removed');
+        });
+        
+        it('should preserve names for export', function() {
+            const staticFont = vfFont.instantiate({wght: 500});
+            
+            assert.ok(staticFont.names, 'names should be preserved');
+        });
+        
+        it('should preserve outlinesFormat', function() {
+            const staticFont = vfFont.instantiate({wght: 600});
+            
+            assert.equal(staticFont.outlinesFormat, 'truetype');
+        });
+        
+        it('should roundtrip export and import', function() {
+            const staticFont = vfFont.instantiate({wght: 700});
+            
+            // Export to array buffer
+            const buffer = staticFont.toArrayBuffer();
+            assert.ok(buffer.byteLength > 0, 'Buffer should have content');
+            
+            // Re-parse
+            const parsed = parse(buffer);
+            assert.equal(parsed.numGlyphs, staticFont.glyphs.length);
+            
+            // Verify glyph paths are preserved
+            const origGlyph = staticFont.glyphs.get(1);
+            const parsedGlyph = parsed.glyphs.get(1);
+            assert.ok(parsedGlyph.path, 'Parsed glyph should have path');
+            assert.equal(parsedGlyph.path.commands.length, origGlyph.path.commands.length,
+                'Path command count should match');
+        });
+    });
 });

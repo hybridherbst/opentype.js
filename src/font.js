@@ -238,23 +238,45 @@ Font.prototype.instantiate = function(coordsOrName) {
 
     for (let i = 0; i < this.glyphs.length; i++) {
         const g = this.glyphs.get(i);
-        const ng = g.clone && g.clone() || Object.assign(Object.create(Object.getPrototypeOf(g)), g);
-        if (ng.getBlendPath) {
+        let ng;
+        
+        // Use variation processor for TrueType variable fonts (gvar)
+        // or getBlendPath for CFF2 fonts
+        if (this.variation && this.variation.process) {
+            ng = this.variation.process.getTransform(g, coords);
+        } else if (g.getBlendPath) {
+            ng = g.clone && g.clone() || Object.assign(Object.create(Object.getPrototypeOf(g)), g);
             const blended = ng.getBlendPath(this, coords);
             if (blended) ng.path = blended;
+        } else {
+            ng = g.clone && g.clone() || Object.assign(Object.create(Object.getPrototypeOf(g)), g);
         }
-        f.glyphs.push(ng);
+        
+        f.glyphs.push(i, ng);
     }
 
     // Copy non-variation tables; strip variation data
     f.tables = JSON.parse(JSON.stringify(this.tables || {}));
     delete f.tables.fvar;
     delete f.tables.gvar;
+    delete f.tables.avar;
+    delete f.tables.cvar;
+    delete f.tables.hvar;
+    delete f.tables.STAT;
     if (f.tables.cff2) {
         // Convert to CFF1 write by default when instantiating
         delete f.tables.cff2;
         f.options = Object.assign({}, this.options, { forceCFF1: true });
     }
+    
+    // Copy names for export
+    if (this.names) {
+        f.names = JSON.parse(JSON.stringify(this.names));
+    }
+    
+    // Copy outline format
+    f.outlinesFormat = this.outlinesFormat;
+    
     return f;
 };
 

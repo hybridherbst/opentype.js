@@ -281,4 +281,17 @@ describe('tables/cff.js', function () {
     //         transformedPoints
     //     );
     // });
+    
+    it('can roundtrip CFF font (FiraSansOT-Medium)', async function () {
+        // This test reproduces the "Unknown operand type number" error
+        const { parse } = await import('../../src/opentype.js');
+        const fs = await import('fs');
+        const buffer = fs.readFileSync('./test/fonts/FiraSansOT-Medium.otf');
+        const font = parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+        
+        // Try to export the font - this should not throw
+        const outBuffer = font.toArrayBuffer();
+        
+        assert.ok(outBuffer.byteLength > 0, 'Buffer should have content');
+    });
 });

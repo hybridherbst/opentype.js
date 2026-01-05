@@ -435,6 +435,13 @@ describe('types.js', function() {
         assert.equal(hex(encode.OPERAND(23, 'offset')), '1D 00 00 00 17');
         assert.equal(hex(encode.OPERAND(23, 'number')), 'A2');
         assert.equal(hex(encode.OPERAND(23.0, 'real')), '1E 23 FF');
+        
+        // Test float values with 'number' type - should encode as REAL
+        assert.equal(hex(encode.OPERAND(0.5, 'number')), '1E 0A 5F');
+        assert.equal(hex(encode.OPERAND(123.456, 'number')), '1E 12 3A 45 6F');
+        
+        // Test float values with 'delta' type
+        assert.equal(hex(encode.OPERAND(0.5, 'delta')), '1E 0A 5F');
     });
 
     it('can handle OP', function() {

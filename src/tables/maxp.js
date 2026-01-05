@@ -30,7 +30,28 @@ function parseMaxpTable(data, start) {
     return maxp;
 }
 
-function makeMaxpTable(numGlyphs) {
+function makeMaxpTable(numGlyphs, isTrueType) {
+    if (isTrueType) {
+        // Version 1.0 for TrueType fonts with glyf table
+        return new table.Table('maxp', [
+            {name: 'version', type: 'FIXED', value: 0x00010000},
+            {name: 'numGlyphs', type: 'USHORT', value: numGlyphs},
+            {name: 'maxPoints', type: 'USHORT', value: 0},
+            {name: 'maxContours', type: 'USHORT', value: 0},
+            {name: 'maxCompositePoints', type: 'USHORT', value: 0},
+            {name: 'maxCompositeContours', type: 'USHORT', value: 0},
+            {name: 'maxZones', type: 'USHORT', value: 2},
+            {name: 'maxTwilightPoints', type: 'USHORT', value: 0},
+            {name: 'maxStorage', type: 'USHORT', value: 0},
+            {name: 'maxFunctionDefs', type: 'USHORT', value: 0},
+            {name: 'maxInstructionDefs', type: 'USHORT', value: 0},
+            {name: 'maxStackElements', type: 'USHORT', value: 0},
+            {name: 'maxSizeOfInstructions', type: 'USHORT', value: 0},
+            {name: 'maxComponentElements', type: 'USHORT', value: 0},
+            {name: 'maxComponentDepth', type: 'USHORT', value: 0}
+        ]);
+    }
+    // Version 0.5 for CFF fonts
     return new table.Table('maxp', [
         {name: 'version', type: 'FIXED', value: 0x00005000},
         {name: 'numGlyphs', type: 'USHORT', value: numGlyphs}

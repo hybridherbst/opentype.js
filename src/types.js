@@ -992,7 +992,14 @@ encode.OPERAND = function(v, type) {
             for (let j = 0; j < enc1.length; j++) {
                 d.push(enc1[j]);
             }
-        } else if (type === 'real' || !isNaN(parseFloat(v)) && !Number.isInteger(v)) {
+        } else if (type === 'real' || ((type === 'number' || type === 'delta') && typeof v === 'number' && !Number.isInteger(v))) {
+            // Handle real type or number/delta with float values
+            const enc1 = encode.REAL(v);
+            for (let j = 0; j < enc1.length; j++) {
+                d.push(enc1[j]);
+            }
+        } else if (typeof v === 'number' && !Number.isInteger(v)) {
+            // Fallback for float values without explicit type
             const enc1 = encode.REAL(v);
             for (let j = 0; j < enc1.length; j++) {
                 d.push(enc1[j]);

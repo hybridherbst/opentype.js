@@ -49,9 +49,10 @@ function encodeTuple(tuple) {
  * @param {number} variationDataSize - Size of the serialized data for this tuple
  * @param {Map} sharedTupleMap - Map from tuple string to shared tuple index
  * @param {Array} originalSharedTuples - Original shared tuples array to resolve indices
+ * @param {boolean} hasPrivatePointNumbers - Whether private point numbers are embedded in data
  * @returns {Array} Encoded bytes
  */
-function encodeTupleVariationHeader(header, axisCount, variationDataSize, sharedTupleMap, originalSharedTuples) {
+function encodeTupleVariationHeader(header, axisCount, variationDataSize, sharedTupleMap, originalSharedTuples, hasPrivatePointNumbers) {
     const result = [];
     
     // variationDataSize (uint16)
@@ -60,9 +61,8 @@ function encodeTupleVariationHeader(header, axisCount, variationDataSize, shared
     // Build tupleIndex flags
     let tupleIndex = 0;
     
-    // Check if we have private points
-    const hasPrivatePoints = header.privatePoints && header.privatePoints.length > 0;
-    if (hasPrivatePoints) {
+    // Set PRIVATE_POINT_NUMBERS flag if we have point numbers in serialized data
+    if (hasPrivatePointNumbers) {
         tupleIndex |= 0x2000; // PRIVATE_POINT_NUMBERS
     }
     
@@ -198,8 +198,10 @@ function encodeGlyphVariationData(variation, axisCount, sharedTupleMap, original
     
     // First, encode all the serialized data to get sizes
     const serializedDataParts = [];
+    const usePrivatePointsArray = [];
     for (const header of headers) {
         const usePrivatePoints = !hasSharedPoints || (header.privatePoints && header.privatePoints.length > 0);
+        usePrivatePointsArray.push(usePrivatePoints);
         const data = encodeTupleSerializedData(header, usePrivatePoints);
         serializedDataParts.push(data);
     }
@@ -213,7 +215,8 @@ function encodeGlyphVariationData(variation, axisCount, sharedTupleMap, original
             axisCount, 
             serializedDataParts[i].length,
             sharedTupleMap,
-            originalSharedTuples
+            originalSharedTuples,
+            usePrivatePointsArray[i]
         );
         tupleVariationHeaders.push(...headerBytes);
     }

@@ -304,6 +304,10 @@ export class VariationManager {
     /**
      * Add gvar deltas for a new axis.
      * @private
+     * @param {number} axisIndex - Index of the axis in fvar
+     * @param {Function} deltaGenerator - Function that returns delta data for each glyph.
+     *        Can return a single object {deltas, deltasY} or an array of
+     *        {peakTuple, deltas, deltasY} for multiple variations (e.g., min and max).
      */
     _addGvarDeltasForAxis(axisIndex, deltaGenerator) {
         const font = this.font;
@@ -345,9 +349,9 @@ export class VariationManager {
             }
         }
         
-        // Build peak tuple for max value of new axis (all zeros except new axis = 1)
-        const peakTuple = new Array(axisCount).fill(0);
-        peakTuple[axisIndex] = 1.0;
+        // Default peak tuple for max value (legacy behavior)
+        const defaultPeakTuple = new Array(axisCount).fill(0);
+        defaultPeakTuple[axisIndex] = 1.0;
         
         // Generate deltas for each glyph
         for (let i = 0; i < font.glyphs.length; i++) {
@@ -357,34 +361,51 @@ export class VariationManager {
             }
             
             const deltaResult = deltaGenerator(glyph, font);
-            if (!deltaResult || (!deltaResult.deltas && !deltaResult.deltasY)) {
+            if (!deltaResult) {
                 continue;
             }
             
-            // Initialize glyph variation if not present
-            if (!gvar.glyphVariations[i]) {
-                gvar.glyphVariations[i] = {
-                    headers: []
+            // Normalize to array format
+            const deltaArray = Array.isArray(deltaResult) ? deltaResult : [deltaResult];
+            
+            for (const item of deltaArray) {
+                if (!item.deltas && !item.deltasY) {
+                    continue;
+                }
+                
+                // Initialize glyph variation if not present
+                if (!gvar.glyphVariations[i]) {
+                    gvar.glyphVariations[i] = {
+                        headers: []
+                    };
+                }
+                
+                // Use custom peakTuple if provided, otherwise use default
+                const peakTuple = item.peakTuple ? [...item.peakTuple] : [...defaultPeakTuple];
+                
+                // Add new variation header
+                const header = {
+                    peakTuple,
+                    deltas: item.deltas || [],
+                    deltasY: item.deltasY || []
                 };
+                
+                // If there are private points (subset of points affected)
+                if (item.privatePoints) {
+                    header.privatePoints = item.privatePoints;
+                }
+                
+                gvar.glyphVariations[i].headers.push(header);
             }
-            
-            // Add new variation header for this axis
-            const header = {
-                peakTuple: [...peakTuple],
-                deltas: deltaResult.deltas || [],
-                deltasY: deltaResult.deltasY || []
-            };
-            
-            // If there are private points (subset of points affected)
-            if (deltaResult.privatePoints) {
-                header.privatePoints = deltaResult.privatePoints;
-            }
-            
-            gvar.glyphVariations[i].headers.push(header);
         }
         
-        // Add new tuple to shared tuples if it will be reused
-        gvar.sharedTuples.push([...peakTuple]);
+        // Add default max tuple to shared tuples
+        gvar.sharedTuples.push([...defaultPeakTuple]);
+        
+        // Also add min tuple if it might be used
+        const minPeakTuple = new Array(axisCount).fill(0);
+        minPeakTuple[axisIndex] = -1.0;
+        gvar.sharedTuples.push([...minPeakTuple]);
     }
 
     /**

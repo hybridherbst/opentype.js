@@ -339,5 +339,252 @@ function parseGlyfTable(data, start, loca, font, opt) {
         return parseGlyfTableAll(data, start, loca, font);
 }
 
-export default { getPath, parse: parseGlyfTable};
-export { getPath, transformPoints };
+/**
+ * Encode a coordinate delta using the TrueType glyf coordinate encoding.
+ * Returns { bytes: number[], flag: number }
+ */
+function encodeCoordinate(delta, shortBit, sameBit) {
+    if (delta === 0) {
+        // Same as previous value
+        return { bytes: [], flag: sameBit };
+    } else if (delta >= -255 && delta <= 255 && delta !== 0) {
+        // Can be encoded as short (1 byte)
+        if (delta > 0 && delta <= 255) {
+            return { bytes: [delta], flag: shortBit | sameBit };
+        } else if (delta >= -255 && delta < 0) {
+            return { bytes: [-delta], flag: shortBit };
+        }
+    }
+    // Encode as signed short (2 bytes)
+    const low = delta & 0xFF;
+    const high = (delta >> 8) & 0xFF;
+    return { bytes: [high, low], flag: 0 };
+}
+
+/**
+ * Convert a Path to TrueType glyph points.
+ * @param {Path} path - The path to convert
+ * @returns {Object} { points: Array, contourEnds: Array }
+ */
+function pathToPoints(path) {
+    const points = [];
+    const contourEnds = [];
+    let contourStart = 0;
+    let contourStartPoint = null;
+    
+    for (const cmd of path.commands) {
+        switch (cmd.type) {
+            case 'M':
+                // If we already have points, end the previous contour
+                if (points.length > 0 && points.length > contourStart) {
+                    contourEnds.push(points.length - 1);
+                    contourStart = points.length;
+                }
+                contourStartPoint = { x: Math.round(cmd.x), y: Math.round(cmd.y), onCurve: true };
+                points.push(contourStartPoint);
+                break;
+            case 'L':
+                points.push({ x: Math.round(cmd.x), y: Math.round(cmd.y), onCurve: true });
+                break;
+            case 'Q':
+                // Quadratic curve: off-curve control point then on-curve end
+                points.push({ x: Math.round(cmd.x1), y: Math.round(cmd.y1), onCurve: false });
+                points.push({ x: Math.round(cmd.x), y: Math.round(cmd.y), onCurve: true });
+                break;
+            case 'C': {
+                // Cubic curves need to be approximated as quadratics
+                // Simple approximation: use midpoint of control points as single control point
+                const cx = Math.round((cmd.x1 + cmd.x2) / 2);
+                const cy = Math.round((cmd.y1 + cmd.y2) / 2);
+                points.push({ x: cx, y: cy, onCurve: false });
+                points.push({ x: Math.round(cmd.x), y: Math.round(cmd.y), onCurve: true });
+                break;
+            }
+            case 'Z':
+                // End contour - TrueType contours are implicitly closed, so remove
+                // the last point if it duplicates the first point of the contour
+                if (points.length > contourStart && contourStartPoint) {
+                    const lastPoint = points[points.length - 1];
+                    if (lastPoint.x === contourStartPoint.x && 
+                        lastPoint.y === contourStartPoint.y &&
+                        lastPoint.onCurve === contourStartPoint.onCurve) {
+                        // Remove duplicate closing point
+                        points.pop();
+                    }
+                }
+                if (points.length > contourStart) {
+                    contourEnds.push(points.length - 1);
+                    contourStart = points.length;
+                }
+                contourStartPoint = null;
+                break;
+        }
+    }
+    
+    // Handle case where path doesn't end with Z
+    if (points.length > contourStart) {
+        contourEnds.push(points.length - 1);
+    }
+    
+    return { points, contourEnds };
+}
+
+/**
+ * Encode a single simple glyph to TrueType glyf format.
+ * @param {Glyph} glyph - The glyph to encode
+ * @returns {Uint8Array} The encoded glyph data
+ */
+function encodeSimpleGlyph(glyph) {
+    const path = glyph.path;
+    if (!path || !path.commands || path.commands.length === 0) {
+        // Empty glyph
+        return new Uint8Array(0);
+    }
+    
+    const { points, contourEnds } = pathToPoints(path);
+    
+    if (points.length === 0 || contourEnds.length === 0) {
+        return new Uint8Array(0);
+    }
+    
+    const numberOfContours = contourEnds.length;
+    
+    // Calculate bounding box
+    let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+    for (const pt of points) {
+        xMin = Math.min(xMin, pt.x);
+        yMin = Math.min(yMin, pt.y);
+        xMax = Math.max(xMax, pt.x);
+        yMax = Math.max(yMax, pt.y);
+    }
+    
+    if (!isFinite(xMin)) {
+        xMin = yMin = xMax = yMax = 0;
+    }
+    
+    // Encode flags and coordinates
+    const flags = [];
+    const xCoords = [];
+    const yCoords = [];
+    
+    let prevX = 0;
+    let prevY = 0;
+    
+    for (let i = 0; i < points.length; i++) {
+        const pt = points[i];
+        const dx = pt.x - prevX;
+        const dy = pt.y - prevY;
+        
+        let flag = pt.onCurve ? 1 : 0;
+        
+        // Encode X coordinate
+        const xEnc = encodeCoordinate(dx, 0x02, 0x10);
+        flag |= xEnc.flag;
+        xCoords.push(...xEnc.bytes);
+        
+        // Encode Y coordinate
+        const yEnc = encodeCoordinate(dy, 0x04, 0x20);
+        flag |= yEnc.flag;
+        yCoords.push(...yEnc.bytes);
+        
+        flags.push(flag);
+        
+        prevX = pt.x;
+        prevY = pt.y;
+    }
+    
+    // Calculate total size
+    // Header: 10 bytes (numberOfContours, xMin, yMin, xMax, yMax)
+    // endPtsOfContours: 2 * numberOfContours bytes
+    // instructionLength: 2 bytes
+    // instructions: 0 bytes (no instructions)
+    // flags: flags.length bytes (no RLE for simplicity)
+    // xCoordinates: xCoords.length bytes
+    // yCoordinates: yCoords.length bytes
+    
+    const headerSize = 10;
+    const endPtsSize = 2 * numberOfContours;
+    const instructionSize = 2;
+    const flagsSize = flags.length;
+    const totalSize = headerSize + endPtsSize + instructionSize + flagsSize + xCoords.length + yCoords.length;
+    
+    const data = new Uint8Array(totalSize);
+    const view = new DataView(data.buffer);
+    let offset = 0;
+    
+    // Header
+    view.setInt16(offset, numberOfContours); offset += 2;
+    view.setInt16(offset, xMin); offset += 2;
+    view.setInt16(offset, yMin); offset += 2;
+    view.setInt16(offset, xMax); offset += 2;
+    view.setInt16(offset, yMax); offset += 2;
+    
+    // endPtsOfContours
+    for (const end of contourEnds) {
+        view.setUint16(offset, end); offset += 2;
+    }
+    
+    // instructionLength (0 = no instructions)
+    view.setUint16(offset, 0); offset += 2;
+    
+    // Flags
+    for (const f of flags) {
+        data[offset++] = f;
+    }
+    
+    // X coordinates
+    for (const x of xCoords) {
+        data[offset++] = x;
+    }
+    
+    // Y coordinates
+    for (const y of yCoords) {
+        data[offset++] = y;
+    }
+    
+    return data;
+}
+
+/**
+ * Make a glyf table from a GlyphSet.
+ * @param {GlyphSet} glyphs - The glyphs to encode
+ * @returns {Object} { glyfTable: Table, locaTable: Array }
+ */
+function makeGlyfTable(glyphs) {
+    const glyphDataList = [];
+    const offsets = [0];
+    let currentOffset = 0;
+    
+    for (let i = 0; i < glyphs.length; i++) {
+        const glyph = glyphs.get(i);
+        const glyphData = encodeSimpleGlyph(glyph);
+        glyphDataList.push(glyphData);
+        currentOffset += glyphData.length;
+        // Pad to word boundary (2 bytes)
+        if (currentOffset % 2 !== 0) {
+            currentOffset += 1;
+        }
+        offsets.push(currentOffset);
+    }
+    
+    // Combine all glyph data
+    const totalSize = currentOffset;
+    const glyfData = new Uint8Array(totalSize);
+    let pos = 0;
+    for (const data of glyphDataList) {
+        glyfData.set(data, pos);
+        pos += data.length;
+        // Pad to word boundary
+        if (pos % 2 !== 0) {
+            pos += 1;
+        }
+    }
+    
+    return {
+        glyfData,
+        offsets
+    };
+}
+
+export default { getPath, parse: parseGlyfTable, make: makeGlyfTable };
+export { getPath, transformPoints, pathToPoints };
