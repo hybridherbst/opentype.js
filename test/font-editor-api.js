@@ -644,4 +644,321 @@ describe('Font Editor API', () => {
             assert.ok(importedWidth > 14, `Width should be preserved, got ${importedWidth}`);
         });
     });
+    
+    describe('Font Validation', () => {
+        it('should create .notdef glyph with a drawing (not empty)', () => {
+            const state = new FontEditorState();
+            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build();
+            
+            // Find .notdef glyph
+            const notdefGlyph = font.glyphs.get(0);
+            assert.ok(notdefGlyph, '.notdef glyph should exist');
+            assert.equal(notdefGlyph.name, '.notdef');
+            assert.ok(notdefGlyph.path, '.notdef should have a path');
+            assert.ok(notdefGlyph.path.commands.length > 0, '.notdef path should not be empty');
+            assert.ok(notdefGlyph.advanceWidth > 0, '.notdef should have non-zero advance width');
+        });
+        
+        it('should set version string to match head fontRevision', () => {
+            const state = new FontEditorState();
+            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build();
+            
+            // Check version in names
+            const version = font.names.windows?.version?.en;
+            assert.ok(version, 'Version should be set in names');
+            assert.ok(version.includes('1.'), 'Version should match 1.x format');
+        });
+        
+        it('should create STAT table for variable fonts', () => {
+            const state = new FontEditorState();
+            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            state.setVariableFontEnabled(true);
+            state.addAxis({ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 });
+            state.addMaster('Light', { wght: 100 }, { 'A': [[0, 0], [3, 8], [6, 0]] });
+            state.addMaster('Bold', { wght: 900 }, { 'A': [[0, 0], [5, 12], [10, 0]] });
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build();
+            
+            // Check STAT table exists
+            assert.ok(font.tables.stat, 'STAT table should exist for variable fonts');
+            assert.ok(font.tables.stat.axes, 'STAT table should have axes');
+            assert.equal(font.tables.stat.axes.length, 1, 'STAT should have 1 axis');
+            assert.equal(font.tables.stat.axes[0].tag, 'wght', 'STAT axis tag should be wght');
+        });
+    });
+    
+    describe('Multi-Shape Glyph Support', () => {
+        
+        describe('nested shape format handling', () => {
+            
+            it('should detect flat vs nested shape format', () => {
+                // Test the format detection logic used in font-editor
+                const flatFormat = [[0, 0], [5, 10], [10, 0]];
+                const nestedFormat = [[[0, 0], [5, 10], [10, 0]]];
+                const multiShapeFormat = [[[0, 0], [5, 10], [10, 0]], [[2, 2], [3, 5], [4, 2]]];
+                
+                // Flat format: first element is an array with exactly 2 numbers
+                const isFlat = (data) => data[0] && Array.isArray(data[0]) && typeof data[0][0] === 'number';
+                const isNested = (data) => data[0] && Array.isArray(data[0]) && Array.isArray(data[0][0]);
+                
+                assert.ok(isFlat(flatFormat), 'Flat format should be detected');
+                assert.ok(!isNested(flatFormat), 'Flat format should not be nested');
+                
+                assert.ok(!isFlat(nestedFormat), 'Nested format should not be flat');
+                assert.ok(isNested(nestedFormat), 'Nested format should be detected');
+                
+                assert.ok(!isFlat(multiShapeFormat), 'Multi-shape format should not be flat');
+                assert.ok(isNested(multiShapeFormat), 'Multi-shape format should be nested');
+            });
+            
+            it('should flatten shapes for interpolation', () => {
+                // Simulate the flattenShapesToPoints function from font-editor
+                const flattenShapesToPoints = (shapesOrPoints) => {
+                    if (!shapesOrPoints || shapesOrPoints.length === 0) return [];
+                    if (Array.isArray(shapesOrPoints[0]) && typeof shapesOrPoints[0][0] === 'number') {
+                        return shapesOrPoints;
+                    }
+                    return shapesOrPoints.flat();
+                };
+                
+                const flatFormat = [[0, 0], [5, 10], [10, 0]];
+                const nestedFormat = [[[0, 0], [5, 10], [10, 0]]];
+                const multiShapeFormat = [[[0, 0], [5, 10]], [[2, 2], [4, 2]]];
+                
+                assert.deepEqual(flattenShapesToPoints(flatFormat), flatFormat);
+                assert.deepEqual(flattenShapesToPoints(nestedFormat), [[0, 0], [5, 10], [10, 0]]);
+                assert.deepEqual(flattenShapesToPoints(multiShapeFormat), [[0, 0], [5, 10], [2, 2], [4, 2]]);
+            });
+            
+            it('should build SVG path from nested shapes', () => {
+                // Simulate the renderGlyphGrid path building logic
+                const buildSVGPath = (glyphData) => {
+                    const shapes = (glyphData && glyphData[0] && Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0])) 
+                        ? glyphData : (glyphData && glyphData.length > 0 ? [glyphData] : []);
+                    
+                    let d = '';
+                    for (const points of shapes) {
+                        if (points && points.length > 0) {
+                            d += 'M' + points.map(p => p[0] + ' ' + (10 - p[1])).join(' L') + ' Z ';
+                        }
+                    }
+                    return d.trim();
+                };
+                
+                // Flat format should work
+                const flat = [[0, 0], [5, 10], [10, 0]];
+                assert.equal(buildSVGPath(flat), 'M0 10 L5 0 L10 10 Z');
+                
+                // Nested format should work
+                const nested = [[[0, 0], [5, 10], [10, 0]]];
+                assert.equal(buildSVGPath(nested), 'M0 10 L5 0 L10 10 Z');
+                
+                // Multi-shape format should produce multiple paths
+                const multi = [[[0, 0], [5, 10]], [[2, 2], [3, 5]]];
+                assert.equal(buildSVGPath(multi), 'M0 10 L5 0 Z M2 8 L3 5 Z');
+                
+                // Empty data should produce empty path
+                assert.equal(buildSVGPath([]), '');
+                assert.equal(buildSVGPath(null), '');
+            });
+            
+            it('should not produce NaN in SVG path coordinates', () => {
+                const buildSVGPath = (glyphData) => {
+                    const shapes = (glyphData && glyphData[0] && Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0])) 
+                        ? glyphData : (glyphData && glyphData.length > 0 ? [glyphData] : []);
+                    
+                    let d = '';
+                    for (const points of shapes) {
+                        if (points && points.length > 0) {
+                            d += 'M' + points.map(p => p[0] + ' ' + (10 - p[1])).join(' L') + ' Z ';
+                        }
+                    }
+                    return d.trim();
+                };
+                
+                // These patterns should all produce valid paths without NaN
+                const testCases = [
+                    [[0, 0], [5, 10], [10, 0]],
+                    [[[0, 0], [5, 10], [10, 0]]],
+                    [[[0, 0]], [[5, 5]]],
+                    [[[1.5, 2.5], [3.5, 4.5]]]
+                ];
+                
+                for (const data of testCases) {
+                    const path = buildSVGPath(data);
+                    assert.ok(!path.includes('NaN'), `Path should not contain NaN: ${path}`);
+                    assert.ok(!path.includes('undefined'), `Path should not contain undefined: ${path}`);
+                }
+            });
+        });
+        
+        describe('shape interpolation for variable fonts', () => {
+            
+            it('should interpolate nested shapes correctly', () => {
+                // Simulate the interpolation logic from font-editor
+                const interpolateShapes = (p1, p2, t) => {
+                    const isNested = p1[0] && Array.isArray(p1[0]) && Array.isArray(p1[0][0]);
+                    
+                    if (isNested) {
+                        if (p1.length !== p2.length) return p1;
+                        const result = [];
+                        for (let shapeIdx = 0; shapeIdx < p1.length; shapeIdx++) {
+                            const shape1 = p1[shapeIdx];
+                            const shape2 = p2[shapeIdx];
+                            if (!shape1 || !shape2 || shape1.length !== shape2.length) {
+                                result.push(shape1 || shape2 || []);
+                            } else {
+                                const interpolated = shape1.map((pt, i) => [
+                                    pt[0] + (shape2[i][0] - pt[0]) * t,
+                                    pt[1] + (shape2[i][1] - pt[1]) * t
+                                ]);
+                                result.push(interpolated);
+                            }
+                        }
+                        return result;
+                    } else {
+                        if (p1.length !== p2.length) return p1;
+                        return p1.map((pt, i) => [
+                            pt[0] + (p2[i][0] - pt[0]) * t,
+                            pt[1] + (p2[i][1] - pt[1]) * t
+                        ]);
+                    }
+                };
+                
+                // Test nested format interpolation
+                const shape1 = [[[0, 0], [10, 10]]];
+                const shape2 = [[[0, 0], [20, 20]]];
+                
+                const midpoint = interpolateShapes(shape1, shape2, 0.5);
+                assert.deepEqual(midpoint, [[[0, 0], [15, 15]]]);
+                
+                // Test extrapolation (t > 1)
+                const extrapolated = interpolateShapes(shape1, shape2, 2);
+                assert.deepEqual(extrapolated, [[[0, 0], [30, 30]]]);
+                
+                // Test multi-shape
+                const multi1 = [[[0, 0]], [[10, 10]]];
+                const multi2 = [[[0, 0]], [[20, 20]]];
+                
+                const multiMidpoint = interpolateShapes(multi1, multi2, 0.5);
+                assert.deepEqual(multiMidpoint, [[[0, 0]], [[15, 15]]]);
+            });
+        });
+    });
+
+    describe('Multi-Shape Glyph Export', () => {
+        it('should export fonts with multi-shape glyphs without NaN advanceWidth', () => {
+            // Glyph with multiple shapes (like the letter 'B' with inner counters)
+            const multiShapeGlyph = [
+                [[0, 0], [10, 0], [10, 10], [0, 10]], // outer shape
+                [[2, 2], [8, 2], [8, 8], [2, 8]]      // inner counter
+            ];
+            
+            const state = {
+                familyName: 'Test Font',
+                styleName: 'Regular',
+                unitsPerEm: 800,
+                ascender: 800,
+                descender: -200,
+                glyphs: {
+                    'A': [[0, 0], [5, 10], [10, 0]],  // simple single-shape
+                    'B': multiShapeGlyph              // multi-shape
+                },
+                glyphWidths: {},
+                vfEnabled: false,
+                axes: [],
+                masters: [],
+                instances: []
+            };
+            
+            const builder = new FontBuilder(state, opentype);
+            // This should not throw "advanceWidth is not a number"
+            const font = builder.build({ validate: true });
+            
+            assert.equal(font.glyphs.length, 5, 'should have 5 glyphs (.notdef, space, uni00A0, A, B)');
+            
+            // Check that all glyphs have valid advanceWidth
+            for (let i = 0; i < font.glyphs.length; i++) {
+                const glyph = font.glyphs.get(i);
+                assert.ok(typeof glyph.advanceWidth === 'number', `Glyph ${glyph.name} should have numeric advanceWidth`);
+                assert.ok(!isNaN(glyph.advanceWidth), `Glyph ${glyph.name} advanceWidth should not be NaN`);
+            }
+        });
+        
+        it('should build paths correctly for multi-shape glyphs', () => {
+            const multiShapeGlyph = [
+                [[0, 0], [10, 0], [10, 10], [0, 10]],
+                [[2, 2], [8, 2], [8, 8], [2, 8]]
+            ];
+            
+            const state = {
+                familyName: 'Test Font',
+                styleName: 'Regular',
+                unitsPerEm: 800,
+                ascender: 800,
+                descender: -200,
+                glyphs: { 'B': multiShapeGlyph },
+                glyphWidths: {},
+                vfEnabled: false,
+                axes: [],
+                masters: [],
+                instances: []
+            };
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build();
+            
+            // Find the 'B' glyph (index 3 after .notdef, space, uni00A0)
+            const bGlyph = font.glyphs.get(3);
+            assert.equal(bGlyph.name, 'B');
+            
+            // Should have path commands for both shapes
+            const commands = bGlyph.path.commands;
+            
+            // Count M commands - should be 2 for 2 shapes
+            const moveCommands = commands.filter(c => c.type === 'M');
+            assert.equal(moveCommands.length, 2, 'should have 2 moveTo commands for 2 shapes');
+            
+            // Count Z commands - should be 2 for 2 closed shapes  
+            const closeCommands = commands.filter(c => c.type === 'Z');
+            assert.equal(closeCommands.length, 2, 'should have 2 closePath commands');
+        });
+        
+        it('should compute width correctly from multi-shape glyphs', () => {
+            // Multi-shape where outer bounds define the width
+            const multiShapeGlyph = [
+                [[0, 0], [20, 0], [20, 10], [0, 10]], // outer: width 20
+                [[5, 2], [15, 2], [15, 8], [5, 8]]    // inner: narrower
+            ];
+            
+            const state = {
+                familyName: 'Test Font',
+                styleName: 'Regular',
+                unitsPerEm: 800,
+                ascender: 800,
+                descender: -200,
+                glyphs: { 'X': multiShapeGlyph },
+                glyphWidths: {},
+                vfEnabled: false,
+                axes: [],
+                masters: [],
+                instances: []
+            };
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build();
+            
+            const xGlyph = font.glyphs.get(3);
+            // Width should be (20 + 1) * 80 = 1680 (based on outer shape maxX)
+            // scale = 800 / 10 = 80
+            assert.equal(xGlyph.advanceWidth, 1680);
+        });
+    });
 });

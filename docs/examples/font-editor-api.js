@@ -443,7 +443,24 @@ export class FontBuilder {
         const otGlyphs = [];
         const glyphIndexMap = new Map();
 
-        otGlyphs.push(new ot.Glyph({ name: '.notdef', unicode: 0, path: new ot.Path(), advanceWidth: 0 }));
+        // Create .notdef glyph with a visible rectangle (required by font validators)
+        const notdefPath = new ot.Path();
+        const notdefWidth = Math.round(5 * scale);
+        const notdefHeight = Math.round(7 * scale);
+        // Draw a rectangle for .notdef
+        notdefPath.moveTo(Math.round(0.5 * scale), 0);
+        notdefPath.lineTo(Math.round(4.5 * scale), 0);
+        notdefPath.lineTo(Math.round(4.5 * scale), notdefHeight);
+        notdefPath.lineTo(Math.round(0.5 * scale), notdefHeight);
+        notdefPath.closePath();
+        // Draw inner rectangle (hollow)
+        notdefPath.moveTo(Math.round(1 * scale), Math.round(0.5 * scale));
+        notdefPath.lineTo(Math.round(1 * scale), Math.round(6.5 * scale));
+        notdefPath.lineTo(Math.round(4 * scale), Math.round(6.5 * scale));
+        notdefPath.lineTo(Math.round(4 * scale), Math.round(0.5 * scale));
+        notdefPath.closePath();
+        
+        otGlyphs.push(new ot.Glyph({ name: '.notdef', unicode: 0, path: notdefPath, advanceWidth: notdefWidth }));
         glyphIndexMap.set('.notdef', 0);
         otGlyphs.push(new ot.Glyph({ name: 'space', unicode: 32, path: new ot.Path(), advanceWidth: Math.round(5 * scale) }));
         glyphIndexMap.set('space', 1);
@@ -456,18 +473,38 @@ export class FontBuilder {
             : state.glyphWidths;
 
         let glyphIndex = 3;
-        for (const [char, points] of Object.entries(baseGlyphs)) {
+        for (const [char, pointsOrShapes] of Object.entries(baseGlyphs)) {
             const path = new ot.Path();
-            if (points.length > 0) {
-                path.moveTo(Math.round(points[0][0] * scale), Math.round(points[0][1] * scale));
-                for (let i = 1; i < points.length; i++) {
-                    path.lineTo(Math.round(points[i][0] * scale), Math.round(points[i][1] * scale));
+            
+            // Detect if this is a nested (multi-shape) format: [[[x,y]...], [[x,y]...]]
+            const isNested = pointsOrShapes.length > 0 && 
+                             Array.isArray(pointsOrShapes[0]) && 
+                             Array.isArray(pointsOrShapes[0][0]);
+            
+            if (isNested) {
+                // Multi-shape glyph - each shape is a separate contour
+                for (const shape of pointsOrShapes) {
+                    if (shape && shape.length > 0) {
+                        path.moveTo(Math.round(shape[0][0] * scale), Math.round(shape[0][1] * scale));
+                        for (let i = 1; i < shape.length; i++) {
+                            path.lineTo(Math.round(shape[i][0] * scale), Math.round(shape[i][1] * scale));
+                        }
+                        path.closePath();
+                    }
                 }
-                path.closePath();
+            } else {
+                // Single-shape glyph (flat format)
+                if (pointsOrShapes.length > 0) {
+                    path.moveTo(Math.round(pointsOrShapes[0][0] * scale), Math.round(pointsOrShapes[0][1] * scale));
+                    for (let i = 1; i < pointsOrShapes.length; i++) {
+                        path.lineTo(Math.round(pointsOrShapes[i][0] * scale), Math.round(pointsOrShapes[i][1] * scale));
+                    }
+                    path.closePath();
+                }
             }
 
             const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
-            const width = this._getGlyphWidth(points, char, baseWidths);
+            const width = this._getGlyphWidth(pointsOrShapes, char, baseWidths);
 
             otGlyphs.push(new ot.Glyph({
                 name: glyphName,
@@ -486,6 +523,16 @@ export class FontBuilder {
             descender: state.descender,
             glyphs: otGlyphs
         });
+        
+        // Set consistent version (head fontRevision defaults to 1.0, so name table should match)
+        // nameID 5 is the version string
+        if (!font.names.windows) font.names.windows = {};
+        if (!font.names.windows.version) font.names.windows.version = {};
+        font.names.windows.version.en = 'Version 1.000';
+        
+        // Remove Mac-specific names to avoid unwanted Mac name table entries
+        // We only keep Windows names which are sufficient for modern usage
+        delete font.names.macintosh;
 
         if (state.vfEnabled && state.axes.length > 0 && state.masters.length > 0) {
             this._addVariationData(font, glyphIndexMap, scale);
@@ -511,12 +558,20 @@ export class FontBuilder {
         return new Blob([buffer], { type: 'font/otf' });
     }
 
-    _getGlyphWidth(points, char, widthsObj) {
+    _getGlyphWidth(pointsOrShapes, char, widthsObj) {
         if (widthsObj && widthsObj[char] !== undefined) {
             return widthsObj[char];
         }
-        if (!points || points.length === 0) return 5;
-        const xCoords = points.map(p => p[0]);
+        if (!pointsOrShapes || pointsOrShapes.length === 0) return 5;
+        
+        // Detect if this is a nested (multi-shape) format
+        const isNested = Array.isArray(pointsOrShapes[0]) && Array.isArray(pointsOrShapes[0][0]);
+        
+        // Flatten all points from all shapes to find bounding box
+        const allPoints = isNested ? pointsOrShapes.flat() : pointsOrShapes;
+        if (!allPoints || allPoints.length === 0) return 5;
+        
+        const xCoords = allPoints.map(p => p[0]);
         const minX = Math.min(...xCoords);
         const maxX = Math.max(...xCoords);
         return minX >= 0 ? maxX : maxX - minX;
@@ -579,6 +634,54 @@ export class FontBuilder {
         for (const instance of instances) {
             font.variation.addInstance({ name: instance.name, coordinates: instance.coords });
         }
+        
+        // Create STAT table for variable fonts (required by spec)
+        this._createSTATTable(font, state);
+    }
+    
+    /**
+     * Create STAT table for variable fonts
+     * @private
+     */
+    _createSTATTable(font, state) {
+        if (!state.axes || state.axes.length === 0) return;
+        
+        // Get nameID for "Regular" (we'll use 2 which is typically fontSubfamily)
+        // For a proper implementation, we'd look this up in the names table
+        const elidedFallbackNameID = 2;
+        
+        // Build STAT axes
+        const statAxes = state.axes.map((axis, index) => {
+            // Get or create nameID for axis name
+            // The VariationManager already added name entries for axes
+            const axisNameID = font.tables.fvar?.axes[index]?.axisNameID || 256 + index;
+            return {
+                tag: axis.tag,
+                nameID: axisNameID,
+                ordering: index
+            };
+        });
+        
+        // Build STAT axis values for each axis
+        const statValues = [];
+        state.axes.forEach((axis, axisIndex) => {
+            // Add axis value for default
+            statValues.push({
+                format: 1,
+                axisIndex: axisIndex,
+                flags: 2, // ELIDABLE_AXIS_VALUE_NAME (for the default)
+                valueNameID: font.tables.fvar?.axes[axisIndex]?.axisNameID || 256 + axisIndex,
+                value: axis.defaultValue
+            });
+        });
+        
+        // Set STAT table on font
+        font.tables.stat = {
+            version: [1, 2],
+            axes: statAxes,
+            values: statValues,
+            elidedFallbackNameID: elidedFallbackNameID
+        };
     }
 
     _buildMasterDeltas(axis, scale, axisIndex, axisCount) {

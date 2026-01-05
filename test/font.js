@@ -314,5 +314,40 @@ describe('glyphset.js', function() {
             assert.equal(parsedGlyph.path.commands.length, origGlyph.path.commands.length,
                 'Path command count should match');
         });
+        
+        it('should work with CFF fonts (non-variable)', function() {
+            const cffFont = loadSync('./test/fonts/FiraSansOT-Medium.otf');
+            assert.equal(cffFont.outlinesFormat, 'cff');
+            
+            // instantiate on a non-variable CFF font should still work
+            const staticFont = cffFont.instantiate({});
+            
+            // Verify glyph count matches
+            assert.equal(staticFont.glyphs.length, cffFont.glyphs.length);
+            
+            // Verify glyphs have paths (not undefined)
+            const glyph = staticFont.glyphs.get(4); // 'exclam' glyph
+            assert.ok(glyph, 'Glyph should exist');
+            assert.ok(glyph.path, 'CFF glyph should have a path after instantiate');
+            assert.ok(glyph.path.commands, 'CFF glyph path should have commands');
+            assert.ok(glyph.path.commands.length > 0, 'CFF glyph path should not be empty');
+        });
+        
+        it('should export CFF instantiated font to ArrayBuffer', function() {
+            const cffFont = loadSync('./test/fonts/FiraSansOT-Medium.otf');
+            const staticFont = cffFont.instantiate({});
+            
+            // This should not throw
+            const buffer = staticFont.toArrayBuffer();
+            assert.ok(buffer.byteLength > 0, 'Buffer should have content');
+            
+            // Re-parse and verify
+            const parsed = parse(buffer);
+            assert.ok(parsed.glyphs.length > 0, 'Reparsed font should have glyphs');
+            
+            const glyph = parsed.glyphs.get(4);
+            assert.ok(glyph.path, 'Reparsed CFF glyph should have path');
+            assert.ok(glyph.path.commands.length > 0, 'Reparsed CFF glyph should have commands');
+        });
     });
 });

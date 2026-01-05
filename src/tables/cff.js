@@ -1948,7 +1948,19 @@ function glyphToOps(glyph, version, font) {
     // @TODO: Right now we only make use of (global) sub routines if the whole glyph is made up of them
     // and they are already defined on the glyph. In the future we'll need an algorithm that finds
     // candidates for sub routines and extracts them from the glyphs, replacing the actual commands
-    if (glyph.subrs && glyph.gsubrs && glyph.subrs.length === glyph.gsubrs.length) {
+    // 
+    // IMPORTANT: Only use subroutine-based export if:
+    // 1. The glyph has subrs AND gsubrs arrays of matching length
+    // 2. The arrays have content (length > 0)
+    // 3. The glyph has NO decoded path commands - if it does, prefer using those directly
+    //    because the subroutines may not be preserved correctly during export
+    const hasSubrs = glyph.subrs && glyph.gsubrs && 
+                     glyph.subrs.length > 0 && 
+                     glyph.subrs.length === glyph.gsubrs.length;
+    const hasPathCommands = path && path.commands && path.commands.length > 0;
+    
+    // Prefer path commands over subroutine calls - subroutines may not survive roundtrip
+    if (hasSubrs && !hasPathCommands) {
         const cffTable = font && font.tables && font.tables[version < 2 ? 'cff' : 'cff2'];
         if (!cffTable || !cffTable.topDict) return ops;
         const sel = cffTable.topDict._fdSelect || cffTable.topDict.fdSelect;

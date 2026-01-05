@@ -255,6 +255,23 @@ function getSnapParams() {
     return { strength, distance, x, y };
 }
 
+// Get snap params scaled for font units (for export/baking)
+// The preview uses screen-space snapping (fontSize=72), but font exports
+// need distance scaled to font units to match the preview appearance.
+const PREVIEW_FONT_SIZE = 72;
+function getSnapParamsForFont(font) {
+    const params = getSnapParams();
+    // Scale distance from screen pixels to font units
+    // distance_fontUnits = distance_screen * unitsPerEm / fontSize
+    const scale = font.unitsPerEm / PREVIEW_FONT_SIZE;
+    return {
+        ...params,
+        distance: params.distance * scale,
+        x: params.x * scale,
+        y: params.y * scale
+    };
+}
+
 function snapValue(v, dist, s) {
     return (v * (1.0 - s)) + (s * Math.round(v / dist) * dist);
 }
@@ -421,8 +438,8 @@ for (const [input, out] of [[snapStrengthEl, snapStrengthOut],[snapDistanceEl, s
 
 bakedSnappedBtn.addEventListener('click', () => {
     if (!currentFont) return;
-    const params = getSnapParams();
     const baked = currentFont.instantiate ? currentFont.instantiate(currentFont.variation && currentFont.variation.get && currentFont.variation.get()) : cloneFontDeep(currentFont);
+    const params = getSnapParamsForFont(baked);
     applySnappingToFontInPlace(baked, params);
     const ext = baked.outlinesFormat === 'cff' ? 'otf' : 'ttf';
     const blob = new Blob([baked.toArrayBuffer()], { type: `font/${ext}` });
@@ -441,7 +458,8 @@ genSnapSeriesBtn.addEventListener('click', () => {
     for (let i = 0; i < steps; i++) {
         const t = steps === 1 ? 0 : i / (steps - 1);
         const strengthPct = Math.round(start + (end - start) * t);
-        const params = { ...getSnapParams(), strength: strengthPct / 100 };
+        const baseParams = getSnapParamsForFont(currentFont);
+        const params = { ...baseParams, strength: strengthPct / 100 };
         const variant = cloneFontDeep(currentFont); // keep variation data intact
         applySnappingToFontInPlace(variant, params);
         const ext = variant.outlinesFormat === 'cff' ? 'otf' : 'ttf';
@@ -468,7 +486,8 @@ document.getElementById('create-snap-vf').addEventListener('click', () => {
         vfFont.variation = new VariationManager(vfFont);
     }
     
-    const snapParams = getSnapParams();
+    // Get snap params scaled to font units (to match preview appearance)
+    const snapParams = getSnapParamsForFont(vfFont);
     
     // Get snapped coordinates for each glyph ahead of time
     const snappedPaths = new Map();

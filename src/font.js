@@ -1,6 +1,7 @@
 // The Font object
 
 import Path from './path.js';
+import Glyph from './glyph.js';
 import sfnt from './tables/sfnt.js';
 import { DefaultEncoding } from './encoding.js';
 import glyphset from './glyphset.js';
@@ -136,6 +137,11 @@ function Font(options) {
                 fsSelection: selection,
             }, options.tables.os2)
         });
+    } else {
+        // For empty fonts (e.g., instantiate), still set basic metrics if provided
+        if (options.unitsPerEm) this.unitsPerEm = options.unitsPerEm;
+        if (options.ascender !== undefined) this.ascender = options.ascender;
+        if (options.descender !== undefined) this.descender = options.descender;
     }
 
     this.supported = true; // Deprecated: parseBuffer will throw an error if font is not supported.
@@ -247,11 +253,30 @@ Font.prototype.instantiate = function(coordsOrName) {
         if (this.variation && this.variation.process) {
             ng = this.variation.process.getTransform(g, coords);
         } else if (g.getBlendPath) {
-            ng = g.clone && g.clone() || Object.assign(Object.create(Object.getPrototypeOf(g)), g);
-            const blended = ng.getBlendPath(this, coords);
-            if (blended) ng.path = blended;
+            // CFF2 font with blend paths - resolve the blended path
+            const blended = g.getBlendPath(this, coords);
+            ng = new Glyph({
+                index: g.index,
+                name: g.name,
+                unicode: g.unicode,
+                unicodes: g.unicodes ? [...g.unicodes] : [],
+                advanceWidth: g.advanceWidth,
+                leftSideBearing: g.leftSideBearing,
+                path: blended || g.path
+            });
         } else {
-            ng = g.clone && g.clone() || Object.assign(Object.create(Object.getPrototypeOf(g)), g);
+            // Non-variable font - need to explicitly copy the path
+            // Object.assign doesn't copy non-enumerable properties like path
+            const path = g.path; // Access to resolve lazy getter
+            ng = new Glyph({
+                index: g.index,
+                name: g.name,
+                unicode: g.unicode,
+                unicodes: g.unicodes ? [...g.unicodes] : [],
+                advanceWidth: g.advanceWidth,
+                leftSideBearing: g.leftSideBearing,
+                path: path
+            });
         }
         
         f.glyphs.push(i, ng);

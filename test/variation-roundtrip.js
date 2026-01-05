@@ -1,4 +1,5 @@
 import assert from 'assert';
+import fs from 'fs';
 import { Font, Glyph, Path, parse, VariationManager } from '../src/opentype.js';
 
 describe('variation roundtrip', function() {
@@ -750,5 +751,319 @@ describe('variation roundtrip', function() {
             }
             return { width: maxX - minX, height: maxY - minY };
         }
+    });
+    
+    describe('SNAP VF Creation (reading-writing.html pattern)', function() {
+        // These tests simulate what reading-writing.html does when creating a SNAP VF
+        
+        it('should preserve glyphs when cloning font via toArrayBuffer/parse', function() {
+            // Create a test font
+            const notdefPath = new Path();
+            notdefPath.moveTo(50, 0);
+            notdefPath.lineTo(50, 700);
+            notdefPath.lineTo(450, 700);
+            notdefPath.lineTo(450, 0);
+            notdefPath.closePath();
+            
+            const aPath = new Path();
+            aPath.moveTo(100, 0);
+            aPath.lineTo(250, 700);
+            aPath.lineTo(400, 0);
+            aPath.closePath();
+
+            const font = new Font({
+                familyName: 'Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200,
+                glyphs: [
+                    new Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: notdefPath }),
+                    new Glyph({ name: 'A', unicode: 65, advanceWidth: 500, path: aPath })
+                ]
+            });
+            
+            // Clone like reading-writing.html does
+            const buffer = font.toArrayBuffer();
+            const cloned = parse(buffer);
+            
+            // Verify glyphs are preserved
+            assert.ok(cloned.glyphs.length >= 2, 'Should have at least 2 glyphs');
+            
+            const glyphA = cloned.charToGlyph('A');
+            assert.ok(glyphA, 'Should find glyph A');
+            assert.ok(glyphA.path, 'Glyph A should have path');
+            assert.ok(glyphA.path.commands.length > 0, 'Glyph A path should have commands');
+        });
+        
+        it('should create SNAP VF with glyphs after addAxis with deltaGenerator', function() {
+            // Create a test font with paths
+            const notdefPath = new Path();
+            notdefPath.moveTo(50, 0);
+            notdefPath.lineTo(50, 700);
+            notdefPath.lineTo(450, 700);
+            notdefPath.lineTo(450, 0);
+            notdefPath.closePath();
+            
+            const aPath = new Path();
+            aPath.moveTo(100, 0);
+            aPath.lineTo(250, 700);
+            aPath.lineTo(400, 0);
+            aPath.closePath();
+
+            const font = new Font({
+                familyName: 'TestSNAP',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200,
+                glyphs: [
+                    new Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: notdefPath }),
+                    new Glyph({ name: 'A', unicode: 65, advanceWidth: 500, path: aPath })
+                ]
+            });
+            
+            // Simulate cloneFontDeep
+            const vfFont = parse(font.toArrayBuffer());
+            
+            // Verify glyphs exist before adding axis
+            assert.ok(vfFont.glyphs.length >= 2, 'Cloned font should have glyphs');
+            
+            // Initialize VariationManager like reading-writing.html
+            if (!vfFont.variation) {
+                vfFont.variation = new VariationManager(vfFont);
+            }
+            
+            // Pre-compute "snapped" paths (simulate snapping by adding 10 to all coords)
+            const snappedPaths = new Map();
+            for (let i = 0; i < vfFont.glyphs.length; i++) {
+                const glyph = vfFont.glyphs.get(i);
+                if (!glyph || !glyph.path || !glyph.path.commands || glyph.path.commands.length === 0) {
+                    continue;
+                }
+                const snappedCommands = glyph.path.commands.map(cmd => {
+                    const newCmd = { ...cmd };
+                    if (newCmd.x !== undefined) newCmd.x += 10;
+                    if (newCmd.y !== undefined) newCmd.y += 10;
+                    if (newCmd.x1 !== undefined) newCmd.x1 += 10;
+                    if (newCmd.y1 !== undefined) newCmd.y1 += 10;
+                    if (newCmd.x2 !== undefined) newCmd.x2 += 10;
+                    if (newCmd.y2 !== undefined) newCmd.y2 += 10;
+                    return newCmd;
+                });
+                snappedPaths.set(i, snappedCommands);
+            }
+            
+            // Add SNAP axis with deltaGenerator like reading-writing.html
+            vfFont.variation.addAxis({
+                tag: 'SNAP',
+                name: 'Snapping',
+                minValue: 0,
+                defaultValue: 0,
+                maxValue: 100,
+                deltaGenerator: (glyph) => {
+                    const snappedCommands = snappedPaths.get(glyph.index);
+                    if (!snappedCommands) return null;
+                    
+                    const baseCommands = glyph.path.commands;
+                    if (baseCommands.length !== snappedCommands.length) return null;
+                    
+                    const deltas = [];
+                    const deltasY = [];
+                    
+                    for (let i = 0; i < baseCommands.length; i++) {
+                        const base = baseCommands[i];
+                        const target = snappedCommands[i];
+                        
+                        if (base.x !== undefined && target.x !== undefined) {
+                            deltas.push(Math.round(target.x - base.x));
+                            deltasY.push(Math.round(target.y - base.y));
+                        }
+                        if (base.x1 !== undefined && target.x1 !== undefined) {
+                            deltas.push(Math.round(target.x1 - base.x1));
+                            deltasY.push(Math.round(target.y1 - base.y1));
+                        }
+                        if (base.x2 !== undefined && target.x2 !== undefined) {
+                            deltas.push(Math.round(target.x2 - base.x2));
+                            deltasY.push(Math.round(target.y2 - base.y2));
+                        }
+                    }
+                    
+                    // Phantom points
+                    deltas.push(0, 0, 0, 0);
+                    deltasY.push(0, 0, 0, 0);
+                    
+                    return { deltas, deltasY };
+                }
+            });
+            
+            // Export the font
+            const buffer = vfFont.toArrayBuffer();
+            assert.ok(buffer.byteLength > 0, 'Buffer should have content');
+            
+            // Re-import and verify
+            const parsed = parse(buffer);
+            
+            // Verify axes
+            assert.ok(parsed.tables.fvar, 'Should have fvar table');
+            assert.equal(parsed.tables.fvar.axes.length, 1, 'Should have 1 axis');
+            assert.equal(parsed.tables.fvar.axes[0].tag, 'SNAP', 'Axis should be SNAP');
+            
+            // Verify glyphs still exist
+            assert.ok(parsed.glyphs.length >= 2, 'Parsed font should have glyphs');
+            
+            const parsedGlyphA = parsed.charToGlyph('A');
+            assert.ok(parsedGlyphA, 'Parsed font should have glyph A');
+            assert.ok(parsedGlyphA.path, 'Glyph A should have path after re-parse');
+            assert.ok(parsedGlyphA.path.commands.length > 0, 'Glyph A path should have commands after re-parse');
+        });
+        
+        it('should export font with non-zero glyph count', function() {
+            // Minimal reproduction case
+            const aPath = new Path();
+            aPath.moveTo(0, 0);
+            aPath.lineTo(100, 200);
+            aPath.lineTo(200, 0);
+            aPath.closePath();
+            
+            const font = new Font({
+                familyName: 'Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200,
+                glyphs: [
+                    new Glyph({ name: '.notdef', unicode: 0, advanceWidth: 200, path: new Path() }),
+                    new Glyph({ name: 'A', unicode: 65, advanceWidth: 250, path: aPath })
+                ]
+            });
+            
+            // Clone and add axis
+            const cloned = parse(font.toArrayBuffer());
+            cloned.variation = new VariationManager(cloned);
+            cloned.variation.addAxis({
+                tag: 'TEST',
+                name: 'Test',
+                minValue: 0,
+                defaultValue: 0,
+                maxValue: 100,
+                deltaGenerator: () => null  // No deltas
+            });
+            
+            // Export
+            const buffer = cloned.toArrayBuffer();
+            const final = parse(buffer);
+            
+            // The critical test - font should still have glyphs
+            assert.ok(final.glyphs.length >= 2, `Font should have at least 2 glyphs, but has ${final.glyphs.length}`);
+            
+            // And glyph A should have a path
+            const finalA = final.charToGlyph('A');
+            assert.ok(finalA, 'Should find glyph A');
+            assert.ok(finalA.path, 'Glyph A should have path');
+            assert.ok(finalA.path.commands.length > 0, `Glyph A should have path commands, but has ${finalA.path.commands.length}`);
+        });
+    });
+    
+    describe('CFF Font Roundtrip', () => {
+        it('should preserve glyphs when roundtripping CFF font that uses subroutines', async () => {
+            // Load a CFF font that uses subroutines
+            const fontPath = './test/fonts/AbrilFatface-Regular.otf';
+            const data = fs.readFileSync(fontPath);
+            const font = parse(data.buffer);
+            
+            assert.equal(font.outlinesFormat, 'cff', 'Font should be CFF');
+            
+            // Check original glyph A
+            const origA = font.charToGlyph('A');
+            assert.ok(origA, 'Original should have glyph A');
+            const origCommands = origA.path.commands.length;
+            assert.ok(origCommands > 0, `Original glyph A should have commands, but has ${origCommands}`);
+            
+            // Count non-empty glyphs in first 100
+            let origNonEmpty = 0;
+            for (let i = 0; i < Math.min(100, font.numGlyphs); i++) {
+                const g = font.glyphs.get(i);
+                if (g && g.path && g.path.commands && g.path.commands.length > 0) {
+                    origNonEmpty++;
+                }
+            }
+            
+            // Roundtrip
+            const buffer = font.toArrayBuffer();
+            const cloned = parse(buffer);
+            
+            // Check cloned glyph A
+            const clonedA = cloned.charToGlyph('A');
+            assert.ok(clonedA, 'Cloned should have glyph A');
+            assert.equal(clonedA.path.commands.length, origCommands, 
+                `Cloned glyph A should have same command count (${origCommands})`);
+            
+            // Count non-empty glyphs
+            let clonedNonEmpty = 0;
+            for (let i = 0; i < Math.min(100, cloned.numGlyphs); i++) {
+                const g = cloned.glyphs.get(i);
+                if (g && g.path && g.path.commands && g.path.commands.length > 0) {
+                    clonedNonEmpty++;
+                }
+            }
+            
+            assert.equal(clonedNonEmpty, origNonEmpty, 
+                `Cloned should have same non-empty glyph count (${origNonEmpty}), but has ${clonedNonEmpty}`);
+        });
+        
+        it('should preserve glyphs when creating SNAP VF from CFF font', async () => {
+            // Load a CFF font
+            const fontPath = './test/fonts/AbrilFatface-Regular.otf';
+            const data = fs.readFileSync(fontPath);
+            const font = parse(data.buffer);
+            
+            // Count original non-empty glyphs
+            let origNonEmpty = 0;
+            for (let i = 0; i < Math.min(100, font.numGlyphs); i++) {
+                const g = font.glyphs.get(i);
+                if (g && g.path && g.path.commands && g.path.commands.length > 0) {
+                    origNonEmpty++;
+                }
+            }
+            
+            // Clone via toArrayBuffer/parse (like reading-writing.html)
+            const cloned = parse(font.toArrayBuffer());
+            
+            // Add SNAP axis
+            const vm = new VariationManager(cloned);
+            vm.addAxis({
+                tag: 'SNAP',
+                name: 'Snap',
+                minValue: 0,
+                defaultValue: 0,
+                maxValue: 100
+            }, {
+                deltaGenerator: () => ({ delta: null })
+            });
+            
+            // Export SNAP VF
+            const snapBuffer = cloned.toArrayBuffer();
+            const snapFont = parse(snapBuffer);
+            
+            // Count non-empty glyphs in SNAP VF
+            let snapNonEmpty = 0;
+            for (let i = 0; i < Math.min(100, snapFont.numGlyphs); i++) {
+                const g = snapFont.glyphs.get(i);
+                if (g && g.path && g.path.commands && g.path.commands.length > 0) {
+                    snapNonEmpty++;
+                }
+            }
+            
+            assert.equal(snapNonEmpty, origNonEmpty, 
+                `SNAP VF should preserve glyph count (${origNonEmpty}), but has ${snapNonEmpty}`);
+            
+            // Check glyph A specifically
+            const origA = font.charToGlyph('A');
+            const snapA = snapFont.charToGlyph('A');
+            assert.ok(snapA, 'SNAP VF should have glyph A');
+            assert.equal(snapA.path.commands.length, origA.path.commands.length,
+                `SNAP VF glyph A should have same command count`);
+        });
     });
 });

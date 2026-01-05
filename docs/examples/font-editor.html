@@ -306,6 +306,40 @@
             font-size: 12px;
         }
 
+        .shape-list, .point-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .shape-item {
+            display: flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 3px;
+            background: var(--bg-tertiary);
+        }
+        
+        .shape-item:hover {
+            background: var(--bg-hover);
+        }
+        
+        .shape-item.selected {
+            background: rgba(74, 158, 255, 0.3);
+            border: 1px solid var(--accent-color);
+        }
+        
+        .shape-item span {
+            font-size: 12px;
+        }
+        
+        .shape-item .point-count {
+            margin-left: auto;
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+
         .point-list {
             max-height: 200px;
             overflow-y: auto;
@@ -648,7 +682,7 @@
                     </div>
 
                     <div class="property-group">
-                        <h4>Selected Point</h4>
+                        <h4>Point</h4>
                         <div class="property-row">
                             <label>X</label>
                             <input type="number" id="point-x" value="0" step="0.5">
@@ -660,8 +694,8 @@
                     </div>
 
                     <div class="property-group">
-                        <h4>Points</h4>
-                        <div class="point-list" id="point-list"></div>
+                        <h4>Shapes <button id="add-shape-btn" class="btn btn-small">+</button> <button id="delete-shape-btn" class="btn btn-small">−</button></h4>
+                        <div class="shape-list" id="shape-list"></div>
                     </div>
 
                     <div class="vf-panel">
@@ -670,6 +704,12 @@
                             <div class="vf-section">
                                 <h4>Axes <button id="add-axis-btn">+ Add</button></h4>
                                 <div id="axis-list"></div>
+                                <div class="preview-toggle" style="margin-top: 10px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                        <input type="checkbox" id="toggle-result-preview">
+                                        <span>Preview result in editor</span>
+                                    </label>
+                                </div>
                             </div>
                             <div class="vf-section">
                                 <h4>Masters <button id="add-master-btn">+ Add</button></h4>
@@ -790,44 +830,50 @@
         // State
         const state = {
             glyphs: {
-                'A': [[0, 0], [4, 10], [8, 0]],
-                'B': [[0, 0], [0, 10], [5, 10], [5, 5], [7, 5], [7, 0]],
-                'C': [[0, 0], [0, 10], [8, 10], [8, 6], [3, 6], [3, 4], [8, 4], [8, 0]],
-                'D': [[0, 0], [0, 3], [2, 3], [2, 7], [0, 7], [0, 10], [8, 10], [8, 0]],
-                'E': [[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [3, 7], [3, 6], [5, 6], [5, 4], [3, 4], [3, 3], [8, 3], [8, 0]],
-                'F': [[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [3, 7], [3, 6], [5, 6], [5, 3], [3, 3], [3, 0]],
-                'G': [[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [3, 7], [3, 3], [5, 3], [5, 5], [8, 5], [8, 0]],
-                'H': [[0, 0], [0, 3], [0, 7], [0, 10], [3, 10], [3, 7], [5, 7], [5, 10], [8, 10], [8, 0], [5, 0], [5, 3], [3, 3], [3, 0]],
-                'I': [[0, 0], [0, 10], [3, 10], [3, 0]],
-                'J': [[0, 0], [0, 3], [4, 3], [4, 10], [7, 10], [7, 0]],
-                'K': [[0, 0], [0, 10], [3, 10], [3, 7], [5, 10], [8, 10], [5, 5], [8, 0], [5, 0], [3, 3], [3, 0]],
-                'L': [[0, 0], [0, 10], [3, 10], [3, 3], [7, 3], [7, 0]],
-                'M': [[0, 0], [0, 10], [3, 10], [4, 8], [5, 10], [8, 10], [8, 0], [5, 0], [5, 4], [4, 3], [3, 4], [3, 0]],
-                'N': [[0, 0], [0, 10], [3, 10], [3, 9], [5, 7], [5, 10], [8, 10], [8, 0], [5, 0], [5, 3], [3, 5], [3, 0]],
-                'O': [[0, 0], [0, 10], [7, 10], [7, 0]],
-                'P': [[0, 0], [0, 10], [7, 10], [7, 4], [3, 4], [3, 0]],
-                'Q': [[0, 0], [0, 10], [7, 10], [7, 0], [6, 0], [7, -1], [4, -1], [3, 0]],
-                'R': [[0, 0], [0, 10], [7, 10], [7, 4], [5, 4], [7, 0], [4, 0], [3, 2], [3, 0]],
-                'S': [[7, 10], [7, 7], [3, 7], [3, 6], [7, 6], [7, 0], [0, 0], [0, 3], [4, 3], [4, 4], [0, 4], [0, 10]],
-                'T': [[2, 0], [2, 7], [0, 7], [0, 10], [7, 10], [7, 7], [5, 7], [5, 0]],
-                'U': [[0, 0], [0, 10], [3, 10], [3, 3], [5, 3], [5, 10], [8, 10], [8, 0]],
-                'V': [[0, 10], [3, 10], [4, 0], [5, 10], [8, 10], [5, 0], [3, 0]],
-                'W': [[0, 10], [2, 10], [3, 3], [4, 7], [5, 3], [6, 10], [8, 10], [6, 0], [5, 0], [4, 4], [3, 0], [2, 0]],
-                'X': [[0, 10], [2, 10], [4, 6], [6, 10], [8, 10], [5, 5], [8, 0], [6, 0], [4, 4], [2, 0], [0, 0], [3, 5]],
-                'Y': [[0, 10], [2, 10], [4, 6], [6, 10], [8, 10], [5, 4], [5, 0], [3, 0], [3, 4]],
-                'Z': [[0, 10], [8, 10], [8, 7], [3, 3], [8, 3], [8, 0], [0, 0], [0, 3], [5, 7], [0, 7]],
+                // Now using nested arrays: each glyph is an array of shapes, each shape is an array of points
+                'A': [[[0, 0], [4, 10], [8, 0]]],
+                'B': [[[0, 0], [0, 10], [5, 10], [5, 5], [7, 5], [7, 0]]],
+                'C': [[[0, 0], [0, 10], [8, 10], [8, 6], [3, 6], [3, 4], [8, 4], [8, 0]]],
+                'D': [[[0, 0], [0, 3], [2, 3], [2, 7], [0, 7], [0, 10], [8, 10], [8, 0]]],
+                'E': [[[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [3, 7], [3, 6], [5, 6], [5, 4], [3, 4], [3, 3], [8, 3], [8, 0]]],
+                'F': [[[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [3, 7], [3, 6], [5, 6], [5, 3], [3, 3], [3, 0]]],
+                'G': [[[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [3, 7], [3, 3], [5, 3], [5, 5], [8, 5], [8, 0]]],
+                'H': [[[0, 0], [0, 3], [0, 7], [0, 10], [3, 10], [3, 7], [5, 7], [5, 10], [8, 10], [8, 0], [5, 0], [5, 3], [3, 3], [3, 0]]],
+                'I': [[[0, 0], [0, 10], [3, 10], [3, 0]]],
+                'J': [[[0, 0], [0, 3], [4, 3], [4, 10], [7, 10], [7, 0]]],
+                'K': [[[0, 0], [0, 10], [3, 10], [3, 7], [5, 10], [8, 10], [5, 5], [8, 0], [5, 0], [3, 3], [3, 0]]],
+                'L': [[[0, 0], [0, 10], [3, 10], [3, 3], [7, 3], [7, 0]]],
+                'M': [[[0, 0], [0, 10], [3, 10], [4, 8], [5, 10], [8, 10], [8, 0], [5, 0], [5, 4], [4, 3], [3, 4], [3, 0]]],
+                'N': [[[0, 0], [0, 10], [3, 10], [3, 9], [5, 7], [5, 10], [8, 10], [8, 0], [5, 0], [5, 3], [3, 5], [3, 0]]],
+                'O': [[[0, 0], [0, 10], [7, 10], [7, 0]]],
+                'P': [[[0, 0], [0, 10], [7, 10], [7, 4], [3, 4], [3, 0]]],
+                'Q': [[[0, 0], [0, 10], [7, 10], [7, 0], [6, 0], [7, -1], [4, -1], [3, 0]]],
+                'R': [[[0, 0], [0, 10], [7, 10], [7, 4], [5, 4], [7, 0], [4, 0], [3, 2], [3, 0]]],
+                'S': [[[7, 10], [7, 7], [3, 7], [3, 6], [7, 6], [7, 0], [0, 0], [0, 3], [4, 3], [4, 4], [0, 4], [0, 10]]],
+                'T': [[[2, 0], [2, 7], [0, 7], [0, 10], [7, 10], [7, 7], [5, 7], [5, 0]]],
+                'U': [[[0, 0], [0, 10], [3, 10], [3, 3], [5, 3], [5, 10], [8, 10], [8, 0]]],
+                'V': [[[0, 10], [3, 10], [4, 0], [5, 10], [8, 10], [5, 0], [3, 0]]],
+                'W': [[[0, 10], [2, 10], [3, 3], [4, 7], [5, 3], [6, 10], [8, 10], [6, 0], [5, 0], [4, 4], [3, 0], [2, 0]]],
+                'X': [[[0, 10], [2, 10], [4, 6], [6, 10], [8, 10], [5, 5], [8, 0], [6, 0], [4, 4], [2, 0], [0, 0], [3, 5]]],
+                'Y': [[[0, 10], [2, 10], [4, 6], [6, 10], [8, 10], [5, 4], [5, 0], [3, 0], [3, 4]]],
+                'Z': [[[0, 10], [8, 10], [8, 7], [3, 3], [8, 3], [8, 0], [0, 0], [0, 3], [5, 7], [0, 7]]],
             },
             // Explicit glyph widths (advance widths). If not set, computed from rightmost point + 1
             glyphWidths: {},
             currentGlyph: 'A',
+            selectedShape: 0, // Index of currently selected shape within the glyph
             selectedPoint: -1,
             zoom: 20,
             gridSize: 1,
             panX: 100,
             panY: 50,
             isDragging: false,
+            isDraggingShape: false, // Dragging entire shape
+            isDraggingEdge: false, // Dragging an edge (two points)
+            dragEdgeIndices: null, // [startIdx, endIdx] of edge being dragged
             isPanning: false,
             lastMousePos: { x: 0, y: 0 },
+            showResultPreview: false, // Show resulting shape preview in editor
             // Variable font state
             vf: {
                 enabled: false,
@@ -838,6 +884,49 @@
                 previewCoords: {} // Current preview position in design space
             }
         };
+        
+        // Helper: Get all shapes for current glyph (handles legacy flat format)
+        function getGlyphShapes(char = state.currentGlyph) {
+            const data = state.glyphs[char];
+            if (!data || data.length === 0) return [];
+            // Check if nested (array of shapes) or flat (single shape as array of points)
+            if (data[0] && Array.isArray(data[0]) && Array.isArray(data[0][0])) {
+                return data; // Already nested
+            }
+            // Legacy flat format - wrap in array
+            return [data];
+        }
+        
+        // Helper: Get points for the currently selected shape
+        function getCurrentShapePoints() {
+            const shapes = getGlyphShapes();
+            if (state.selectedShape >= 0 && state.selectedShape < shapes.length) {
+                return shapes[state.selectedShape];
+            }
+            return [];
+        }
+        
+        // Helper: Set glyph data ensuring nested format
+        function setGlyphShapes(shapes, char = state.currentGlyph) {
+            state.glyphs[char] = shapes;
+        }
+        
+        // Helper: Get all points flattened (for width calculation, preview, etc.)
+        function getAllGlyphPoints(char = state.currentGlyph) {
+            const shapes = getGlyphShapes(char);
+            return shapes.flat();
+        }
+        
+        // Helper: Flatten shapes to flat point array (for VF interpolation)
+        function flattenShapesToPoints(shapesOrPoints) {
+            if (!shapesOrPoints || shapesOrPoints.length === 0) return [];
+            // Check if already flat (first element is a point [x, y])
+            if (Array.isArray(shapesOrPoints[0]) && typeof shapesOrPoints[0][0] === 'number') {
+                return shapesOrPoints; // Already flat
+            }
+            // Nested format - flatten
+            return shapesOrPoints.flat();
+        }
 
         // DOM elements
         const editorCanvas = document.getElementById('editor-canvas');
@@ -845,7 +934,7 @@
         const editorCtx = editorCanvas.getContext('2d');
         const previewCtx = previewCanvas.getContext('2d');
         const glyphGrid = document.getElementById('glyph-grid');
-        const pointList = document.getElementById('point-list');
+        const shapeList = document.getElementById('shape-list');
 
         // Initialize
         function init() {
@@ -898,12 +987,20 @@
             document.getElementById('glyph-char').addEventListener('input', updateGlyphChar);
             document.getElementById('glyph-width').addEventListener('input', updateGlyphWidthFromInput);
             document.getElementById('clear-width').addEventListener('click', clearGlyphWidth);
+            
+            // Shape controls
+            document.getElementById('add-shape-btn').addEventListener('click', addShape);
+            document.getElementById('delete-shape-btn').addEventListener('click', deleteSelectedShape);
 
             // Variable font controls
             document.getElementById('toggle-vf').addEventListener('click', toggleVariableFont);
             document.getElementById('add-axis-btn').addEventListener('click', () => showModal('axis-modal'));
             document.getElementById('add-master-btn').addEventListener('click', () => showMasterModal());
             document.getElementById('add-instance-btn').addEventListener('click', () => showInstanceModal());
+            document.getElementById('toggle-result-preview').addEventListener('change', e => {
+                state.showResultPreview = e.target.checked;
+                draw();
+            });
             
             // Axis modal
             document.getElementById('axis-cancel').addEventListener('click', () => hideModal('axis-modal'));
@@ -925,6 +1022,7 @@
             });
 
             renderGlyphGrid();
+            updateShapeList();
             draw();
         }
 
@@ -954,13 +1052,66 @@
             };
         }
 
+        // Find point at screen coordinates - returns {shapeIndex, pointIndex} or null
         function findPointAt(mx, my) {
-            const points = state.glyphs[state.currentGlyph] || [];
+            const shapes = getGlyphShapes();
             const threshold = 8;
-            for (let i = points.length - 1; i >= 0; i--) {
-                const screen = worldToScreen(points[i][0], points[i][1]);
-                const dist = Math.sqrt((mx - screen.x) ** 2 + (my - screen.y) ** 2);
-                if (dist < threshold) return i;
+            // Check current shape first, then others
+            const order = [state.selectedShape, ...shapes.map((_, i) => i).filter(i => i !== state.selectedShape)];
+            for (const si of order) {
+                if (si < 0 || si >= shapes.length) continue;
+                const points = shapes[si];
+                for (let i = points.length - 1; i >= 0; i--) {
+                    const screen = worldToScreen(points[i][0], points[i][1]);
+                    const dist = Math.sqrt((mx - screen.x) ** 2 + (my - screen.y) ** 2);
+                    if (dist < threshold) return { shapeIndex: si, pointIndex: i };
+                }
+            }
+            return null;
+        }
+        
+        // Find nearest edge across all shapes
+        function findNearestEdgeAllShapes(mx, my) {
+            const shapes = getGlyphShapes();
+            let bestResult = null;
+            let bestDistance = Infinity;
+            
+            for (let si = 0; si < shapes.length; si++) {
+                const points = shapes[si];
+                if (points.length < 2) continue;
+                const result = findNearestEdge(mx, my, points);
+                if (result.distance < bestDistance) {
+                    bestDistance = result.distance;
+                    bestResult = { shapeIndex: si, edgeIndex: result.index, distance: result.distance };
+                }
+            }
+            return bestResult;
+        }
+        
+        // Check if point is inside a shape (for shape dragging)
+        function pointInShape(mx, my, points) {
+            if (points.length < 3) return false;
+            // Ray casting algorithm
+            let inside = false;
+            for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+                const pi = worldToScreen(points[i][0], points[i][1]);
+                const pj = worldToScreen(points[j][0], points[j][1]);
+                if (((pi.y > my) !== (pj.y > my)) &&
+                    (mx < (pj.x - pi.x) * (my - pi.y) / (pj.y - pi.y) + pi.x)) {
+                    inside = !inside;
+                }
+            }
+            return inside;
+        }
+        
+        // Find which shape the mouse is inside
+        function findShapeAt(mx, my) {
+            const shapes = getGlyphShapes();
+            // Check from top (last) to bottom (first)
+            for (let si = shapes.length - 1; si >= 0; si--) {
+                if (pointInShape(mx, my, shapes[si])) {
+                    return si;
+                }
             }
             return -1;
         }
@@ -978,29 +1129,59 @@
                 return;
             }
 
-            const pointIndex = findPointAt(mx, my);
+            const pointHit = findPointAt(mx, my);
 
-            if (e.shiftKey && pointIndex >= 0) {
-                // Shift+click to delete
-                const points = state.glyphs[state.currentGlyph];
-                points.splice(pointIndex, 1);
+            if (e.shiftKey && pointHit) {
+                // Shift+click to delete point
+                const shapes = getGlyphShapes();
+                shapes[pointHit.shapeIndex].splice(pointHit.pointIndex, 1);
                 state.selectedPoint = -1;
                 draw();
-                updatePointList();
+                updateShapeList();
                 return;
             }
 
-            if (pointIndex >= 0) {
-                state.selectedPoint = pointIndex;
+            if (pointHit) {
+                state.selectedShape = pointHit.shapeIndex;
+                state.selectedPoint = pointHit.pointIndex;
                 state.isDragging = true;
+                state.isDraggingShape = false;
+                state.isDraggingEdge = false;
                 state.lastMousePos = { x: mx, y: my };
             } else {
-                state.selectedPoint = -1;
+                // Check if clicking on an edge (for edge dragging)
+                const edgeHit = findNearestEdgeAllShapes(mx, my);
+                if (edgeHit && edgeHit.distance < 10) {
+                    state.selectedShape = edgeHit.shapeIndex;
+                    state.selectedPoint = -1;
+                    state.isDragging = false;
+                    state.isDraggingEdge = true;
+                    const shapes = getGlyphShapes();
+                    const points = shapes[edgeHit.shapeIndex];
+                    const startIdx = edgeHit.edgeIndex - 1;
+                    const endIdx = edgeHit.edgeIndex >= points.length ? 0 : edgeHit.edgeIndex;
+                    state.dragEdgeIndices = [startIdx < 0 ? points.length - 1 : startIdx, endIdx];
+                    state.lastMousePos = { x: mx, y: my };
+                } else {
+                    // Check if clicking inside a shape (for shape dragging)
+                    const shapeIdx = findShapeAt(mx, my);
+                    if (shapeIdx >= 0) {
+                        state.selectedShape = shapeIdx;
+                        state.selectedPoint = -1;
+                        state.isDragging = false;
+                        state.isDraggingShape = true;
+                        state.lastMousePos = { x: mx, y: my };
+                    } else {
+                        state.selectedPoint = -1;
+                        state.isDraggingShape = false;
+                        state.isDraggingEdge = false;
+                    }
+                }
             }
 
             draw();
             updatePointProperties();
-            updatePointList();
+            updateShapeList();
         }
 
         function onEditorMouseMove(e) {
@@ -1020,22 +1201,108 @@
 
             if (state.isDragging && state.selectedPoint >= 0) {
                 const world = screenToWorld(mx, my);
-                const points = state.glyphs[state.currentGlyph];
-                // Snap to grid
-                points[state.selectedPoint] = [
-                    Math.round(world.x / state.gridSize) * state.gridSize,
-                    Math.round(world.y / state.gridSize) * state.gridSize
-                ];
-                draw();
-                updatePointProperties();
-                updatePointList();
+                const shapes = getGlyphShapes();
+                const points = shapes[state.selectedShape];
+                if (points && state.selectedPoint < points.length) {
+                    // Snap to grid
+                    points[state.selectedPoint] = [
+                        Math.round(world.x / state.gridSize) * state.gridSize,
+                        Math.round(world.y / state.gridSize) * state.gridSize
+                    ];
+                    draw();
+                    updatePointProperties();
+                    updateShapeList();
+                }
+            } else if (state.isDraggingEdge && state.dragEdgeIndices) {
+                // Drag edge - move both points by the same delta
+                const dx = (mx - state.lastMousePos.x) / state.zoom;
+                const dy = -(my - state.lastMousePos.y) / state.zoom;
+                const shapes = getGlyphShapes();
+                const points = shapes[state.selectedShape];
+                if (points) {
+                    for (const idx of state.dragEdgeIndices) {
+                        points[idx][0] = Math.round((points[idx][0] + dx) / state.gridSize) * state.gridSize;
+                        points[idx][1] = Math.round((points[idx][1] + dy) / state.gridSize) * state.gridSize;
+                    }
+                    state.lastMousePos = { x: mx, y: my };
+                    draw();
+                    updateShapeList();
+                }
+            } else if (state.isDraggingShape) {
+                // Drag entire shape - move all points by the same delta
+                const dx = (mx - state.lastMousePos.x) / state.zoom;
+                const dy = -(my - state.lastMousePos.y) / state.zoom;
+                const shapes = getGlyphShapes();
+                const points = shapes[state.selectedShape];
+                if (points) {
+                    for (const pt of points) {
+                        pt[0] = Math.round((pt[0] + dx) / state.gridSize) * state.gridSize;
+                        pt[1] = Math.round((pt[1] + dy) / state.gridSize) * state.gridSize;
+                    }
+                    state.lastMousePos = { x: mx, y: my };
+                    draw();
+                    updateShapeList();
+                }
             }
         }
 
         function onEditorMouseUp() {
+            // If we were dragging, update the preview
+            if (state.isDragging || state.isDraggingShape || state.isDraggingEdge) {
+                drawPreview();
+            }
             state.isDragging = false;
+            state.isDraggingShape = false;
+            state.isDraggingEdge = false;
+            state.dragEdgeIndices = null;
             state.isPanning = false;
             editorCanvas.style.cursor = 'default';
+        }
+
+        // Find nearest edge (line segment) to a point and return insertion index
+        function findNearestEdge(mx, my, points) {
+            if (points.length < 2) return { index: points.length, distance: Infinity };
+            
+            let bestIndex = points.length;
+            let bestDistance = Infinity;
+            
+            // Check each edge (including closing edge from last to first)
+            for (let i = 0; i < points.length; i++) {
+                const p1 = worldToScreen(points[i][0], points[i][1]);
+                const p2 = worldToScreen(points[(i + 1) % points.length][0], points[(i + 1) % points.length][1]);
+                
+                // Calculate distance from point to line segment
+                const dist = pointToSegmentDistance(mx, my, p1.x, p1.y, p2.x, p2.y);
+                
+                if (dist < bestDistance) {
+                    bestDistance = dist;
+                    bestIndex = i + 1; // Insert after point i
+                }
+            }
+            
+            return { index: bestIndex, distance: bestDistance };
+        }
+        
+        // Calculate distance from point (px, py) to line segment (x1, y1) - (x2, y2)
+        function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            const lengthSq = dx * dx + dy * dy;
+            
+            if (lengthSq === 0) {
+                // Segment is a point
+                return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+            }
+            
+            // Parameter t along the segment
+            let t = ((px - x1) * dx + (py - y1) * dy) / lengthSq;
+            t = Math.max(0, Math.min(1, t));
+            
+            // Closest point on segment
+            const closestX = x1 + t * dx;
+            const closestY = y1 + t * dy;
+            
+            return Math.sqrt((px - closestX) ** 2 + (py - closestY) ** 2);
         }
 
         function onEditorDoubleClick(e) {
@@ -1044,24 +1311,53 @@
             const my = e.clientY - rect.top;
             const world = screenToWorld(mx, my);
 
-            // Add new point
-            const points = state.glyphs[state.currentGlyph] || [];
+            // Ensure glyph has at least one shape
+            if (!state.glyphs[state.currentGlyph] || state.glyphs[state.currentGlyph].length === 0) {
+                state.glyphs[state.currentGlyph] = [[]];
+                state.selectedShape = 0;
+            }
+            
+            const shapes = getGlyphShapes();
+            // Make sure selectedShape is valid
+            if (state.selectedShape < 0 || state.selectedShape >= shapes.length) {
+                state.selectedShape = 0;
+            }
+            
+            const points = shapes[state.selectedShape];
             const newPoint = [
                 Math.round(world.x / state.gridSize) * state.gridSize,
                 Math.round(world.y / state.gridSize) * state.gridSize
             ];
 
-            // Insert after selected point or at end
-            if (state.selectedPoint >= 0 && state.selectedPoint < points.length - 1) {
-                points.splice(state.selectedPoint + 1, 0, newPoint);
-                state.selectedPoint++;
-            } else {
+            if (points.length < 2) {
+                // Not enough points to form an edge, just append
                 points.push(newPoint);
                 state.selectedPoint = points.length - 1;
+            } else {
+                // Find nearest edge and insert point there
+                const { index, distance } = findNearestEdge(mx, my, points);
+                const threshold = 50; // Maximum distance to consider an edge click
+                
+                if (distance < threshold) {
+                    // Insert at the found edge position
+                    if (index >= points.length) {
+                        // Insert between last and first (closing edge)
+                        points.push(newPoint);
+                        state.selectedPoint = points.length - 1;
+                    } else {
+                        points.splice(index, 0, newPoint);
+                        state.selectedPoint = index;
+                    }
+                } else {
+                    // Too far from any edge, append at end
+                    points.push(newPoint);
+                    state.selectedPoint = points.length - 1;
+                }
             }
 
             draw();
-            updatePointList();
+            drawPreview();
+            updateShapeList();
         }
 
         function onEditorWheel(e) {
@@ -1111,7 +1407,7 @@
             ctx.stroke();
 
             // Draw glyph bounds
-            const points = state.glyphs[state.currentGlyph] || [];
+            const shapes = getGlyphShapes();
             const glyphWidth = getCurrentGlyphWidth() + 1;
             const capHeight = 10;
 
@@ -1130,37 +1426,86 @@
             ctx.stroke();
             ctx.setLineDash([]);
 
-            if (points.length === 0) return;
+            if (shapes.length === 0) return;
 
-            // Draw path
-            ctx.beginPath();
-            const first = worldToScreen(points[0][0], points[0][1]);
-            ctx.moveTo(first.x, first.y);
-            for (let i = 1; i < points.length; i++) {
-                const p = worldToScreen(points[i][0], points[i][1]);
-                ctx.lineTo(p.x, p.y);
-            }
-            ctx.closePath();
-            ctx.fillStyle = 'rgba(74, 158, 255, 0.1)';
-            ctx.fill();
-            ctx.strokeStyle = '#4a9eff';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
-            // Draw points
-            for (let i = 0; i < points.length; i++) {
-                const p = worldToScreen(points[i][0], points[i][1]);
+            // Draw all shapes
+            for (let si = 0; si < shapes.length; si++) {
+                const points = shapes[si];
+                if (points.length === 0) continue;
+                
+                const isSelected = (si === state.selectedShape);
+                
+                // Draw path
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, i === state.selectedPoint ? 8 : 5, 0, Math.PI * 2);
-                ctx.fillStyle = i === state.selectedPoint ? '#ff6a6a' : '#6ab0ff';
+                const first = worldToScreen(points[0][0], points[0][1]);
+                ctx.moveTo(first.x, first.y);
+                for (let i = 1; i < points.length; i++) {
+                    const p = worldToScreen(points[i][0], points[i][1]);
+                    ctx.lineTo(p.x, p.y);
+                }
+                ctx.closePath();
+                ctx.fillStyle = isSelected ? 'rgba(74, 158, 255, 0.15)' : 'rgba(74, 158, 255, 0.05)';
                 ctx.fill();
+                ctx.strokeStyle = isSelected ? '#4a9eff' : '#3a7acc';
+                ctx.lineWidth = isSelected ? 2 : 1;
+                ctx.stroke();
 
-                // Point index
-                ctx.fillStyle = '#fff';
-                ctx.font = '10px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(i.toString(), p.x, p.y);
+                // Draw points (only for selected shape in detail)
+                for (let i = 0; i < points.length; i++) {
+                    const p = worldToScreen(points[i][0], points[i][1]);
+                    ctx.beginPath();
+                    const isSelectedPoint = (isSelected && i === state.selectedPoint);
+                    ctx.arc(p.x, p.y, isSelectedPoint ? 8 : (isSelected ? 5 : 3), 0, Math.PI * 2);
+                    ctx.fillStyle = isSelectedPoint ? '#ff6a6a' : (isSelected ? '#6ab0ff' : '#3a7acc');
+                    ctx.fill();
+
+                    // Point index (only for selected shape)
+                    if (isSelected) {
+                        ctx.fillStyle = '#fff';
+                        ctx.font = '10px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(i.toString(), p.x, p.y);
+                    }
+                }
+            }
+
+            // Draw interpolated result preview if enabled
+            if (state.showResultPreview && state.vf.enabled && state.vf.axes.length > 0) {
+                const interp = interpolateGlyphs(state.vf.previewCoords);
+                const currentChar = Object.keys(state.glyphs)[state.selectedGlyph];
+                const interpShapes = interp.glyphs[currentChar];
+                
+                if (interpShapes && interpShapes.length > 0) {
+                    // Flatten to array of shapes (handle single-shape case)
+                    let shapesToDraw = interpShapes;
+                    if (interpShapes.length > 0 && typeof interpShapes[0][0] === 'number') {
+                        shapesToDraw = [interpShapes];
+                    }
+                    
+                    ctx.save();
+                    ctx.globalAlpha = 0.6;
+                    
+                    for (const points of shapesToDraw) {
+                        if (!points || points.length === 0) continue;
+                        
+                        ctx.beginPath();
+                        const first = worldToScreen(points[0][0], points[0][1]);
+                        ctx.moveTo(first.x, first.y);
+                        for (let i = 1; i < points.length; i++) {
+                            const p = worldToScreen(points[i][0], points[i][1]);
+                            ctx.lineTo(p.x, p.y);
+                        }
+                        ctx.closePath();
+                        ctx.fillStyle = 'rgba(255, 200, 100, 0.25)';
+                        ctx.fill();
+                        ctx.strokeStyle = '#ffcc66';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                    }
+                    
+                    ctx.restore();
+                }
             }
 
             drawPreview();
@@ -1194,54 +1539,77 @@
 
             ctx.beginPath();
             for (const char of text) {
-                const points = glyphs[char];
-                if (points && points.length > 0) {
-                    ctx.moveTo(x + points[0][0] * scale, y + points[0][1] * scale);
-                    for (let i = 1; i < points.length; i++) {
-                        ctx.lineTo(x + points[i][0] * scale, y + points[i][1] * scale);
+                const glyphData = glyphs[char];
+                if (glyphData && glyphData.length > 0) {
+                    // Handle both nested and flat formats
+                    const shapes = (glyphData[0] && Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0])) 
+                        ? glyphData : [glyphData];
+                    
+                    for (const points of shapes) {
+                        if (points.length > 0) {
+                            ctx.moveTo(x + points[0][0] * scale, y + points[0][1] * scale);
+                            for (let i = 1; i < points.length; i++) {
+                                ctx.lineTo(x + points[i][0] * scale, y + points[i][1] * scale);
+                            }
+                            ctx.closePath();
+                        }
                     }
-                    ctx.closePath();
-                    x += (getGlyphWidth(points, char, widths) + 1) * scale;
+                    x += (getGlyphWidthFromShapes(shapes, char, widths) + 1) * scale;
                 } else {
                     x += 5 * scale;
                 }
             }
             ctx.fillStyle = '#4a9eff';
-            ctx.fill();
+            ctx.fill('evenodd'); // Use evenodd for proper hole rendering
             ctx.restore();
         }
 
-        // Get glyph width - uses stored width if available, otherwise computes from points
-        function getGlyphWidth(points, char = null, widthsObj = null) {
+        // Get glyph width from shapes - uses stored width if available, otherwise computes from points
+        function getGlyphWidthFromShapes(shapes, char = null, widthsObj = null) {
             // Check for explicit stored width
             if (char && widthsObj && widthsObj[char] !== undefined) {
                 return widthsObj[char];
             }
-            // Fallback: compute from bounding box (maxX - minX)
-            if (!points || points.length === 0) return 5;
-            const xCoords = points.map(p => p[0]);
+            // Fallback: compute from bounding box (maxX - minX) across all shapes
+            const allPoints = shapes.flat();
+            if (!allPoints || allPoints.length === 0) return 5;
+            const xCoords = allPoints.map(p => p[0]);
             const minX = Math.min(...xCoords);
             const maxX = Math.max(...xCoords);
-            // Width is the bounding box width, starting from 0 if minX >= 0
-            // otherwise include the full span
+            return minX >= 0 ? maxX : maxX - minX;
+        }
+        
+        // Legacy: Get glyph width - uses stored width if available, otherwise computes from points
+        function getGlyphWidth(pointsOrShapes, char = null, widthsObj = null) {
+            // Check for explicit stored width
+            if (char && widthsObj && widthsObj[char] !== undefined) {
+                return widthsObj[char];
+            }
+            // Handle both nested and flat formats
+            const allPoints = (pointsOrShapes[0] && Array.isArray(pointsOrShapes[0]) && Array.isArray(pointsOrShapes[0][0]))
+                ? pointsOrShapes.flat() : pointsOrShapes;
+            if (!allPoints || allPoints.length === 0) return 5;
+            const xCoords = allPoints.map(p => p[0]);
+            const minX = Math.min(...xCoords);
+            const maxX = Math.max(...xCoords);
             return minX >= 0 ? maxX : maxX - minX;
         }
         
         // Get glyph width for current state (considering VF mode)
         function getCurrentGlyphWidth(char = null) {
             const targetChar = char || state.currentGlyph;
-            const points = state.glyphs[targetChar] || [];
+            const shapes = getGlyphShapes(targetChar);
             
             // If in VF mode, use current master's width
             if (state.vf.enabled && state.vf.masters.length > 0) {
                 const master = state.vf.masters[state.vf.currentMaster];
                 if (master && master.glyphWidths) {
-                    return getGlyphWidth(points, targetChar, master.glyphWidths);
+                    return getGlyphWidthFromShapes(shapes, targetChar, master.glyphWidths);
                 }
             }
             
             // Otherwise use state.glyphWidths
-            return getGlyphWidth(points, targetChar, state.glyphWidths);
+            return getGlyphWidthFromShapes(shapes, targetChar, state.glyphWidths);
         }
         
         // Set glyph width for current state
@@ -1298,7 +1666,7 @@
 
         function renderGlyphGrid() {
             glyphGrid.innerHTML = '';
-            for (const [char, points] of Object.entries(state.glyphs)) {
+            for (const [char, glyphData] of Object.entries(state.glyphs)) {
                 const item = document.createElement('div');
                 item.className = 'glyph-item' + (char === state.currentGlyph ? ' active' : '');
                 item.dataset.char = char;
@@ -1306,14 +1674,22 @@
                 const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 svg.setAttribute('viewBox', '-2 -2 14 14');
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                
+                // Handle both nested and flat formats
+                const shapes = (glyphData && glyphData[0] && Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0])) 
+                    ? glyphData : (glyphData && glyphData.length > 0 ? [glyphData] : []);
+                
                 let d = '';
-                if (points.length > 0) {
-                    d = 'M' + points.map(p => p[0] + ' ' + (10 - p[1])).join(' L') + ' Z';
+                for (const points of shapes) {
+                    if (points && points.length > 0) {
+                        d += 'M' + points.map(p => p[0] + ' ' + (10 - p[1])).join(' L') + ' Z ';
+                    }
                 }
-                path.setAttribute('d', d);
+                path.setAttribute('d', d.trim());
                 path.setAttribute('fill', '#4a9eff');
                 path.setAttribute('stroke', '#6ab0ff');
                 path.setAttribute('stroke-width', '0.5');
+                path.setAttribute('fill-rule', 'evenodd');
                 svg.appendChild(path);
                 item.appendChild(svg);
 
@@ -1329,10 +1705,11 @@
         function selectGlyph(char) {
             state.currentGlyph = char;
             state.selectedPoint = -1;
+            state.selectedShape = 0;
             document.getElementById('glyph-char').value = char;
             updateWidthDisplay();
             renderGlyphGrid();
-            updatePointList();
+            updateShapeList();
             draw();
         }
         
@@ -1351,47 +1728,81 @@
             }
         }
 
-        function updatePointList() {
-            pointList.innerHTML = '';
-            const points = state.glyphs[state.currentGlyph] || [];
-            for (let i = 0; i < points.length; i++) {
+        function updateShapeList() {
+            shapeList.innerHTML = '';
+            const shapes = getGlyphShapes();
+            for (let i = 0; i < shapes.length; i++) {
+                const shape = shapes[i];
                 const item = document.createElement('div');
-                item.className = 'point-item' + (i === state.selectedPoint ? ' selected' : '');
-                item.innerHTML = '<span>' + i + ': (' + points[i][0] + ', ' + points[i][1] + ')</span><button title="Delete">&times;</button>';
+                item.className = 'shape-item' + (i === state.selectedShape ? ' selected' : '');
+                item.innerHTML = '<span>Shape ' + i + ' (' + shape.length + ' pts)</span><button title="Delete Shape">&times;</button>';
                 item.addEventListener('click', (e) => {
                     if (e.target.tagName === 'BUTTON') {
-                        points.splice(i, 1);
-                        if (state.selectedPoint === i) state.selectedPoint = -1;
-                        else if (state.selectedPoint > i) state.selectedPoint--;
-                        updatePointList();
-                        draw();
+                        deleteShape(i);
                     } else {
-                        state.selectedPoint = i;
+                        state.selectedShape = i;
+                        state.selectedPoint = -1;
+                        updateShapeList();
                         updatePointProperties();
-                        updatePointList();
                         draw();
                     }
                 });
-                pointList.appendChild(item);
+                shapeList.appendChild(item);
             }
-            // Update width display when points change
+            // Update width display when shapes change
             updateWidthDisplay();
+        }
+        
+        function addShape() {
+            const shapes = getGlyphShapes();
+            // Add a small triangle shape offset from existing shapes
+            const offset = shapes.length * 2;
+            const newShape = [[offset, 0], [offset + 4, 10], [offset + 8, 0]];
+            shapes.push(newShape);
+            setGlyphShapes(shapes);
+            state.selectedShape = shapes.length - 1;
+            state.selectedPoint = -1;
+            updateShapeList();
+            draw();
+        }
+        
+        function deleteShape(shapeIndex) {
+            const shapes = getGlyphShapes();
+            if (shapes.length <= 1) {
+                alert('Cannot delete the last shape');
+                return;
+            }
+            shapes.splice(shapeIndex, 1);
+            setGlyphShapes(shapes);
+            if (state.selectedShape >= shapes.length) {
+                state.selectedShape = shapes.length - 1;
+            }
+            state.selectedPoint = -1;
+            updateShapeList();
+            draw();
+        }
+        
+        function deleteSelectedShape() {
+            deleteShape(state.selectedShape);
         }
 
         function updatePointProperties() {
-            const points = state.glyphs[state.currentGlyph] || [];
+            const points = getCurrentShapePoints();
             if (state.selectedPoint >= 0 && state.selectedPoint < points.length) {
                 document.getElementById('point-x').value = points[state.selectedPoint][0];
                 document.getElementById('point-y').value = points[state.selectedPoint][1];
+            } else {
+                document.getElementById('point-x').value = '';
+                document.getElementById('point-y').value = '';
             }
         }
 
         function updatePointFromInput() {
-            const points = state.glyphs[state.currentGlyph];
+            const points = getCurrentShapePoints();
             if (state.selectedPoint >= 0 && state.selectedPoint < points.length) {
                 points[state.selectedPoint][0] = parseFloat(document.getElementById('point-x').value) || 0;
                 points[state.selectedPoint][1] = parseFloat(document.getElementById('point-y').value) || 0;
-                updatePointList();
+                updateShapeList();
                 draw();
             }
         }
@@ -1408,20 +1819,20 @@
         }
 
         function addPoint() {
-            const points = state.glyphs[state.currentGlyph] || [];
+            const points = getCurrentShapePoints();
             const lastPoint = points[points.length - 1] || [0, 0];
             points.push([lastPoint[0] + 1, lastPoint[1]]);
             state.selectedPoint = points.length - 1;
-            updatePointList();
+            updateShapeList();
             draw();
         }
 
         function deleteSelectedPoint() {
-            const points = state.glyphs[state.currentGlyph];
+            const points = getCurrentShapePoints();
             if (state.selectedPoint >= 0 && state.selectedPoint < points.length) {
                 points.splice(state.selectedPoint, 1);
                 state.selectedPoint = Math.min(state.selectedPoint, points.length - 1);
-                updatePointList();
+                updateShapeList();
                 draw();
             }
         }
@@ -1431,7 +1842,8 @@
             if (char && char.length === 1) {
                 const upperChar = char.toUpperCase();
                 if (!state.glyphs[upperChar]) {
-                    state.glyphs[upperChar] = [[0, 0], [4, 10], [8, 0]];
+                    // Initialize with nested shape array
+                    state.glyphs[upperChar] = [[[0, 0], [4, 10], [8, 0]]];
                     selectGlyph(upperChar);
                     renderGlyphGrid();
                 }
@@ -1461,8 +1873,9 @@
             // Select first remaining glyph
             state.currentGlyph = Object.keys(state.glyphs)[0];
             state.selectedPoint = -1;
+            state.selectedShape = 0;
             renderGlyphGrid();
-            updatePointList();
+            updateShapeList();
             draw();
         }
 
@@ -1540,7 +1953,8 @@
                         }
                         const points = extractPathPoints(glyph.path, font.unitsPerEm);
                         if (points.length > 0) {
-                            state.glyphs[char] = points;
+                            // Wrap points in shape array for nested format
+                            state.glyphs[char] = [points];
                             // Compute proper width from path bounds (handles bezier curves)
                             const bounds = getPathBounds(glyph.path);
                             const glyphWidth = bounds.maxX * scale;
@@ -1733,8 +2147,9 @@
                 
                 state.currentGlyph = Object.keys(state.glyphs)[0] || 'A';
                 state.selectedPoint = -1;
+                state.selectedShape = 0;
                 renderGlyphGrid();
-                updatePointList();
+                updateShapeList();
                 draw();
                 
                 const vfStatus = state.vf.enabled ? ` (Variable font: ${state.vf.axes.length} axes)` : '';
@@ -1949,12 +2364,14 @@
                     state.vf.previewCoords = data.vf.previewCoords || {};
                 }
                 
-                state.selectedPoint = -1;
+                state.selectedShape = 0;
                 
                 renderGlyphGrid();
+                updateVFToggleUI();
                 updateVFUI();
-                updatePointList();
+                updateShapeList();
                 draw();
+                drawPreview();
                 
                 console.log('State loaded from JSON');
                 alert('Font editor state loaded successfully!');
@@ -2236,9 +2653,14 @@
                 const peakTuple = new Array(axisCount).fill(0);
                 peakTuple[axisIndex] = -1;
                 
-                for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
-                    const targetPoints = minMaster.glyphs[char];
-                    if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+                for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
+                    const targetPointsRaw = minMaster.glyphs[char];
+                    if (!targetPointsRaw) continue;
+                    
+                    // Flatten shapes to points for comparison
+                    const basePoints = flattenShapesToPoints(basePointsRaw);
+                    const targetPoints = flattenShapesToPoints(targetPointsRaw);
+                    if (basePoints.length !== targetPoints.length) continue;
                     
                     const deltaX = [];
                     const deltaY = [];
@@ -2252,8 +2674,8 @@
                     deltaY.push(0, 0, 0, 0);
                     
                     // Calculate advanceWidth delta using explicit widths from masters
-                    const baseWidth = getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
-                    const targetWidth = getGlyphWidth(targetPoints, char, minMaster.glyphWidths) + 1;
+                    const baseWidth = getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                    const targetWidth = getGlyphWidth(targetPointsRaw, char, minMaster.glyphWidths) + 1;
                     const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
                     
                     const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -2271,9 +2693,14 @@
                     const peakTuple = new Array(axisCount).fill(0);
                     peakTuple[axisIndex] = 1;  // Max direction
                     
-                    for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
-                        const targetPoints = minMaster.glyphs[char];
-                        if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+                    for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
+                        const targetPointsRaw = minMaster.glyphs[char];
+                        if (!targetPointsRaw) continue;
+                        
+                        // Flatten shapes to points for comparison
+                        const basePoints = flattenShapesToPoints(basePointsRaw);
+                        const targetPoints = flattenShapesToPoints(targetPointsRaw);
+                        if (basePoints.length !== targetPoints.length) continue;
                         
                         const deltaX = [];
                         const deltaY = [];
@@ -2290,8 +2717,8 @@
                         deltaY.push(0, 0, 0, 0);
                         
                         // Mirrored advanceWidth delta (negate the min delta)
-                        const baseWidth = getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
-                        const targetWidth = getGlyphWidth(targetPoints, char, minMaster.glyphWidths) + 1;
+                        const baseWidth = getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                        const targetWidth = getGlyphWidth(targetPointsRaw, char, minMaster.glyphWidths) + 1;
                         const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
                         
                         const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -2316,9 +2743,14 @@
                 const peakTuple = new Array(axisCount).fill(0);
                 peakTuple[axisIndex] = 1;
                 
-                for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
-                    const targetPoints = maxMaster.glyphs[char];
-                    if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+                for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
+                    const targetPointsRaw = maxMaster.glyphs[char];
+                    if (!targetPointsRaw) continue;
+                    
+                    // Flatten shapes to points for comparison
+                    const basePoints = flattenShapesToPoints(basePointsRaw);
+                    const targetPoints = flattenShapesToPoints(targetPointsRaw);
+                    if (basePoints.length !== targetPoints.length) continue;
                     
                     const deltaX = [];
                     const deltaY = [];
@@ -2332,8 +2764,8 @@
                     deltaY.push(0, 0, 0, 0);
                     
                     // Calculate advanceWidth delta using explicit widths from masters
-                    const baseWidth = getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
-                    const targetWidth = getGlyphWidth(targetPoints, char, maxMaster.glyphWidths) + 1;
+                    const baseWidth = getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                    const targetWidth = getGlyphWidth(targetPointsRaw, char, maxMaster.glyphWidths) + 1;
                     const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
                     
                     const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -2351,9 +2783,14 @@
                     const peakTuple = new Array(axisCount).fill(0);
                     peakTuple[axisIndex] = -1;  // Min direction
                     
-                    for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
-                        const targetPoints = maxMaster.glyphs[char];
-                        if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+                    for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
+                        const targetPointsRaw = maxMaster.glyphs[char];
+                        if (!targetPointsRaw) continue;
+                        
+                        // Flatten shapes to points for comparison
+                        const basePoints = flattenShapesToPoints(basePointsRaw);
+                        const targetPoints = flattenShapesToPoints(targetPointsRaw);
+                        if (basePoints.length !== targetPoints.length) continue;
                         
                         const deltaX = [];
                         const deltaY = [];
@@ -2368,8 +2805,8 @@
                         deltaY.push(0, 0, 0, 0);
                         
                         // Mirrored advanceWidth delta (negate the max delta)
-                        const baseWidth = getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
-                        const targetWidth = getGlyphWidth(targetPoints, char, maxMaster.glyphWidths) + 1;
+                        const baseWidth = getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                        const targetWidth = getGlyphWidth(targetPointsRaw, char, maxMaster.glyphWidths) + 1;
                         const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
                         
                         const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -2407,6 +2844,24 @@
                     });
                 }
                 updateVFUI();
+            } else {
+                btn.textContent = 'Enable';
+                content.style.display = 'none';
+                disabled.style.display = 'block';
+            }
+            drawPreview();
+        }
+        
+        // Update VF toggle UI to match state
+        function updateVFToggleUI() {
+            const btn = document.getElementById('toggle-vf');
+            const content = document.getElementById('vf-content');
+            const disabled = document.getElementById('vf-disabled');
+            
+            if (state.vf.enabled) {
+                btn.textContent = 'Disable';
+                content.style.display = 'block';
+                disabled.style.display = 'none';
             } else {
                 btn.textContent = 'Enable';
                 content.style.display = 'none';
@@ -2656,7 +3111,11 @@
                     const val = parseFloat(e.target.value);
                     state.vf.previewCoords[axis.tag] = val;
                     item.querySelector('.value').textContent = val;
-                    drawPreview();
+                    if (state.showResultPreview) {
+                        draw();
+                    } else {
+                        drawPreview();
+                    }
                 });
                 
                 item.querySelector('.delete-btn').addEventListener('click', () => deleteAxis(i));
@@ -2735,8 +3194,21 @@
                     </div>
                 `;
                 
-                item.querySelector('.edit-btn').addEventListener('click', () => showInstanceModal(i));
-                item.querySelector('.delete-btn').addEventListener('click', () => deleteInstance(i));
+                // Click on instance to apply its coordinates to preview
+                item.addEventListener('click', (e) => {
+                    if (!e.target.classList.contains('edit-btn') && !e.target.classList.contains('delete-btn')) {
+                        selectInstance(i);
+                    }
+                });
+                
+                item.querySelector('.edit-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    showInstanceModal(i);
+                });
+                item.querySelector('.delete-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteInstance(i);
+                });
                 
                 list.appendChild(item);
             }
@@ -2759,6 +3231,22 @@
             renderGlyphGrid();
             updateMasterList();
             draw();
+            drawPreview();
+        }
+        
+        // Select an instance - set axis sliders to instance coordinates and update preview
+        function selectInstance(index) {
+            const instance = state.vf.instances[index];
+            if (!instance) return;
+            
+            // Set preview coords to instance coords
+            for (const [tag, value] of Object.entries(instance.coords)) {
+                state.vf.previewCoords[tag] = value;
+            }
+            
+            // Update axis sliders to reflect new values
+            updateAxisList();
+            drawPreview();
         }
 
         function deleteAxis(index) {
@@ -2870,18 +3358,48 @@
                 const p1 = m1.glyphs[char];
                 const p2 = m2.glyphs[char];
                 
-                if (!p1 || !p2 || p1.length !== p2.length) {
+                if (!p1 || !p2) {
                     // Can't interpolate, use first master
                     resultGlyphs[char] = JSON.parse(JSON.stringify(p1 || []));
                     continue;
                 }
                 
-                // Extrapolate/interpolate the glyph points
-                const extrapolatedPoints = p1.map((pt, i) => [
-                    pt[0] + (p2[i][0] - pt[0]) * t,
-                    pt[1] + (p2[i][1] - pt[1]) * t
-                ]);
-                resultGlyphs[char] = extrapolatedPoints;
+                // Handle nested shape format
+                const isNested = p1[0] && Array.isArray(p1[0]) && Array.isArray(p1[0][0]);
+                
+                if (isNested) {
+                    if (p1.length !== p2.length) {
+                        resultGlyphs[char] = JSON.parse(JSON.stringify(p1));
+                        continue;
+                    }
+                    // Interpolate each shape
+                    const extrapolatedShapes = [];
+                    for (let shapeIdx = 0; shapeIdx < p1.length; shapeIdx++) {
+                        const shape1 = p1[shapeIdx];
+                        const shape2 = p2[shapeIdx];
+                        if (!shape1 || !shape2 || shape1.length !== shape2.length) {
+                            extrapolatedShapes.push(JSON.parse(JSON.stringify(shape1 || shape2 || [])));
+                        } else {
+                            const extrapolatedShape = shape1.map((pt, i) => [
+                                pt[0] + (shape2[i][0] - pt[0]) * t,
+                                pt[1] + (shape2[i][1] - pt[1]) * t
+                            ]);
+                            extrapolatedShapes.push(extrapolatedShape);
+                        }
+                    }
+                    resultGlyphs[char] = extrapolatedShapes;
+                } else {
+                    // Flat format
+                    if (p1.length !== p2.length) {
+                        resultGlyphs[char] = JSON.parse(JSON.stringify(p1));
+                        continue;
+                    }
+                    const extrapolatedPoints = p1.map((pt, i) => [
+                        pt[0] + (p2[i][0] - pt[0]) * t,
+                        pt[1] + (p2[i][1] - pt[1]) * t
+                    ]);
+                    resultGlyphs[char] = extrapolatedPoints;
+                }
                 
                 // Width handling: only interpolate if BOTH masters have explicit overrides
                 // Otherwise, calculate from the extrapolated glyph bounds
@@ -2975,18 +3493,44 @@
                     continue;
                 }
                 
-                if (p1.length !== p2.length) {
+                // Handle nested shape format
+                const shapes1 = flattenShapesToPoints(p1);
+                const shapes2 = flattenShapesToPoints(p2);
+                
+                if (shapes1.length !== shapes2.length) {
                     resultGlyphs[char] = p1; // Can't interpolate different point counts
                     // Don't set explicit width - let it auto-calculate
                     continue;
                 }
                 
-                // Interpolate/extrapolate points
-                const extrapolatedPoints = p1.map((pt, i) => [
-                    pt[0] + (p2[i][0] - pt[0]) * t,
-                    pt[1] + (p2[i][1] - pt[1]) * t
-                ]);
-                resultGlyphs[char] = extrapolatedPoints;
+                // Check if nested format
+                const isNested = p1[0] && Array.isArray(p1[0]) && Array.isArray(p1[0][0]);
+                
+                if (isNested) {
+                    // Interpolate each shape
+                    const extrapolatedShapes = [];
+                    for (let shapeIdx = 0; shapeIdx < p1.length; shapeIdx++) {
+                        const shape1 = p1[shapeIdx];
+                        const shape2 = p2[shapeIdx];
+                        if (!shape1 || !shape2 || shape1.length !== shape2.length) {
+                            extrapolatedShapes.push(shape1 || shape2 || []);
+                        } else {
+                            const extrapolatedShape = shape1.map((pt, i) => [
+                                pt[0] + (shape2[i][0] - pt[0]) * t,
+                                pt[1] + (shape2[i][1] - pt[1]) * t
+                            ]);
+                            extrapolatedShapes.push(extrapolatedShape);
+                        }
+                    }
+                    resultGlyphs[char] = extrapolatedShapes;
+                } else {
+                    // Flat format - interpolate directly
+                    const extrapolatedPoints = p1.map((pt, i) => [
+                        pt[0] + (p2[i][0] - pt[0]) * t,
+                        pt[1] + (p2[i][1] - pt[1]) * t
+                    ]);
+                    resultGlyphs[char] = extrapolatedPoints;
+                }
                 
                 // Width handling: only interpolate if BOTH masters have explicit overrides
                 // Otherwise, calculate from the extrapolated glyph bounds
