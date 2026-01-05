@@ -43,40 +43,23 @@ describe('tables/sfnt.js', ()=>{
             
             const parsedNameTable = encodeAndParseTable(name_table, name.parse);
 
+            // Default names should only include required fields, not empty optional fields
             assert.deepEqual(parsedNameTable, {
                 macintosh: {
-                    copyright: { en: ' ' },
                     fontFamily: { en: defaultFont.familyName }, // 'MyFont'
                     fontSubfamily: { en: defaultFont.styleName }, // 'Medium'
                     fullName: { en: `${defaultFont.familyName} ${defaultFont.styleName}` }, // 'MyFont Medium'
                     version: { en: 'Version 0.1' },
                     postScriptName: { en: `${defaultFont.familyName}${defaultFont.styleName}` }, // 'MyFontMedium'
-                    trademark: { en: ' ' },
-                    manufacturer: { en: ' ' },
-                    designer: { en: ' ' },
-                    description: { en: ' ' },
-                    manufacturerURL: { en: ' ' },
-                    designerURL: { en: ' ' },
-                    license: { en: ' ' },
-                    licenseURL: { en: ' ' },
                     preferredFamily: { en: defaultFont.familyName }, // 'MyFont'
                     preferredSubfamily: { en: defaultFont.styleName } // 'Medium'
                 },
                 windows: {
-                    copyright: { en: ' ' },
                     fontFamily: { en: defaultFont.familyName }, // 'MyFont'
                     fontSubfamily: { en: defaultFont.styleName }, // 'Medium'
                     fullName: { en: `${defaultFont.familyName} ${defaultFont.styleName}` }, // 'MyFont Medium'
                     version: { en: 'Version 0.1' },
                     postScriptName: { en: `${defaultFont.familyName}${defaultFont.styleName}` }, // 'MyFontMedium'
-                    trademark: { en: ' ' },
-                    manufacturer: { en: ' ' },
-                    designer: { en: ' ' },
-                    description: { en: ' ' },
-                    manufacturerURL: { en: ' ' },
-                    designerURL: { en: ' ' },
-                    license: { en: ' ' },
-                    licenseURL: { en: ' ' },
                     preferredFamily: { en: defaultFont.familyName }, // 'MyFont'
                     preferredSubfamily: { en: defaultFont.styleName } // 'Medium'
                 }

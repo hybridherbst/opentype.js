@@ -208,16 +208,24 @@ function fontToSfntTable(font) {
     }
 
     const globals = {
-        xMin: Math.min.apply(null, xMins),
-        yMin: Math.min.apply(null, yMins),
-        xMax: Math.max.apply(null, xMaxs),
-        yMax: Math.max.apply(null, yMaxs),
-        advanceWidthMax: Math.max.apply(null, advanceWidths),
-        advanceWidthAvg: average(advanceWidths),
-        minLeftSideBearing: Math.min.apply(null, leftSideBearings),
-        maxLeftSideBearing: Math.max.apply(null, leftSideBearings),
-        minRightSideBearing: Math.min.apply(null, rightSideBearings)
+        xMin: xMins.length > 0 ? Math.min.apply(null, xMins) : 0,
+        yMin: yMins.length > 0 ? Math.min.apply(null, yMins) : 0,
+        xMax: xMaxs.length > 0 ? Math.max.apply(null, xMaxs) : 0,
+        yMax: yMaxs.length > 0 ? Math.max.apply(null, yMaxs) : 0,
+        advanceWidthMax: advanceWidths.length > 0 ? Math.max.apply(null, advanceWidths) : 0,
+        advanceWidthAvg: advanceWidths.length > 0 ? average(advanceWidths) : 0,
+        minLeftSideBearing: leftSideBearings.length > 0 ? Math.min.apply(null, leftSideBearings) : 0,
+        maxLeftSideBearing: leftSideBearings.length > 0 ? Math.max.apply(null, leftSideBearings) : 0,
+        minRightSideBearing: rightSideBearings.length > 0 ? Math.min.apply(null, rightSideBearings) : 0
     };
+    
+    // Ensure all values are finite numbers
+    for (const key of Object.keys(globals)) {
+        if (!Number.isFinite(globals[key])) {
+            globals[key] = 0;
+        }
+    }
+    
     globals.ascender = font.ascender;
     globals.descender = font.descender;
 

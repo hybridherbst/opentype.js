@@ -96,6 +96,12 @@
             border-color: var(--accent-hover);
         }
 
+        .btn-small {
+            padding: 2px 6px;
+            font-size: 10px;
+            margin-left: 4px;
+        }
+
         /* Main content */
         .main {
             display: flex;
@@ -579,6 +585,9 @@
         <header>
             <h1>Font Editor <a href="../index.html">← opentype.js</a></h1>
             <div class="header-actions">
+                <button id="save-json" class="btn">Save JSON</button>
+                <button id="load-json" class="btn">Load JSON</button>
+                <input type="file" id="json-file" accept=".json" style="display: none;" />
                 <button id="import-font" class="btn">Import Font</button>
                 <button id="add-glyph" class="btn">+ Add Glyph</button>
                 <button id="delete-glyph" class="btn">− Delete Glyph</button>
@@ -633,7 +642,8 @@
                         </div>
                         <div class="property-row">
                             <label>Width</label>
-                            <input type="number" id="glyph-width" value="8" min="1" max="20">
+                            <input type="number" id="glyph-width" value="8" min="1" max="20" step="0.5">
+                            <button id="clear-width" class="btn btn-small" title="Reset to auto-calculated width">Auto</button>
                         </div>
                     </div>
 
@@ -772,6 +782,10 @@
 
     <script type="module">
         import * as opentype from "/dist/opentype.module.js";
+        import { FontEditorState, FontBuilder, FontImporter } from "./font-editor-api.js";
+
+        // Make opentype available globally for API
+        window.opentype = opentype;
 
         // State
         const state = {
@@ -797,11 +811,11 @@
                 'S': [[7, 10], [7, 7], [3, 7], [3, 6], [7, 6], [7, 0], [0, 0], [0, 3], [4, 3], [4, 4], [0, 4], [0, 10]],
                 'T': [[2, 0], [2, 7], [0, 7], [0, 10], [7, 10], [7, 7], [5, 7], [5, 0]],
                 'U': [[0, 0], [0, 10], [3, 10], [3, 3], [5, 3], [5, 10], [8, 10], [8, 0]],
-                'V': [[0, 10], [3, 10], [4, 6], [5, 10], [8, 10], [5, 0], [3, 0]],
-                'W': [[0, 10], [2, 10], [3, 6], [4, 10], [6, 10], [7, 6], [8, 10], [8, 0], [6, 0], [6, 4], [5, 3], [4, 4], [4, 0], [2, 0], [2, 4], [1, 3], [0, 4], [0, 0]],
-                'X': [[0, 0], [0, 3], [3, 5], [4, 6], [5, 5], [8, 3], [8, 0], [5, 7], [4, 8], [3, 7], [0, 10], [0, 7], [3, 5], [4, 4], [5, 5], [8, 7], [8, 10]],
-                'Y': [[0, 10], [3, 10], [4, 7], [5, 10], [8, 10], [4, 0], [3, 0]],
-                'Z': [[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [0, 3], [8, 3], [8, 0]],
+                'V': [[0, 10], [3, 10], [4, 0], [5, 10], [8, 10], [5, 0], [3, 0]],
+                'W': [[0, 10], [2, 10], [3, 3], [4, 7], [5, 3], [6, 10], [8, 10], [6, 0], [5, 0], [4, 4], [3, 0], [2, 0]],
+                'X': [[0, 10], [2, 10], [4, 6], [6, 10], [8, 10], [5, 5], [8, 0], [6, 0], [4, 4], [2, 0], [0, 0], [3, 5]],
+                'Y': [[0, 10], [2, 10], [4, 6], [6, 10], [8, 10], [5, 4], [5, 0], [3, 0], [3, 4]],
+                'Z': [[0, 10], [8, 10], [8, 7], [3, 3], [8, 3], [8, 0], [0, 0], [0, 3], [5, 7], [0, 7]],
             },
             // Explicit glyph widths (advance widths). If not set, computed from rightmost point + 1
             glyphWidths: {},
@@ -865,6 +879,11 @@
             document.getElementById('add-glyph').addEventListener('click', addNewGlyph);
             document.getElementById('delete-glyph').addEventListener('click', deleteCurrentGlyph);
             
+            // JSON save/load
+            document.getElementById('save-json').addEventListener('click', saveJSON);
+            document.getElementById('load-json').addEventListener('click', () => document.getElementById('json-file').click());
+            document.getElementById('json-file').addEventListener('change', loadJSON);
+            
             // Import modal
             document.getElementById('import-cancel').addEventListener('click', () => {
                 hideModal('import-modal');
@@ -877,6 +896,8 @@
             document.getElementById('point-x').addEventListener('input', updatePointFromInput);
             document.getElementById('point-y').addEventListener('input', updatePointFromInput);
             document.getElementById('glyph-char').addEventListener('input', updateGlyphChar);
+            document.getElementById('glyph-width').addEventListener('input', updateGlyphWidthFromInput);
+            document.getElementById('clear-width').addEventListener('click', clearGlyphWidth);
 
             // Variable font controls
             document.getElementById('toggle-vf').addEventListener('click', toggleVariableFont);
@@ -1196,9 +1217,14 @@
             if (char && widthsObj && widthsObj[char] !== undefined) {
                 return widthsObj[char];
             }
-            // Fallback: compute from rightmost point
+            // Fallback: compute from bounding box (maxX - minX)
             if (!points || points.length === 0) return 5;
-            return Math.max(...points.map(p => p[0]));
+            const xCoords = points.map(p => p[0]);
+            const minX = Math.min(...xCoords);
+            const maxX = Math.max(...xCoords);
+            // Width is the bounding box width, starting from 0 if minX >= 0
+            // otherwise include the full span
+            return minX >= 0 ? maxX : maxX - minX;
         }
         
         // Get glyph width for current state (considering VF mode)
@@ -1227,6 +1253,47 @@
             } else {
                 state.glyphWidths[char] = width;
             }
+        }
+        
+        // Clear glyph width override (revert to auto-calculated)
+        function clearGlyphWidthOverride(char) {
+            if (state.vf.enabled && state.vf.masters.length > 0) {
+                const master = state.vf.masters[state.vf.currentMaster];
+                if (master.glyphWidths) {
+                    delete master.glyphWidths[char];
+                }
+            } else {
+                delete state.glyphWidths[char];
+            }
+        }
+        
+        // Check if glyph has explicit width override
+        function hasWidthOverride(char) {
+            if (state.vf.enabled && state.vf.masters.length > 0) {
+                const master = state.vf.masters[state.vf.currentMaster];
+                return master.glyphWidths && master.glyphWidths[char] !== undefined;
+            }
+            return state.glyphWidths[char] !== undefined;
+        }
+        
+        // Update width from input field
+        function updateGlyphWidthFromInput(e) {
+            if (!state.currentGlyph) return;
+            const width = parseFloat(e.target.value);
+            if (!isNaN(width) && width > 0) {
+                setGlyphWidth(state.currentGlyph, width);
+                draw();
+            }
+        }
+        
+        // Clear width override
+        function clearGlyphWidth() {
+            if (!state.currentGlyph) return;
+            clearGlyphWidthOverride(state.currentGlyph);
+            // Update the input to show auto-calculated width
+            const autoWidth = getGlyphWidth(state.glyphs[state.currentGlyph] || [], null, null);
+            document.getElementById('glyph-width').value = autoWidth.toFixed(1);
+            draw();
         }
 
         function renderGlyphGrid() {
@@ -1263,9 +1330,25 @@
             state.currentGlyph = char;
             state.selectedPoint = -1;
             document.getElementById('glyph-char').value = char;
+            updateWidthDisplay();
             renderGlyphGrid();
             updatePointList();
             draw();
+        }
+        
+        function updateWidthDisplay() {
+            if (!state.currentGlyph) return;
+            const width = getCurrentGlyphWidth();
+            document.getElementById('glyph-width').value = width.toFixed(1);
+            // Indicate if it's an override or auto
+            const clearBtn = document.getElementById('clear-width');
+            if (hasWidthOverride(state.currentGlyph)) {
+                clearBtn.style.opacity = '1';
+                clearBtn.title = 'Reset to auto-calculated width';
+            } else {
+                clearBtn.style.opacity = '0.5';
+                clearBtn.title = 'Width is already auto-calculated';
+            }
         }
 
         function updatePointList() {
@@ -1291,6 +1374,8 @@
                 });
                 pointList.appendChild(item);
             }
+            // Update width display when points change
+            updateWidthDisplay();
         }
 
         function updatePointProperties() {
@@ -1445,6 +1530,7 @@
                 
                 // Import glyphs
                 let importedCount = 0;
+                const scale = 10 / font.unitsPerEm * 1.2;
                 for (const code of charCodes) {
                     const char = String.fromCharCode(code);
                     const glyph = font.charToGlyph(char);
@@ -1455,6 +1541,12 @@
                         const points = extractPathPoints(glyph.path, font.unitsPerEm);
                         if (points.length > 0) {
                             state.glyphs[char] = points;
+                            // Compute proper width from path bounds (handles bezier curves)
+                            const bounds = getPathBounds(glyph.path);
+                            const glyphWidth = bounds.maxX * scale;
+                            if (glyphWidth > 0) {
+                                state.glyphWidths[char] = Math.round(glyphWidth * 10) / 10;
+                            }
                             importedCount++;
                         }
                     }
@@ -1675,6 +1767,59 @@
             showImportModal(e);
         }
 
+        // Get bezier curve extrema for X coordinate
+        // For cubic bezier: P0*(1-t)³ + 3*P1*t*(1-t)² + 3*P2*t²*(1-t) + P3*t³
+        // Derivative: -3*P0*(1-t)² + 3*P1*(1-t)²-6*P1*t*(1-t) + 6*P2*t*(1-t)-3*P2*t² + 3*P3*t²
+        // Simplified: 3*(P1-P0)*(1-t)² + 6*(P2-P1)*t*(1-t) + 3*(P3-P2)*t²
+        function getCubicBezierExtremaX(x0, x1, x2, x3) {
+            // Compute derivative coefficients: at² + bt + c = 0
+            const a = -3*x0 + 9*x1 - 9*x2 + 3*x3;
+            const b = 6*x0 - 12*x1 + 6*x2;
+            const c = 3*x1 - 3*x0;
+            
+            const extrema = [x0, x3]; // Include endpoints
+            
+            if (Math.abs(a) < 1e-12) {
+                // Linear case
+                if (Math.abs(b) >= 1e-12) {
+                    const t = -c / b;
+                    if (t > 0 && t < 1) {
+                        const val = Math.pow(1-t, 3)*x0 + 3*Math.pow(1-t, 2)*t*x1 + 3*(1-t)*t*t*x2 + t*t*t*x3;
+                        extrema.push(val);
+                    }
+                }
+            } else {
+                // Quadratic case
+                const discriminant = b*b - 4*a*c;
+                if (discriminant >= 0) {
+                    const sqrtD = Math.sqrt(discriminant);
+                    const t1 = (-b + sqrtD) / (2*a);
+                    const t2 = (-b - sqrtD) / (2*a);
+                    for (const t of [t1, t2]) {
+                        if (t > 0 && t < 1) {
+                            const val = Math.pow(1-t, 3)*x0 + 3*Math.pow(1-t, 2)*t*x1 + 3*(1-t)*t*t*x2 + t*t*t*x3;
+                            extrema.push(val);
+                        }
+                    }
+                }
+            }
+            return extrema;
+        }
+        
+        // Get quadratic bezier extrema for X coordinate
+        function getQuadBezierExtremaX(x0, x1, x2) {
+            const extrema = [x0, x2]; // Include endpoints
+            const denom = x0 - 2*x1 + x2;
+            if (Math.abs(denom) >= 1e-12) {
+                const t = (x0 - x1) / denom;
+                if (t > 0 && t < 1) {
+                    const val = (1-t)*(1-t)*x0 + 2*(1-t)*t*x1 + t*t*x2;
+                    extrema.push(val);
+                }
+            }
+            return extrema;
+        }
+
         function extractPathPoints(path, unitsPerEm) {
             const points = [];
             const scale = 10 / unitsPerEm * 1.2;
@@ -1691,13 +1836,188 @@
             
             return points;
         }
+        
+        // Compute glyph bounding box from path commands (handles beziers)
+        function getPathBounds(path) {
+            if (!path || !path.commands || path.commands.length === 0) {
+                return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+            }
+            
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            let curX = 0, curY = 0;
+            
+            for (const cmd of path.commands) {
+                let xValues = [];
+                let yValues = [];
+                
+                switch (cmd.type) {
+                    case 'M':
+                    case 'L':
+                        xValues = [cmd.x];
+                        yValues = [cmd.y];
+                        curX = cmd.x;
+                        curY = cmd.y;
+                        break;
+                    case 'Q': // Quadratic bezier
+                        xValues = getQuadBezierExtremaX(curX, cmd.x1, cmd.x);
+                        yValues = getQuadBezierExtremaX(curY, cmd.y1, cmd.y); // Same formula for Y
+                        curX = cmd.x;
+                        curY = cmd.y;
+                        break;
+                    case 'C': // Cubic bezier
+                        xValues = getCubicBezierExtremaX(curX, cmd.x1, cmd.x2, cmd.x);
+                        yValues = getCubicBezierExtremaX(curY, cmd.y1, cmd.y2, cmd.y);
+                        curX = cmd.x;
+                        curY = cmd.y;
+                        break;
+                    case 'Z':
+                        // Close path - no coordinates
+                        break;
+                }
+                
+                for (const x of xValues) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                }
+                for (const y of yValues) {
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+            
+            return {
+                minX: minX === Infinity ? 0 : minX,
+                maxX: maxX === -Infinity ? 0 : maxX,
+                minY: minY === Infinity ? 0 : minY,
+                maxY: maxY === -Infinity ? 0 : maxY
+            };
+        }
+
+        function saveJSON() {
+            const data = {
+                version: 1,
+                glyphs: state.glyphs,
+                glyphWidths: state.glyphWidths,
+                currentGlyph: state.currentGlyph,
+                vf: {
+                    enabled: state.vf.enabled,
+                    axes: state.vf.axes,
+                    masters: state.vf.masters,
+                    instances: state.vf.instances,
+                    currentMaster: state.vf.currentMaster,
+                    previewCoords: state.vf.previewCoords
+                }
+            };
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'font-editor-state.json';
+            a.click();
+            URL.revokeObjectURL(url);
+            console.log('State saved to JSON');
+        }
+
+        async function loadJSON(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                
+                if (data.glyphs) {
+                    state.glyphs = data.glyphs;
+                }
+                if (data.glyphWidths) {
+                    state.glyphWidths = data.glyphWidths;
+                }
+                if (data.currentGlyph && state.glyphs[data.currentGlyph]) {
+                    state.currentGlyph = data.currentGlyph;
+                } else if (Object.keys(state.glyphs).length > 0) {
+                    state.currentGlyph = Object.keys(state.glyphs)[0];
+                }
+                
+                if (data.vf) {
+                    state.vf.enabled = data.vf.enabled || false;
+                    state.vf.axes = data.vf.axes || [];
+                    state.vf.masters = data.vf.masters || [];
+                    state.vf.instances = data.vf.instances || [];
+                    state.vf.currentMaster = data.vf.currentMaster || 0;
+                    state.vf.previewCoords = data.vf.previewCoords || {};
+                }
+                
+                state.selectedPoint = -1;
+                
+                renderGlyphGrid();
+                updateVFUI();
+                updatePointList();
+                draw();
+                
+                console.log('State loaded from JSON');
+                alert('Font editor state loaded successfully!');
+            } catch (err) {
+                console.error('Failed to load JSON:', err);
+                alert('Failed to load JSON: ' + err.message);
+            }
+            
+            e.target.value = '';
+        }
 
         function downloadFont() {
+            // Sync current edits to the current master (if VF mode)
+            if (state.vf.enabled && state.vf.currentMaster < state.vf.masters.length) {
+                state.vf.masters[state.vf.currentMaster].glyphs = JSON.parse(JSON.stringify(state.glyphs));
+                state.vf.masters[state.vf.currentMaster].glyphWidths = JSON.parse(JSON.stringify(state.glyphWidths));
+            }
+            
+            // Create API state from UI state
+            const apiState = new FontEditorState({
+                familyName: 'Custom Font',
+                styleName: state.vf.enabled ? 'Variable' : 'Regular',
+                unitsPerEm: 800,
+                ascender: 800,
+                descender: -200
+            });
+            apiState.glyphs = { ...state.glyphs };
+            apiState.glyphWidths = { ...state.glyphWidths };
+            apiState.vfEnabled = state.vf.enabled;
+            apiState.axes = state.vf.axes.map(a => ({ ...a }));
+            apiState.masters = state.vf.masters.map(m => ({
+                name: m.name,
+                coords: { ...m.coords },
+                glyphs: { ...m.glyphs },
+                glyphWidths: m.glyphWidths ? { ...m.glyphWidths } : {}
+            }));
+            apiState.instances = state.vf.instances.map(i => ({ name: i.name, coords: { ...i.coords } }));
+
+            try {
+                const builder = new FontBuilder(apiState, opentype);
+                const font = builder.build({ validate: true, validateRoundTrip: true });
+                const buffer = font.toArrayBuffer();
+                const isVF = state.vf.enabled && state.vf.axes.length > 0;
+                const blob = new Blob([buffer], { type: 'font/otf' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = isVF ? 'custom-font-VF.otf' : 'custom-font.otf';
+                a.click();
+                URL.revokeObjectURL(url);
+                console.log('Font exported successfully');
+            } catch (e) {
+                console.error('Font export failed:', e);
+                alert('Font export failed: ' + e.message);
+            }
+        }
+
+        // Legacy downloadFont logic kept for reference (now using FontBuilder API)
+        function downloadFontLegacy() {
             const TTF_SCALE = 80;
             const otGlyphs = [];
-            const glyphIndexMap = new Map(); // Map glyph name to index
+            const glyphIndexMap = new Map();
 
-            // .notdef glyph
             otGlyphs.push(new opentype.Glyph({
                 name: '.notdef',
                 unicode: 0,
@@ -1706,7 +2026,6 @@
             }));
             glyphIndexMap.set('.notdef', 0);
 
-            // Space glyph
             otGlyphs.push(new opentype.Glyph({
                 name: 'space',
                 unicode: 32,
@@ -1715,17 +2034,22 @@
             }));
             glyphIndexMap.set('space', 1);
 
-            // Add all glyphs (use default master for base glyphs)
+            otGlyphs.push(new opentype.Glyph({
+                name: 'uni00A0',
+                unicode: 0x00A0,
+                path: new opentype.Path(),
+                advanceWidth: 5 * TTF_SCALE
+            }));
+            glyphIndexMap.set('uni00A0', 2);
+
             const baseGlyphs = state.vf.enabled && state.vf.masters.length > 0
                 ? state.vf.masters[0].glyphs
                 : state.glyphs;
-            
-            // Get base widths (from default master or state)
             const baseWidths = state.vf.enabled && state.vf.masters.length > 0 && state.vf.masters[0].glyphWidths
                 ? state.vf.masters[0].glyphWidths
                 : state.glyphWidths;
             
-            let glyphIndex = 2;
+            let glyphIndex = 3; // Start after .notdef(0), space(1), uni00A0(2)
             for (const [char, points] of Object.entries(baseGlyphs)) {
                 const path = new opentype.Path();
                 if (points.length > 0) {
@@ -1804,8 +2128,12 @@
                         });
                     }
                     
-                    // Add instances
-                    for (const instance of state.vf.instances) {
+                    // Add instances - always include at least a "Regular" instance at defaults
+                    const allInstances = state.vf.instances.length > 0 ? state.vf.instances : [{
+                        name: 'Regular',
+                        coords: Object.fromEntries(state.vf.axes.map(a => [a.tag, a.defaultValue]))
+                    }];
+                    for (const instance of allInstances) {
                         font.variation.addInstance({
                             name: instance.name,
                             coordinates: instance.coords
@@ -2232,11 +2560,32 @@
                 state.vf.masters[masterIndex].name = name;
                 state.vf.masters[masterIndex].coords = coords;
             } else {
-                // Adding new master
+                // Adding new master - extrapolate from existing masters if available
+                let newGlyphs;
+                let newWidths = {};
+                
+                if (state.vf.masters.length >= 2) {
+                    // Extrapolate/interpolate glyphs based on the new coords
+                    const interpResult = interpolateGlyphsForMaster(coords);
+                    newGlyphs = interpResult.glyphs;
+                    newWidths = interpResult.widths;
+                } else if (state.vf.masters.length === 1) {
+                    // Just copy from the existing master
+                    newGlyphs = JSON.parse(JSON.stringify(state.vf.masters[0].glyphs));
+                    newWidths = state.vf.masters[0].glyphWidths 
+                        ? JSON.parse(JSON.stringify(state.vf.masters[0].glyphWidths)) 
+                        : {};
+                } else {
+                    // First master - use current glyphs
+                    newGlyphs = JSON.parse(JSON.stringify(state.glyphs));
+                    newWidths = JSON.parse(JSON.stringify(state.glyphWidths));
+                }
+                
                 state.vf.masters.push({
                     name,
                     coords,
-                    glyphs: JSON.parse(JSON.stringify(state.glyphs))
+                    glyphs: newGlyphs,
+                    glyphWidths: newWidths
                 });
             }
             
@@ -2442,82 +2791,215 @@
             updateInstanceList();
         }
 
+        // Interpolate/extrapolate glyphs for a new master position
+        // This properly handles extrapolation (t outside 0-1)
+        function interpolateGlyphsForMaster(targetCoords) {
+            const resultGlyphs = {};
+            const resultWidths = {};
+            const masters = state.vf.masters;
+            
+            if (masters.length < 2) {
+                // Not enough masters to interpolate
+                return { 
+                    glyphs: masters.length === 1 
+                        ? JSON.parse(JSON.stringify(masters[0].glyphs)) 
+                        : JSON.parse(JSON.stringify(state.glyphs)),
+                    widths: masters.length === 1 && masters[0].glyphWidths
+                        ? JSON.parse(JSON.stringify(masters[0].glyphWidths))
+                        : JSON.parse(JSON.stringify(state.glyphWidths))
+                };
+            }
+            
+            const axis = state.vf.axes[0];
+            if (!axis) {
+                return { 
+                    glyphs: JSON.parse(JSON.stringify(masters[0].glyphs)), 
+                    widths: masters[0].glyphWidths 
+                        ? JSON.parse(JSON.stringify(masters[0].glyphWidths)) 
+                        : {} 
+                };
+            }
+            
+            const targetVal = targetCoords[axis.tag] ?? axis.defaultValue;
+            
+            // Sort masters by axis value (not distance) for proper interpolation
+            const sortedMasters = [...masters].sort((a, b) => {
+                const aVal = a.coords[axis.tag] ?? axis.defaultValue;
+                const bVal = b.coords[axis.tag] ?? axis.defaultValue;
+                return aVal - bVal;
+            });
+            
+            // Find the two masters to interpolate/extrapolate between
+            let m1, m2;
+            
+            // Check if we're extrapolating below the minimum
+            if (targetVal <= (sortedMasters[0].coords[axis.tag] ?? axis.defaultValue)) {
+                m1 = sortedMasters[0];
+                m2 = sortedMasters[1];
+            }
+            // Check if we're extrapolating above the maximum
+            else if (targetVal >= (sortedMasters[sortedMasters.length - 1].coords[axis.tag] ?? axis.defaultValue)) {
+                m1 = sortedMasters[sortedMasters.length - 2];
+                m2 = sortedMasters[sortedMasters.length - 1];
+            }
+            // We're interpolating between two masters
+            else {
+                for (let i = 0; i < sortedMasters.length - 1; i++) {
+                    const v1 = sortedMasters[i].coords[axis.tag] ?? axis.defaultValue;
+                    const v2 = sortedMasters[i + 1].coords[axis.tag] ?? axis.defaultValue;
+                    if (targetVal >= v1 && targetVal <= v2) {
+                        m1 = sortedMasters[i];
+                        m2 = sortedMasters[i + 1];
+                        break;
+                    }
+                }
+            }
+            
+            if (!m1 || !m2) {
+                return { glyphs: JSON.parse(JSON.stringify(masters[0].glyphs)), widths: {} };
+            }
+            
+            const v1 = m1.coords[axis.tag] ?? axis.defaultValue;
+            const v2 = m2.coords[axis.tag] ?? axis.defaultValue;
+            
+            // Calculate t (can be < 0 or > 1 for extrapolation)
+            const t = v1 === v2 ? 0 : (targetVal - v1) / (v2 - v1);
+            
+            // Interpolate/extrapolate each glyph
+            for (const char of Object.keys(m1.glyphs)) {
+                const p1 = m1.glyphs[char];
+                const p2 = m2.glyphs[char];
+                
+                if (!p1 || !p2 || p1.length !== p2.length) {
+                    // Can't interpolate, use first master
+                    resultGlyphs[char] = JSON.parse(JSON.stringify(p1 || []));
+                    continue;
+                }
+                
+                // Extrapolate/interpolate the glyph points
+                const extrapolatedPoints = p1.map((pt, i) => [
+                    pt[0] + (p2[i][0] - pt[0]) * t,
+                    pt[1] + (p2[i][1] - pt[1]) * t
+                ]);
+                resultGlyphs[char] = extrapolatedPoints;
+                
+                // Width handling: only interpolate if BOTH masters have explicit overrides
+                // Otherwise, calculate from the extrapolated glyph bounds
+                const hasExplicitW1 = m1.glyphWidths && m1.glyphWidths[char] !== undefined;
+                const hasExplicitW2 = m2.glyphWidths && m2.glyphWidths[char] !== undefined;
+                
+                if (hasExplicitW1 && hasExplicitW2) {
+                    // Both have explicit widths - interpolate them
+                    const w1 = m1.glyphWidths[char];
+                    const w2 = m2.glyphWidths[char];
+                    resultWidths[char] = w1 + (w2 - w1) * t;
+                }
+                // Otherwise, don't set explicit width - let it be auto-calculated from points
+            }
+            
+            return { glyphs: resultGlyphs, widths: resultWidths };
+        }
+
         // Interpolation helpers for variable font preview
         function interpolateGlyphs(coords) {
             if (state.vf.masters.length < 2) {
                 return { glyphs: state.glyphs, widths: state.glyphWidths };
             }
             
-            // Simple linear interpolation between masters
-            // For a full implementation, this would need proper delta computation
+            // Proper interval-based linear interpolation between masters
             const resultGlyphs = {};
             const resultWidths = {};
             
+            const axis = state.vf.axes[0];
+            if (!axis) {
+                const m = state.vf.masters[0];
+                return { 
+                    glyphs: m.glyphs, 
+                    widths: m.glyphWidths || state.glyphWidths 
+                };
+            }
+            
+            const targetVal = coords[axis.tag] ?? axis.defaultValue;
+            
+            // Sort masters by axis value (not distance!) for proper interval finding
+            const sortedMasters = [...state.vf.masters].sort((a, b) => {
+                const aVal = a.coords[axis.tag] ?? axis.defaultValue;
+                const bVal = b.coords[axis.tag] ?? axis.defaultValue;
+                return aVal - bVal;
+            });
+            
+            // Find the bracketing masters
+            let m1, m2;
+            
+            // Below minimum - extrapolate from first two masters
+            if (targetVal <= (sortedMasters[0].coords[axis.tag] ?? axis.defaultValue)) {
+                m1 = sortedMasters[0];
+                m2 = sortedMasters.length > 1 ? sortedMasters[1] : sortedMasters[0];
+            }
+            // Above maximum - extrapolate from last two masters
+            else if (targetVal >= (sortedMasters[sortedMasters.length - 1].coords[axis.tag] ?? axis.defaultValue)) {
+                m1 = sortedMasters.length > 1 ? sortedMasters[sortedMasters.length - 2] : sortedMasters[0];
+                m2 = sortedMasters[sortedMasters.length - 1];
+            }
+            // In between - find the interval containing targetVal
+            else {
+                for (let i = 0; i < sortedMasters.length - 1; i++) {
+                    const v1 = sortedMasters[i].coords[axis.tag] ?? axis.defaultValue;
+                    const v2 = sortedMasters[i + 1].coords[axis.tag] ?? axis.defaultValue;
+                    if (targetVal >= v1 && targetVal <= v2) {
+                        m1 = sortedMasters[i];
+                        m2 = sortedMasters[i + 1];
+                        break;
+                    }
+                }
+                // Fallback
+                if (!m1 || !m2) {
+                    m1 = sortedMasters[0];
+                    m2 = sortedMasters[sortedMasters.length - 1];
+                }
+            }
+            
+            const v1 = m1.coords[axis.tag] ?? axis.defaultValue;
+            const v2 = m2.coords[axis.tag] ?? axis.defaultValue;
+            
+            // Calculate interpolation factor (can be outside 0-1 for extrapolation)
+            const t = v1 === v2 ? 0 : (targetVal - v1) / (v2 - v1);
+            
             for (const char of Object.keys(state.glyphs)) {
-                const masterData = state.vf.masters
-                    .filter(m => m.glyphs[char])
-                    .map(m => ({ 
-                        coords: m.coords, 
-                        points: m.glyphs[char],
-                        width: getGlyphWidth(m.glyphs[char], char, m.glyphWidths)
-                    }));
+                const p1 = m1.glyphs[char];
+                const p2 = m2.glyphs[char];
                 
-                if (masterData.length === 0) continue;
-                if (masterData.length === 1) {
-                    resultGlyphs[char] = masterData[0].points;
-                    resultWidths[char] = masterData[0].width;
+                if (!p1 || !p2) {
+                    resultGlyphs[char] = p1 || p2 || [];
+                    // Don't set explicit width - let it auto-calculate
                     continue;
                 }
-                
-                // Find closest two masters and interpolate
-                // Simplified: just use first axis for now
-                const axis = state.vf.axes[0];
-                if (!axis) {
-                    resultGlyphs[char] = masterData[0].points;
-                    resultWidths[char] = masterData[0].width;
-                    continue;
-                }
-                
-                const targetVal = coords[axis.tag] ?? axis.defaultValue;
-                
-                // Sort masters by distance to target on this axis
-                masterData.sort((a, b) => {
-                    const aDist = Math.abs((a.coords[axis.tag] ?? axis.defaultValue) - targetVal);
-                    const bDist = Math.abs((b.coords[axis.tag] ?? axis.defaultValue) - targetVal);
-                    return aDist - bDist;
-                });
-                
-                const m1 = masterData[0];
-                const m2 = masterData[1] || m1;
-                
-                const v1 = m1.coords[axis.tag] ?? axis.defaultValue;
-                const v2 = m2.coords[axis.tag] ?? axis.defaultValue;
-                
-                if (v1 === v2 || m1 === m2) {
-                    resultGlyphs[char] = m1.points;
-                    resultWidths[char] = m1.width;
-                    continue;
-                }
-                
-                const t = (targetVal - v1) / (v2 - v1);
-                
-                // Interpolate points
-                const p1 = m1.points;
-                const p2 = m2.points;
                 
                 if (p1.length !== p2.length) {
                     resultGlyphs[char] = p1; // Can't interpolate different point counts
-                    resultWidths[char] = m1.width;
+                    // Don't set explicit width - let it auto-calculate
                     continue;
                 }
                 
-                resultGlyphs[char] = p1.map((pt, i) => [
+                // Interpolate/extrapolate points
+                const extrapolatedPoints = p1.map((pt, i) => [
                     pt[0] + (p2[i][0] - pt[0]) * t,
                     pt[1] + (p2[i][1] - pt[1]) * t
                 ]);
+                resultGlyphs[char] = extrapolatedPoints;
                 
-                // Interpolate width
-                resultWidths[char] = m1.width + (m2.width - m1.width) * t;
+                // Width handling: only interpolate if BOTH masters have explicit overrides
+                // Otherwise, calculate from the extrapolated glyph bounds
+                const hasExplicitW1 = m1.glyphWidths && m1.glyphWidths[char] !== undefined;
+                const hasExplicitW2 = m2.glyphWidths && m2.glyphWidths[char] !== undefined;
+                
+                if (hasExplicitW1 && hasExplicitW2) {
+                    // Both have explicit widths - interpolate them
+                    const w1 = m1.glyphWidths[char];
+                    const w2 = m2.glyphWidths[char];
+                    resultWidths[char] = w1 + (w2 - w1) * t;
+                }
+                // Otherwise, don't set explicit width - will be auto-calculated from extrapolated points
             }
             
             return { glyphs: resultGlyphs, widths: resultWidths };

@@ -970,6 +970,9 @@ encode.OPERAND = function(v, type) {
                 d.push(n[j]);
             }
         }
+    } else if (v === undefined || v === null) {
+        // Skip undefined/null values - they shouldn't be in the DICT
+        throw new Error('Cannot encode undefined/null value for type ' + type);
     } else {
         if (type === 'SID') {
             const enc1 = encode.NUMBER(v);
@@ -1005,7 +1008,7 @@ encode.OPERAND = function(v, type) {
                 d.push(enc1[j]);
             }
         } else {
-            throw new Error('Unknown operand type ' + type);
+            throw new Error('Unknown operand type ' + type + ' for value ' + v + ' (typeof: ' + typeof v + ')');
             // FIXME Add support for booleans
         }
     }

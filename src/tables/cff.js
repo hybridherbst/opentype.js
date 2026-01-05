@@ -1839,14 +1839,35 @@ function makeDict(meta, attrs, strings) {
         let value = attrs[entry.name];
         const keepDefaults = attrs && attrs.__keepDefaults;
         const hasOwn = attrs && Object.prototype.hasOwnProperty.call(attrs, entry.name);
-        if (value !== undefined && (!equals(value, entry.value) || (keepDefaults && hasOwn))) {
+        // Skip undefined and null values - they can't be encoded in CFF DICTs
+        if (value === undefined || value === null) continue;
+        // For delta types, skip empty arrays or arrays with null values
+        if (entry.type === 'delta') {
+            if (!Array.isArray(value) || value.length === 0 || value.some(v => v === undefined || v === null)) {
+                continue;
+            }
+        }
+        // For array types (like fontBBox), check for invalid values and replace with defaults
+        if (Array.isArray(value) && Array.isArray(entry.type)) {
+            // Check if any value is undefined, null, NaN, or Infinity
+            const hasInvalid = value.some(v => v === undefined || v === null || !Number.isFinite(v));
+            if (hasInvalid) {
+                // Replace with default value or skip
+                if (entry.value !== undefined && entry.value !== null) {
+                    value = entry.value;
+                } else {
+                    continue;
+                }
+            }
+        }
+        if (!equals(value, entry.value) || (keepDefaults && hasOwn)) {
             if (entry.type === 'SID') {
                 value = encodeString(value, strings);
             }
 
             const blend = attrs._blends && attrs._blends[entry.name];
 
-            if (blend) {
+            if (blend && Array.isArray(blend)) {
 
                 // Work on a copy to avoid mutating the source attrs object across passes
                 if (!Array.isArray(value)) {
@@ -1861,7 +1882,7 @@ function makeDict(meta, attrs, strings) {
             }
 
             m[entry.op] = { name: entry.name, type: entry.type, value: value };
-            if (blend) {
+            if (blend && Array.isArray(blend)) {
                 m[entry.op].blend = blend.length;
             }
         }

@@ -16,23 +16,25 @@ import Bidi from './bidi.js';
 import { applyPaintType } from './tables/cff.js';
 
 function createDefaultNamesInfo(options) {
-    return {
-        fontFamily: {en: options.familyName || ' '},
-        fontSubfamily: {en: options.styleName || ' '},
-        fullName: {en: options.fullName || options.familyName + ' ' + options.styleName},
+    const names = {
+        fontFamily: {en: options.familyName || 'Untitled'},
+        fontSubfamily: {en: options.styleName || 'Regular'},
+        fullName: {en: options.fullName || (options.familyName || 'Untitled') + ' ' + (options.styleName || 'Regular')},
         // postScriptName may not contain any whitespace
-        postScriptName: {en: options.postScriptName || (options.familyName + options.styleName).replace(/\s/g, '')},
-        designer: {en: options.designer || ' '},
-        designerURL: {en: options.designerURL || ' '},
-        manufacturer: {en: options.manufacturer || ' '},
-        manufacturerURL: {en: options.manufacturerURL || ' '},
-        license: {en: options.license || ' '},
-        licenseURL: {en: options.licenseURL || ' '},
+        postScriptName: {en: options.postScriptName || ((options.familyName || 'Untitled') + (options.styleName || 'Regular')).replace(/\s/g, '')},
         version: {en: options.version || 'Version 0.1'},
-        description: {en: options.description || ' '},
-        copyright: {en: options.copyright || ' '},
-        trademark: {en: options.trademark || ' '}
     };
+    // Only include optional fields if they are provided and non-empty
+    if (options.designer) names.designer = {en: options.designer};
+    if (options.designerURL) names.designerURL = {en: options.designerURL};
+    if (options.manufacturer) names.manufacturer = {en: options.manufacturer};
+    if (options.manufacturerURL) names.manufacturerURL = {en: options.manufacturerURL};
+    if (options.license) names.license = {en: options.license};
+    if (options.licenseURL) names.licenseURL = {en: options.licenseURL};
+    if (options.description) names.description = {en: options.description};
+    if (options.copyright) names.copyright = {en: options.copyright};
+    if (options.trademark) names.trademark = {en: options.trademark};
+    return names;
 }
 
 /**
