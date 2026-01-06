@@ -15,6 +15,7 @@ import { isBrowser, checkArgument } from './util.js';
 import HintingTrueType from './hintingtt.js';
 import Bidi from './bidi.js';
 import { applyPaintType } from './tables/cff.js';
+import { convertCFF2ToTTF, convertTTFToCFF2 } from './conversion.js';
 
 function createDefaultNamesInfo(options) {
     const names = {
@@ -825,6 +826,28 @@ Font.prototype.usWeightClasses = {
     BOLD: 700,
     EXTRA_BOLD: 800,
     BLACK:    900
+};
+
+/**
+ * Convert a CFF2 variable font to TrueType variable font format.
+ * This extracts deltas from CFF2 blend operators and creates gvar table data.
+ * Modifies the font in place.
+ * 
+ * @returns {boolean} True if conversion was successful
+ */
+Font.prototype.convertToTrueType = function() {
+    return convertCFF2ToTTF(this);
+};
+
+/**
+ * Convert a TrueType variable font to CFF2 variable font format.
+ * This extracts deltas from gvar and creates CFF2 blend operators with vstore.
+ * Modifies the font in place.
+ * 
+ * @returns {boolean} True if conversion was successful
+ */
+Font.prototype.convertToCFF2 = function() {
+    return convertTTFToCFF2(this);
 };
 
 export default Font;

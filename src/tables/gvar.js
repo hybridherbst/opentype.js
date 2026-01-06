@@ -109,9 +109,9 @@ function encodeTupleVariationHeader(header, axisCount, variationDataSize, shared
 }
 
 /**
- * Encode serialized data for a single tuple variation table
+ * Encode the serialized data for a TupleVariationTable
  * @param {object} header - The header object
- * @param {boolean} usePrivatePoints - Whether to use private points
+ * @param {boolean} usePrivatePoints - Whether private points are used
  * @returns {Array} Encoded bytes
  */
 function encodeTupleSerializedData(header, usePrivatePoints) {
@@ -201,8 +201,8 @@ function encodeGlyphVariationData(variation, axisCount, sharedTupleMap, original
     const usePrivatePointsArray = [];
     for (const header of headers) {
         const usePrivatePoints = !hasSharedPoints || (header.privatePoints && header.privatePoints.length > 0);
-        usePrivatePointsArray.push(usePrivatePoints);
         const data = encodeTupleSerializedData(header, usePrivatePoints);
+        usePrivatePointsArray.push(usePrivatePoints);
         serializedDataParts.push(data);
     }
     

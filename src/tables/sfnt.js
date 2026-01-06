@@ -396,11 +396,13 @@ function fontToSfntTable(font) {
         ]);
         tables.push(glyfTable);
     } else {
-        // Use CFF outlines for non-variable fonts
+        // Use CFF outlines
         const useCFFtable = font.tables.cff || font.tables.cff2;
-        // Prefer CFF2 by default when variation data exists; allow forcing CFF1 via font.options.forceCFF1
+        // Prefer CFF2 when the font already has CFF2 table (which has proper vstore and blend operators)
+        // CFF1 fonts with fvar are converted to TTF (glyf+gvar) for variable font export
+        // Allow forcing CFF1 via font.options.forceCFF1
         const forceCFF1 = font.options && font.options.forceCFF1;
-        const preferCFF2 = !forceCFF1 && (font.tables.cff2 || (font.tables.fvar && font.tables.cff2));
+        const preferCFF2 = !forceCFF1 && font.tables.cff2;
         const cffVersionToWrite = preferCFF2 ? 2 : 1;
         const cffTable = cff.make(font.glyphs, {
             version: font.getEnglishName('version'),

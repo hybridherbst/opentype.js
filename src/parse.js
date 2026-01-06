@@ -914,8 +914,15 @@ Parser.prototype.parseTupleVariationStore = function(tableOffset, axisCount, fla
                         const glyph = glyphs.get(glyphIndex);
                         // make sure the path is available
                         glyph.path;
-                        // Some glyphs (like space) may have no points, only phantom points
-                        pointsCount = (glyph.points ? glyph.points.length : 0);
+                        // For composite glyphs, point numbers refer to component indices, not outline points.
+                        // See OpenType spec: "If a glyph is a composite glyph, then 'point' numbers are
+                        // interpreted as indices for the components that make up the composite glyph."
+                        if (glyph.isComposite && glyph.components) {
+                            pointsCount = glyph.components.length;
+                        } else {
+                            // Some glyphs (like space) may have no points, only phantom points
+                            pointsCount = (glyph.points ? glyph.points.length : 0);
+                        }
                         // add 4 phantom points, see https://learn.microsoft.com/en-us/typography/opentype/spec/tt_instructing_glyphs#phantoms
                         // @TODO: actually generate these points from glyph.getBoundingBox() and glyph.getMetrics(),
                         // as they may be influenced by variation as well

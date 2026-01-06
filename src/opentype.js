@@ -28,6 +28,7 @@ import gsub from './tables/gsub.js';
 import head from './tables/head.js';
 import hhea from './tables/hhea.js';
 import hmtx from './tables/hmtx.js';
+import { convertCFF2ToTTF, convertTTFToCFF2, quadraticToCubic } from './conversion.js';
 import kern from './tables/kern.js';
 import ltag from './tables/ltag.js';
 import loca from './tables/loca.js';
@@ -594,6 +595,9 @@ export {
     VariationManager,
     pathToPoints,
     cubicToQuadratics,
+    quadraticToCubic,
+    convertCFF2ToTTF,
+    convertTTFToCFF2,
     parse as _parse,
     parseBuffer as parse,
     load,

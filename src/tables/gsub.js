@@ -362,7 +362,35 @@ subtableMakers[6] = function makeLookup6(subtable) {
         })));
         return returnTable;
     } else if (subtable.substFormat === 2) {
-        check.assert(false, 'lookup type 6 format 2 is not yet supported.');
+        // Chaining Context Substitution Format 2: Class-based Chaining Context Glyph Substitution
+        return new table.Table('chainContextTable', [
+            {name: 'substFormat', type: 'USHORT', value: subtable.substFormat},
+            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
+            {name: 'backtrackClassDef', type: 'TABLE', value: new table.ClassDef(subtable.backtrackClassDef)},
+            {name: 'inputClassDef', type: 'TABLE', value: new table.ClassDef(subtable.inputClassDef)},
+            {name: 'lookaheadClassDef', type: 'TABLE', value: new table.ClassDef(subtable.lookaheadClassDef)}
+        ].concat(table.tableList('chainClassSet', subtable.chainClassSet, function(chainClassSet) {
+            if (!chainClassSet) {
+                return new table.Table('NULL', null);
+            }
+            return new table.Table('chainClassSetTable', table.tableList('chainClassRule', chainClassSet, function(chainClassRule) {
+                // ChainClassRule table:
+                // backtrackGlyphCount, backtrackSequence[], inputGlyphCount, inputSequence[], 
+                // lookaheadGlyphCount, lookaheadSequence[], substCount, substLookupRecords[]
+                let tableData = table.ushortList('backtrackClass', chainClassRule.backtrack, chainClassRule.backtrack.length)
+                    .concat(table.ushortList('inputClass', chainClassRule.input, chainClassRule.input.length + 1))
+                    .concat(table.ushortList('lookaheadClass', chainClassRule.lookahead, chainClassRule.lookahead.length))
+                    .concat(table.ushortList('substCount', [], chainClassRule.lookupRecords.length));
+                
+                for(let i = 0; i < chainClassRule.lookupRecords.length; i++) {
+                    const record = chainClassRule.lookupRecords[i];
+                    tableData = tableData
+                        .concat({name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex})
+                        .concat({name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex});
+                }
+                return new table.Table('chainClassRuleTable', tableData);
+            }));
+        })));
     } else if (subtable.substFormat === 3) {
         let tableData = [
             {name: 'substFormat', type: 'USHORT', value: subtable.substFormat},

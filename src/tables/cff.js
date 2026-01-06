@@ -2051,6 +2051,24 @@ function glyphToOps(glyph, version, font) {
             dy = Math.round(cmd.y - y);
             ops.push({ name: 'dx', type: 'NUMBER', value: dx });
             ops.push({ name: 'dy', type: 'NUMBER', value: dy });
+            if (version > 1 && cmd.deltas) {
+                const deltas = cmd.deltas;
+                let setCount = 0;
+                if (deltas.x) {
+                    setCount++;
+                    for (let n = 0; n < deltas.x[1].length; n++) {
+                        ops.push({ name: 'blendX', type: 'NUMBER', value: deltas.x[1][n] });
+                    }
+                }
+                if (deltas.y) {
+                    setCount++;
+                    for (let n = 0; n < deltas.y[1].length; n++) {
+                        ops.push({ name: 'blendY', type: 'NUMBER', value: deltas.y[1][n] });
+                    }
+                }
+                ops.push({ name: 'blendCount', type: 'NUMBER', value: setCount });
+                ops.push({ name: 'blend', type: 'OP', value: 16 });
+            }
             ops.push({ name: 'rlineto', type: 'OP', value: 5 });
             x = Math.round(cmd.x);
             y = Math.round(cmd.y);
@@ -2067,6 +2085,50 @@ function glyphToOps(glyph, version, font) {
             ops.push({ name: 'dy2', type: 'NUMBER', value: dy2 });
             ops.push({ name: 'dx', type: 'NUMBER', value: dx });
             ops.push({ name: 'dy', type: 'NUMBER', value: dy });
+            if (version > 1 && cmd.deltas) {
+                const deltas = cmd.deltas;
+                let setCount = 0;
+                // Curve commands have 6 values: dx1, dy1, dx2, dy2, dx, dy
+                // We need to write deltas for all of them
+                if (deltas.c1x) {
+                    setCount++;
+                    for (let n = 0; n < deltas.c1x[1].length; n++) {
+                        ops.push({ name: 'blendC1x', type: 'NUMBER', value: deltas.c1x[1][n] });
+                    }
+                }
+                if (deltas.c1y) {
+                    setCount++;
+                    for (let n = 0; n < deltas.c1y[1].length; n++) {
+                        ops.push({ name: 'blendC1y', type: 'NUMBER', value: deltas.c1y[1][n] });
+                    }
+                }
+                if (deltas.c2x) {
+                    setCount++;
+                    for (let n = 0; n < deltas.c2x[1].length; n++) {
+                        ops.push({ name: 'blendC2x', type: 'NUMBER', value: deltas.c2x[1][n] });
+                    }
+                }
+                if (deltas.c2y) {
+                    setCount++;
+                    for (let n = 0; n < deltas.c2y[1].length; n++) {
+                        ops.push({ name: 'blendC2y', type: 'NUMBER', value: deltas.c2y[1][n] });
+                    }
+                }
+                if (deltas.x) {
+                    setCount++;
+                    for (let n = 0; n < deltas.x[1].length; n++) {
+                        ops.push({ name: 'blendX', type: 'NUMBER', value: deltas.x[1][n] });
+                    }
+                }
+                if (deltas.y) {
+                    setCount++;
+                    for (let n = 0; n < deltas.y[1].length; n++) {
+                        ops.push({ name: 'blendY', type: 'NUMBER', value: deltas.y[1][n] });
+                    }
+                }
+                ops.push({ name: 'blendCount', type: 'NUMBER', value: setCount });
+                ops.push({ name: 'blend', type: 'OP', value: 16 });
+            }
             ops.push({ name: 'rrcurveto', type: 'OP', value: 8 });
             x = Math.round(cmd.x);
             y = Math.round(cmd.y);
