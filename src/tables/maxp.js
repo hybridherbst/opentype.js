@@ -30,16 +30,28 @@ function parseMaxpTable(data, start) {
     return maxp;
 }
 
-function makeMaxpTable(numGlyphs, isTrueType) {
+/**
+ * Create a maxp table.
+ * @param {number} numGlyphs - Number of glyphs in the font
+ * @param {boolean} isTrueType - Whether this is a TrueType (glyf) font
+ * @param {Object} [options] - Optional parameters for TrueType fonts
+ * @param {number} [options.maxPoints=0] - Maximum points in a non-composite glyph
+ * @param {number} [options.maxContours=0] - Maximum contours in a non-composite glyph
+ * @param {number} [options.maxCompositePoints=0] - Maximum points in a composite glyph
+ * @param {number} [options.maxCompositeContours=0] - Maximum contours in a composite glyph
+ * @param {number} [options.maxComponentElements=0] - Maximum number of components in a composite glyph
+ * @param {number} [options.maxComponentDepth=0] - Maximum levels of recursion in composite glyphs
+ */
+function makeMaxpTable(numGlyphs, isTrueType, options = {}) {
     if (isTrueType) {
         // Version 1.0 for TrueType fonts with glyf table
         return new table.Table('maxp', [
             {name: 'version', type: 'FIXED', value: 0x00010000},
             {name: 'numGlyphs', type: 'USHORT', value: numGlyphs},
-            {name: 'maxPoints', type: 'USHORT', value: 0},
-            {name: 'maxContours', type: 'USHORT', value: 0},
-            {name: 'maxCompositePoints', type: 'USHORT', value: 0},
-            {name: 'maxCompositeContours', type: 'USHORT', value: 0},
+            {name: 'maxPoints', type: 'USHORT', value: options.maxPoints || 0},
+            {name: 'maxContours', type: 'USHORT', value: options.maxContours || 0},
+            {name: 'maxCompositePoints', type: 'USHORT', value: options.maxCompositePoints || 0},
+            {name: 'maxCompositeContours', type: 'USHORT', value: options.maxCompositeContours || 0},
             {name: 'maxZones', type: 'USHORT', value: 2},
             {name: 'maxTwilightPoints', type: 'USHORT', value: 0},
             {name: 'maxStorage', type: 'USHORT', value: 0},
@@ -47,8 +59,8 @@ function makeMaxpTable(numGlyphs, isTrueType) {
             {name: 'maxInstructionDefs', type: 'USHORT', value: 0},
             {name: 'maxStackElements', type: 'USHORT', value: 0},
             {name: 'maxSizeOfInstructions', type: 'USHORT', value: 0},
-            {name: 'maxComponentElements', type: 'USHORT', value: 0},
-            {name: 'maxComponentDepth', type: 'USHORT', value: 0}
+            {name: 'maxComponentElements', type: 'USHORT', value: options.maxComponentElements || 0},
+            {name: 'maxComponentDepth', type: 'USHORT', value: options.maxComponentDepth || 0}
         ]);
     }
     // Version 0.5 for CFF fonts

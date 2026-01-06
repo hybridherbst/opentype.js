@@ -732,8 +732,8 @@ function findSubArray(needle, haystack) {
     return -1;
 }
 
-function addStringToPool(s, pool) {
-    let offset = findSubArray(s, pool);
+function addStringToPool(s, pool, noDedup = false) {
+    let offset = noDedup ? -1 : findSubArray(s, pool);
     if (offset < 0) {
         offset = pool.length;
         let i = 0;
@@ -756,6 +756,10 @@ function makeNameTable(names, ltag, options = {}) {
     // Also skip unicode platform (0) since it requires ltag table for language tags,
     // and ltag is an Apple AAT table that fontspector flags as unwanted_aat_tables
     const skipMacPlatform = options.skipMacPlatform === true;
+    
+    // Disable string deduplication for Apple compatibility
+    // Apple's ftxvalidator complains about overlapping name entries when strings are shared
+    const noStringDedup = options.noStringDedup === true;
 
     const nameRecords = [];
     const stringPool = [];
@@ -830,7 +834,7 @@ function makeNameTable(names, ltag, options = {}) {
                     }
 
                     if (macName !== undefined) {
-                        const macNameOffset = addStringToPool(macName, stringPool);
+                        const macNameOffset = addStringToPool(macName, stringPool, noStringDedup);
                         nameRecords.push(makeNameRecord(platformID, macScript,
                             macLanguage, nameID, macName.length, macNameOffset));
                     }
@@ -840,7 +844,7 @@ function makeNameTable(names, ltag, options = {}) {
                     const winLanguage = windowsLanguageIds[lang];
                     if (winLanguage !== undefined) {
                         const winName = encode.UTF16(text);
-                        const winNameOffset = addStringToPool(winName, stringPool);
+                        const winNameOffset = addStringToPool(winName, stringPool, noStringDedup);
                         nameRecords.push(makeNameRecord(3, 1, winLanguage,
                             nameID, winName.length, winNameOffset));
                     }

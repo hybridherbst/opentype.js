@@ -643,10 +643,10 @@ describe('Font Export - Additional Fixes', function() {
         const buffer = font.toArrayBuffer();
         const parsed = opentype.parse(buffer);
         
-        // xAvgCharWidth should be average of non-zero width glyphs (excluding .notdef)
-        // Non-zero widths: 600, 700, 800 = average 700
+        // xAvgCharWidth should be average of non-zero width glyphs (including .notdef)
+        // Non-zero widths: 500 (.notdef), 600, 700, 800 = average 650
         // Note: space (0) is excluded from average
-        assert.strictEqual(parsed.tables.os2.xAvgCharWidth, 700, 
+        assert.strictEqual(parsed.tables.os2.xAvgCharWidth, 650, 
             'xAvgCharWidth should be average of non-zero width glyphs');
     });
 

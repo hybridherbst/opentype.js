@@ -32,7 +32,7 @@ import gvar from './gvar.js';
 import hvar from './hvar.js';
 import gasp from './gasp.js';
 import svg from './svg.js';
-import glyf from './glyf.js';
+import glyf, { pathToPoints } from './glyf.js';
 import loca from './loca.js';
 
 function log2(v) {
@@ -147,6 +147,77 @@ function average(vs) {
     return sum / vs.length;
 }
 
+/**
+ * Compute maxp table values from glyphs for TrueType fonts.
+ * These values are required for proper font validation on macOS.
+ * @param {GlyphSet} glyphs - The font's glyph set
+ * @returns {Object} maxp values: maxPoints, maxContours, etc.
+ */
+function computeMaxpValues(glyphs) {
+    let maxPoints = 0;
+    let maxContours = 0;
+    let maxCompositePoints = 0;
+    let maxCompositeContours = 0;
+    let maxComponentElements = 0;
+    let maxComponentDepth = 0;
+    
+    for (let i = 0; i < glyphs.length; i++) {
+        const glyphObj = glyphs.get(i);
+        if (!glyphObj) continue;
+        
+        // Count points and contours from glyph.points (TrueType)
+        // or from path commands using pathToPoints (CFF converted to TrueType)
+        let numPoints = 0;
+        let numContours = 0;
+        
+        if (glyphObj.points && glyphObj.points.length > 0) {
+            // TrueType glyph with explicit points
+            numPoints = glyphObj.points.length;
+            // Count contours by counting lastPointOfContour markers
+            for (const point of glyphObj.points) {
+                if (point.lastPointOfContour) {
+                    numContours++;
+                }
+            }
+        } else if (glyphObj.path && glyphObj.path.commands && glyphObj.path.commands.length > 0) {
+            // CFF or constructed glyph - use pathToPoints for accurate conversion
+            // This matches the actual encoding in glyf.make()
+            try {
+                const result = pathToPoints(glyphObj.path);
+                numPoints = result.points.length;
+                numContours = result.contourEnds.length;
+            } catch (e) {
+                // Fallback to simple estimation if pathToPoints fails
+                numPoints = 0;
+                numContours = 0;
+            }
+        }
+        
+        // Check if this is a composite glyph
+        const isComposite = glyphObj.components && glyphObj.components.length > 0;
+        
+        if (isComposite) {
+            maxCompositePoints = Math.max(maxCompositePoints, numPoints);
+            maxCompositeContours = Math.max(maxCompositeContours, numContours);
+            maxComponentElements = Math.max(maxComponentElements, glyphObj.components.length);
+            // Component depth would need recursive analysis, default to 1 for simple composites
+            maxComponentDepth = Math.max(maxComponentDepth, 1);
+        } else {
+            maxPoints = Math.max(maxPoints, numPoints);
+            maxContours = Math.max(maxContours, numContours);
+        }
+    }
+    
+    return {
+        maxPoints,
+        maxContours,
+        maxCompositePoints,
+        maxCompositeContours,
+        maxComponentElements,
+        maxComponentDepth
+    };
+}
+
 // Convert the font object to a SFNT data structure.
 // This structure contains all the necessary tables and metadata to create a binary OTF file.
 function fontToSfntTable(font) {
@@ -195,8 +266,8 @@ function fontToSfntTable(font) {
         } else {
             throw new Error('Unicode ranges bits > 123 are reserved for internal usage');
         }
-        // Skip non-important characters.
-        if (glyph.name === '.notdef') continue;
+        // Get metrics for ALL glyphs including .notdef
+        // The head table bounds must include every glyph in the font
         const metrics = glyph.getMetrics();
         xMins.push(metrics.xMin);
         yMins.push(metrics.yMin);
@@ -205,6 +276,15 @@ function fontToSfntTable(font) {
         leftSideBearings.push(metrics.leftSideBearing);
         rightSideBearings.push(metrics.rightSideBearing);
         advanceWidths.push(glyph.advanceWidth);
+    }
+
+    // Compute xMaxExtent: max(lsb + (xMax - xMin)) for each glyph
+    let xMaxExtent = 0;
+    for (let i = 0; i < xMins.length; i++) {
+        const extent = leftSideBearings[i] + (xMaxs[i] - xMins[i]);
+        if (extent > xMaxExtent) {
+            xMaxExtent = extent;
+        }
     }
 
     // OS/2 xAvgCharWidth should be average of all non-zero width glyphs (OpenType spec)
@@ -220,7 +300,8 @@ function fontToSfntTable(font) {
         advanceWidthAvg: nonZeroAdvanceWidths.length > 0 ? average(nonZeroAdvanceWidths) : 0,
         minLeftSideBearing: leftSideBearings.length > 0 ? Math.min.apply(null, leftSideBearings) : 0,
         maxLeftSideBearing: leftSideBearings.length > 0 ? Math.max.apply(null, leftSideBearings) : 0,
-        minRightSideBearing: rightSideBearings.length > 0 ? Math.min.apply(null, rightSideBearings) : 0
+        minRightSideBearing: rightSideBearings.length > 0 ? Math.min.apply(null, rightSideBearings) : 0,
+        xMaxExtent: xMaxExtent
     };
     
     // Ensure all values are finite numbers
@@ -276,7 +357,7 @@ function fontToSfntTable(font) {
         advanceWidthMax: globals.advanceWidthMax,
         minLeftSideBearing: globals.minLeftSideBearing,
         minRightSideBearing: globals.minRightSideBearing,
-        xMaxExtent: globals.maxLeftSideBearing + (globals.xMax - globals.xMin),
+        xMaxExtent: globals.xMaxExtent,
         numberOfHMetrics: font.glyphs.length,
     });
 
@@ -288,7 +369,9 @@ function fontToSfntTable(font) {
     const isTrueTypeFont = font.outlinesFormat === 'truetype';
     const useTrueTypeOutlines = hasGvarData || isTrueTypeFont;
 
-    const maxpTable = maxp.make(font.glyphs.length, useTrueTypeOutlines);
+    // Compute maxp values from glyphs for TrueType fonts (required for macOS validation)
+    const maxpValues = useTrueTypeOutlines ? computeMaxpValues(font.glyphs) : {};
+    const maxpTable = maxp.make(font.glyphs.length, useTrueTypeOutlines, maxpValues);
 
     // OS/2 sTypo* metrics should match hhea to produce consistent linespacing
     // across Mac, GNU+Linux and Windows
@@ -439,7 +522,8 @@ function fontToSfntTable(font) {
     // Modern fonts should not include it (fontspector will flag as unwanted_aat_tables)
     const languageTags = [];
     // Skip Mac platform name entries (fontspector no_mac_entries recommendation)
-    const nameTable = _name.make(names, languageTags, { skipMacPlatform: true });
+    // Disable string deduplication for Apple compatibility (ftxvalidator complains about overlapping entries)
+    const nameTable = _name.make(names, languageTags, { skipMacPlatform: true, noStringDedup: true });
     // Skip ltag table creation - not needed for modern fonts
 
     const postTable = post.make(font);
