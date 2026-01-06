@@ -10,7 +10,6 @@ import {
     sanitizeFontForExport,
     fixLineGap,
     fixAscenderForGlyphBounds,
-    fixContourDirections,
     checkVerticalMetricsRatio,
     ensureGaspTable,
     ensureHvarTable,
@@ -519,19 +518,18 @@ describe('Google Fonts Profile - Additional Sanitization', function() {
             
             assert.ok(created, 'should create avar table');
             assert.ok(font.tables.avar, 'avar table should exist');
-            assert.ok(font.tables.avar.segmentMaps, 'segmentMaps should exist');
-            assert.ok(font.tables.avar.segmentMaps.wght, 'wght mapping should exist');
-            assert.ok(font.tables.avar.segmentMaps.wdth, 'wdth mapping should exist');
+            assert.ok(font.tables.avar.axisSegmentMaps, 'axisSegmentMaps should exist');
+            assert.strictEqual(font.tables.avar.axisSegmentMaps.length, 2, 'should have 2 axes');
             
-            // Check linear mapping
-            const wghtMap = font.tables.avar.segmentMaps.wght;
+            // Check linear mapping for first axis (wght)
+            const wghtMap = font.tables.avar.axisSegmentMaps[0].axisValueMaps;
             assert.strictEqual(wghtMap.length, 3, 'should have 3 mapping points');
-            assert.strictEqual(wghtMap[0].fromCoord, -1);
-            assert.strictEqual(wghtMap[0].toCoord, -1);
-            assert.strictEqual(wghtMap[1].fromCoord, 0);
-            assert.strictEqual(wghtMap[1].toCoord, 0);
-            assert.strictEqual(wghtMap[2].fromCoord, 1);
-            assert.strictEqual(wghtMap[2].toCoord, 1);
+            assert.strictEqual(wghtMap[0].fromCoordinate, -1);
+            assert.strictEqual(wghtMap[0].toCoordinate, -1);
+            assert.strictEqual(wghtMap[1].fromCoordinate, 0);
+            assert.strictEqual(wghtMap[1].toCoordinate, 0);
+            assert.strictEqual(wghtMap[2].fromCoordinate, 1);
+            assert.strictEqual(wghtMap[2].toCoordinate, 1);
         });
 
         it('should not modify existing avar table', function() {
@@ -541,16 +539,20 @@ describe('Google Fonts Profile - Additional Sanitization', function() {
                 instances: []
             };
             font.tables.avar = {
-                segmentMaps: {
-                    wght: [{ fromCoord: -1, toCoord: -0.5 }, { fromCoord: 0, toCoord: 0 }, { fromCoord: 1, toCoord: 0.5 }]
-                }
+                axisSegmentMaps: [{
+                    axisValueMaps: [
+                        { fromCoordinate: -1, toCoordinate: -0.5 },
+                        { fromCoordinate: 0, toCoordinate: 0 },
+                        { fromCoordinate: 1, toCoordinate: 0.5 }
+                    ]
+                }]
             };
             
             const created = ensureAvarTable(font);
             
             assert.ok(created, 'should return true for existing avar');
             // Check the custom mapping is preserved
-            assert.strictEqual(font.tables.avar.segmentMaps.wght[0].toCoord, -0.5);
+            assert.strictEqual(font.tables.avar.axisSegmentMaps[0].axisValueMaps[0].toCoordinate, -0.5);
         });
 
         it('should return false for non-variable fonts', function() {
@@ -560,60 +562,6 @@ describe('Google Fonts Profile - Additional Sanitization', function() {
             
             assert.ok(!created, 'should return false');
             assert.ok(!font.tables.avar, 'avar should not be created');
-        });
-    });
-
-    describe('fixContourDirections', function() {
-        it('should fix counter-clockwise outer contours to clockwise', function() {
-            // Create a counter-clockwise contour (positive signed area in font coords)
-            // In Y-up coords, CCW goes: start, RIGHT, UP, LEFT
-            const path = new opentype.Path();
-            // CCW square: starting bottom-left, going right, up, left, close
-            path.moveTo(0, 0);
-            path.lineTo(100, 0);   // right
-            path.lineTo(100, 100); // up
-            path.lineTo(0, 100);   // left
-            path.closePath();      // down back to start
-            
-            const glyph = new opentype.Glyph({
-                name: 'test',
-                unicode: 65,
-                advanceWidth: 500,
-                path: path
-            });
-            
-            const font = createTestFont({ glyphs: [glyph] });
-            
-            const result = fixContourDirections(font);
-            
-            // The CCW contour should be fixed to CW
-            assert.strictEqual(result.totalFixed, 1, 'should fix 1 CCW contour');
-        });
-
-        it('should not modify already clockwise contours', function() {
-            // Create a clockwise contour (negative signed area in font coords)
-            // In Y-up coords, CW goes: start, UP, RIGHT, DOWN
-            const path = new opentype.Path();
-            // CW square: starting bottom-left, going up, right, down, close
-            path.moveTo(0, 0);
-            path.lineTo(0, 100);   // up
-            path.lineTo(100, 100); // right
-            path.lineTo(100, 0);   // down
-            path.closePath();      // left back to start
-            
-            const glyph = new opentype.Glyph({
-                name: 'test',
-                unicode: 65,
-                advanceWidth: 500,
-                path: path
-            });
-            
-            const font = createTestFont({ glyphs: [glyph] });
-            
-            const result = fixContourDirections(font);
-            
-            // CW contour should not be fixed
-            assert.strictEqual(result.totalFixed, 0, 'should not fix CW contours');
         });
     });
 

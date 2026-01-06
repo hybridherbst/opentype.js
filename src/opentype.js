@@ -29,7 +29,7 @@ import head from './tables/head.js';
 import hhea from './tables/hhea.js';
 import hmtx from './tables/hmtx.js';
 import { convertCFF2ToTTF, convertTTFToCFF2, convertStaticCFFToTTF, convertStaticTTFToCFF, convertFontFormat, quadraticToCubic } from './conversion.js';
-import sanitize, { sanitizeFontForGoogleFonts, sanitizeFontForExport, fixContourDirections } from './sanitize.js';
+import sanitize, { sanitizeFontForGoogleFonts, sanitizeFontForExport } from './sanitize.js';
 import kern from './tables/kern.js';
 import ltag from './tables/ltag.js';
 import loca from './tables/loca.js';
@@ -606,7 +606,6 @@ export {
     sanitize,
     sanitizeFontForGoogleFonts,
     sanitizeFontForExport,
-    fixContourDirections,
     parse as _parse,
     parseBuffer as parse,
     load,

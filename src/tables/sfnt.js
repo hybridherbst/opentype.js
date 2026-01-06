@@ -150,11 +150,6 @@ function average(vs) {
 // Convert the font object to a SFNT data structure.
 // This structure contains all the necessary tables and metadata to create a binary OTF file.
 function fontToSfntTable(font) {
-    // NOTE: Contour direction fixing is not done automatically during export
-    // as it can have unintended consequences for fonts with proper inner contours.
-    // Use sanitizeFontForGoogleFonts() or fixContourDirections() explicitly
-    // before export if needed.
-    
     const xMins = [];
     const yMins = [];
     const xMaxs = [];

@@ -557,7 +557,7 @@ document.getElementById('create-snap-vf').addEventListener('click', () => {
         // Add SNAP axis using the shared API function with custom range
         addSnapAxisToFont(vfFont, screenParams, opentype, PREVIEW_FONT_SIZE, { minValue: snapMin, maxValue: snapMax });
         
-        // Apply Google Fonts profile sanitization (fixes contour directions, etc.)
+        // Apply Google Fonts profile sanitization (fixes metrics, tables, etc.)
         opentype.sanitizeFontForGoogleFonts(vfFont);
         
         // Get export format and convert if needed

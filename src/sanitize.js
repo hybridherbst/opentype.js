@@ -7,300 +7,6 @@
  */
 
 // =============================================================================
-// Contour Direction Utilities
-// =============================================================================
-
-/**
- * Calculate the signed area of a contour using the shoelace formula.
- * In font coordinates (Y increases upward):
- *   - Positive area = counter-clockwise (CCW)
- *   - Negative area = clockwise (CW)
- * 
- * For TrueType fonts:
- *   - Outer contours should be clockwise (negative signed area)
- *   - Inner contours (holes) should be counter-clockwise (positive signed area)
- * 
- * @param {Object[]} points - Array of points with x, y properties
- * @returns {number} - Signed area (negative = CW, positive = CCW)
- */
-function calculateSignedArea(points) {
-    if (!points || points.length < 3) return 0;
-    
-    let area = 0;
-    for (let i = 0; i < points.length; i++) {
-        const j = (i + 1) % points.length;
-        area += points[i].x * points[j].y;
-        area -= points[j].x * points[i].y;
-    }
-    return area / 2;
-}
-
-/**
- * Check if a contour is clockwise.
- * In font coordinates, a negative signed area means clockwise.
- * 
- * @param {Object[]} points - Array of points with x, y properties
- * @returns {boolean} - True if clockwise
- */
-// eslint-disable-next-line no-unused-vars
-function isClockwise(points) {
-    return calculateSignedArea(points) < 0;
-}
-
-/**
- * Reverse the order of points in a contour to flip its direction.
- * 
- * @param {Object[]} points - Array of points
- * @returns {Object[]} - Reversed array of points
- */
-// eslint-disable-next-line no-unused-vars
-function reverseContour(points) {
-    return points.slice().reverse();
-}
-
-/**
- * Extract contours from a path's commands.
- * Each contour is separated by M (moveTo) commands and closed by Z.
- * 
- * @param {Object} path - Path object with commands array
- * @returns {Object[]} - Array of contours, each with points array
- */
-function extractContoursFromPath(path) {
-    if (!path || !path.commands) return [];
-    
-    const contours = [];
-    let currentContour = [];
-    
-    for (const cmd of path.commands) {
-        switch (cmd.type) {
-            case 'M':
-                // Start new contour
-                if (currentContour.length > 0) {
-                    contours.push({ points: currentContour, startIndex: contours.length });
-                }
-                currentContour = [{ x: cmd.x, y: cmd.y }];
-                break;
-            case 'L':
-                currentContour.push({ x: cmd.x, y: cmd.y });
-                break;
-            case 'Q':
-                // Quadratic curve - sample the midpoint for area calculation
-                currentContour.push({ x: cmd.x1, y: cmd.y1 });
-                currentContour.push({ x: cmd.x, y: cmd.y });
-                break;
-            case 'C':
-                // Cubic curve - sample control points for area calculation
-                currentContour.push({ x: cmd.x1, y: cmd.y1 });
-                currentContour.push({ x: cmd.x2, y: cmd.y2 });
-                currentContour.push({ x: cmd.x, y: cmd.y });
-                break;
-            case 'Z':
-                // Close path - finalize contour
-                if (currentContour.length > 0) {
-                    contours.push({ points: currentContour, startIndex: contours.length });
-                }
-                currentContour = [];
-                break;
-        }
-    }
-    
-    // Handle unclosed contour
-    if (currentContour.length > 0) {
-        contours.push({ points: currentContour, startIndex: contours.length });
-    }
-    
-    return contours;
-}
-
-/**
- * Rebuild a path with reversed contour directions.
- * 
- * @param {Object} path - Original path
- * @param {boolean[]} reverseFlags - Array of flags indicating which contours to reverse
- * @returns {Object} - New path with corrected contour directions
- */
-function rebuildPathWithReversedContours(path, reverseFlags) {
-    if (!path || !path.commands) return path;
-    
-    const newCommands = [];
-    let contourIndex = 0;
-    let contourCommands = [];
-    
-    for (const cmd of path.commands) {
-        if (cmd.type === 'M') {
-            // Process previous contour if any
-            if (contourCommands.length > 0) {
-                if (reverseFlags[contourIndex]) {
-                    // Reverse this contour
-                    const reversed = reverseContourCommands(contourCommands);
-                    newCommands.push(...reversed);
-                } else {
-                    newCommands.push(...contourCommands);
-                }
-                contourIndex++;
-            }
-            contourCommands = [cmd];
-        } else {
-            contourCommands.push(cmd);
-        }
-    }
-    
-    // Process last contour
-    if (contourCommands.length > 0) {
-        if (reverseFlags[contourIndex]) {
-            const reversed = reverseContourCommands(contourCommands);
-            newCommands.push(...reversed);
-        } else {
-            newCommands.push(...contourCommands);
-        }
-    }
-    
-    // Create new path with same properties but new commands
-    const newPath = Object.create(Object.getPrototypeOf(path));
-    Object.assign(newPath, path);
-    newPath.commands = newCommands;
-    
-    return newPath;
-}
-
-/**
- * Reverse the commands of a single contour (starting with M, ending with Z).
- * 
- * @param {Object[]} commands - Array of path commands for one contour
- * @returns {Object[]} - Reversed commands
- */
-function reverseContourCommands(commands) {
-    if (!commands || commands.length === 0) return commands;
-    
-    // Find M and Z commands
-    const mCmd = commands[0];
-    const hasClose = commands[commands.length - 1].type === 'Z';
-    
-    // Get drawing commands (everything except M and Z)
-    const drawCmds = hasClose ? commands.slice(1, -1) : commands.slice(1);
-    
-    if (drawCmds.length === 0) {
-        return commands;
-    }
-    
-    // Collect all points in order
-    const points = [{ x: mCmd.x, y: mCmd.y, type: 'M' }];
-    for (const cmd of drawCmds) {
-        if (cmd.type === 'L') {
-            points.push({ x: cmd.x, y: cmd.y, type: 'L' });
-        } else if (cmd.type === 'Q') {
-            points.push({ x: cmd.x1, y: cmd.y1, type: 'Q1' });
-            points.push({ x: cmd.x, y: cmd.y, type: 'Q' });
-        } else if (cmd.type === 'C') {
-            points.push({ x: cmd.x1, y: cmd.y1, type: 'C1' });
-            points.push({ x: cmd.x2, y: cmd.y2, type: 'C2' });
-            points.push({ x: cmd.x, y: cmd.y, type: 'C' });
-        }
-    }
-    
-    // For simple line contours, just reverse the point order
-    const reversed = [];
-    
-    // Start with M at the last point before close
-    const lastDrawPoint = points[points.length - 1];
-    reversed.push({ type: 'M', x: lastDrawPoint.x, y: lastDrawPoint.y });
-    
-    // Add lines back to start (simplified - curves become lines)
-    for (let i = points.length - 2; i >= 0; i--) {
-        reversed.push({ type: 'L', x: points[i].x, y: points[i].y });
-    }
-    
-    if (hasClose) {
-        reversed.push({ type: 'Z' });
-    }
-    
-    return reversed;
-}
-
-/**
- * Fix contour winding directions for TrueType fonts.
- * TrueType requires:
- *   - Outer contours: clockwise (negative signed area)
- *   - Inner contours (holes): counter-clockwise (positive signed area)
- * 
- * This is a heuristic approach that assumes:
- *   - The largest contour by area is the outer contour
- *   - Smaller contours inside larger ones are holes
- * 
- * @param {Object} glyph - Glyph object with path
- * @returns {Object} - Result object with fixed count
- */
-function fixGlyphContourDirections(glyph) {
-    if (!glyph || !glyph.path || !glyph.path.commands) {
-        return { fixed: 0 };
-    }
-    
-    const contours = extractContoursFromPath(glyph.path);
-    if (contours.length === 0) {
-        return { fixed: 0 };
-    }
-    
-    // Calculate areas for each contour
-    for (const contour of contours) {
-        contour.signedArea = calculateSignedArea(contour.points);
-        contour.absArea = Math.abs(contour.signedArea);
-        contour.isClockwise = contour.signedArea < 0;
-    }
-    
-    // Simple heuristic: assume all contours are outer contours
-    // and should be clockwise (negative signed area)
-    // This is a simplification - a full solution would need to check containment
-    const reverseFlags = [];
-    let fixedCount = 0;
-    
-    for (const contour of contours) {
-        // Outer contours should be clockwise (negative area in font coords)
-        // If it's counter-clockwise (positive area), we need to reverse it
-        if (contour.signedArea > 0) {
-            reverseFlags.push(true);
-            fixedCount++;
-        } else {
-            reverseFlags.push(false);
-        }
-    }
-    
-    if (fixedCount > 0) {
-        glyph.path = rebuildPathWithReversedContours(glyph.path, reverseFlags);
-    }
-    
-    return { fixed: fixedCount };
-}
-
-/**
- * Fix contour directions for all glyphs in a font.
- * For TrueType fonts, outer contours must be clockwise.
- * 
- * @param {Object} font - The font object
- * @returns {Object} - { totalFixed: number, glyphsFixed: number }
- */
-export function fixContourDirections(font) {
-    if (!font.glyphs || font.glyphs.length === 0) {
-        return { totalFixed: 0, glyphsFixed: 0 };
-    }
-    
-    let totalFixed = 0;
-    let glyphsFixed = 0;
-    
-    for (let i = 0; i < font.glyphs.length; i++) {
-        const glyph = font.glyphs.get(i);
-        if (!glyph) continue;
-        
-        const result = fixGlyphContourDirections(glyph);
-        if (result.fixed > 0) {
-            totalFixed += result.fixed;
-            glyphsFixed++;
-        }
-    }
-    
-    return { totalFixed, glyphsFixed };
-}
-
-// =============================================================================
 // Basic Sanitization Functions  
 // =============================================================================
 
@@ -538,22 +244,24 @@ export function ensureAvarTable(font) {
     
     // Create a linear avar table
     // Linear mapping: -1 -> -1, 0 -> 0, 1 -> 1
+    // The avar table format expects axisSegmentMaps as an array
+    // Each element has axisValueMaps array with {fromCoordinate, toCoordinate}
     const axes = font.tables.fvar.axes;
-    const segmentMaps = {};
+    const axisSegmentMaps = [];
     
-    for (const axis of axes) {
-        // Linear mapping with just 3 points: min, default, max
-        segmentMaps[axis.tag] = [
-            { fromCoord: -1, toCoord: -1 },
-            { fromCoord: 0, toCoord: 0 },
-            { fromCoord: 1, toCoord: 1 }
-        ];
+    for (let i = 0; i < axes.length; i++) {
+        // Linear mapping with just 3 points: -1, 0, 1
+        axisSegmentMaps.push({
+            axisValueMaps: [
+                { fromCoordinate: -1, toCoordinate: -1 },
+                { fromCoordinate: 0, toCoordinate: 0 },
+                { fromCoordinate: 1, toCoordinate: 1 }
+            ]
+        });
     }
     
     font.tables.avar = {
-        majorVersion: 1,
-        minorVersion: 0,
-        segmentMaps
+        axisSegmentMaps
     };
     
     return true;
@@ -756,7 +464,6 @@ export function sanitizeFontForGoogleFonts(font) {
     // Google Fonts specific fixes
     fixLineGap(font);
     fixAscenderForGlyphBounds(font);  // Ensure ascender exceeds all glyph yMax values
-    fixContourDirections(font);  // Fix outer contour winding direction for TrueType
     ensureGaspTable(font);
     ensureHvarTable(font);
     removeDuplicateInstances(font);
@@ -776,7 +483,6 @@ export default {
     // Google Fonts profile
     fixLineGap,
     fixAscenderForGlyphBounds,
-    fixContourDirections,
     checkVerticalMetricsRatio,
     ensureGaspTable,
     ensureHvarTable,
