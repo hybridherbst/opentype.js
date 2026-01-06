@@ -136,6 +136,15 @@
             <input id="snap-y" type="range" min="-100" max="100" value="0" />
             <output id="snap-y-out">0</output>
         </div>
+        <div class="row-flex mt-6">
+            <label><strong>Snapping Mode:</strong></label>
+            <label><input type="radio" name="snap-mode" value="absolute" checked /> Absolute (snap to screen grid)</label>
+            <label><input type="radio" name="snap-mode" value="glyph-relative" /> Glyph-relative (keep within original bounds)</label>
+            <label><input type="radio" name="snap-mode" value="width-adjust" /> Width adjustment (adjust glyph width on snap)</label>
+        </div>
+        <div id="snap-mode-info" class="note mt-6">
+            Absolute: Snaps all glyph points to a fixed screen grid. Character width stays constant.
+        </div>
     <div class="row-flex">
             <button id="download-baked" type="button">Download (baked static)</button>
         </div>
@@ -358,12 +367,42 @@ function getSnapParams() {
     const distance = Number(snapDistanceEl.value);
     const x = Number(snapXEl.value);
     const y = Number(snapYEl.value);
-    return { strength, distance, x, y };
+    const mode = document.querySelector('input[name="snap-mode"]:checked')?.value || 'absolute';
+    return { strength, distance, x, y, mode };
 }
 
 // Get snap params scaled for font units (for export/baking)
 function getSnapParamsForFont(font) {
     return scaleSnapParamsToFontUnits(getSnapParams(), font.unitsPerEm, PREVIEW_FONT_SIZE);
+}
+
+// Get the currently selected snap mode
+function getSnapMode() {
+    return document.querySelector('input[name="snap-mode"]:checked')?.value || 'absolute';
+}
+
+// Update snap mode info text
+function updateSnapModeInfo() {
+    const mode = getSnapMode();
+    const infoEl = document.getElementById('snap-mode-info');
+    if (!infoEl) return;
+    
+    switch (mode) {
+        case 'absolute':
+            infoEl.textContent = 'Absolute: Snaps all glyph points to a fixed screen grid. Character width stays constant.';
+            break;
+        case 'glyph-relative':
+            infoEl.textContent = 'Glyph-relative: Snaps points relative to each glyph\'s own bounding box, keeping glyphs within their original bounds.';
+            break;
+        case 'width-adjust':
+            infoEl.textContent = 'Width adjustment: Snaps to screen grid and adjusts character width to fit snapped content (snapped xMax + distance/10).';
+            break;
+    }
+    
+    // Trigger preview update
+    if (currentFont) {
+        drawPreview(currentFont);
+    }
 }
 
 function cloneFontDeep(font) {
@@ -513,6 +552,11 @@ snapEnabledEl.addEventListener('change', () => {
 // Snap controls wiring
 for (const [input, out] of [[snapStrengthEl, snapStrengthOut],[snapDistanceEl, snapDistanceOut],[snapXEl, snapXOut],[snapYEl, snapYOut]]) {
     input.addEventListener('input', (e) => { out.textContent = e.target.value; renderPreview(currentFont); });
+}
+
+// Snap mode wiring
+for (const radio of document.querySelectorAll('input[name="snap-mode"]')) {
+    radio.addEventListener('change', updateSnapModeInfo);
 }
 
 bakedBtn.addEventListener('click', () => {

@@ -45,3 +45,4 @@ import './font-editor-api.js';
 import './manipulation-api.js';
 import './format-conversion.js';
 import './sanitize.js';
+import './fonttools.js';

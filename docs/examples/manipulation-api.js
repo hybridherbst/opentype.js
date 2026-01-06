@@ -33,6 +33,19 @@ export function snapValue(v, dist, s, offset = 0) {
 }
 
 /**
+ * Snap modes for glyph snapping
+ * @enum {string}
+ */
+export const SnapMode = {
+    /** Snap to absolute screen grid. Character width stays constant. */
+    ABSOLUTE: 'absolute',
+    /** Snap relative to glyph's own bounding box, keeping within original bounds. */
+    GLYPH_RELATIVE: 'glyph-relative',
+    /** Snap to screen grid and adjust character width to fit snapped content. */
+    WIDTH_ADJUST: 'width-adjust'
+};
+
+/**
  * Snap a path command's coordinates to a grid
  * @param {Object} cmd - The path command object (with x, y, x1, y1, x2, y2 properties)
  * @param {Object} params - Snap parameters
@@ -62,8 +75,91 @@ export function snapPath(commands, params) {
 }
 
 /**
+ * Get the bounding box of path commands
+ * @param {Array<Object>} commands - Array of path commands
+ * @returns {{xMin: number, yMin: number, xMax: number, yMax: number}}
+ */
+export function getPathBounds(commands) {
+    let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+    
+    for (const cmd of commands) {
+        for (const prop of ['x', 'x1', 'x2']) {
+            if (cmd[prop] !== undefined) {
+                xMin = Math.min(xMin, cmd[prop]);
+                xMax = Math.max(xMax, cmd[prop]);
+            }
+        }
+        for (const prop of ['y', 'y1', 'y2']) {
+            if (cmd[prop] !== undefined) {
+                yMin = Math.min(yMin, cmd[prop]);
+                yMax = Math.max(yMax, cmd[prop]);
+            }
+        }
+    }
+    
+    return { 
+        xMin: xMin === Infinity ? 0 : xMin, 
+        yMin: yMin === Infinity ? 0 : yMin, 
+        xMax: xMax === -Infinity ? 0 : xMax, 
+        yMax: yMax === -Infinity ? 0 : yMax 
+    };
+}
+
+/**
+ * Snap path commands using glyph-relative mode.
+ * In this mode, snapping is relative to the glyph's own bounding box,
+ * keeping the snapped result within the original bounds.
+ * 
+ * @param {Array<Object>} commands - Array of path commands
+ * @param {Object} params - Snap parameters
+ * @returns {void}
+ */
+export function snapPathGlyphRelative(commands, params) {
+    // Get the original bounding box
+    const bounds = getPathBounds(commands);
+    
+    // Snap using offsets relative to the glyph's origin
+    // The grid is aligned to the glyph's own coordinate system
+    for (const cmd of commands) {
+        if (cmd.x !== undefined) cmd.x = snapValue(cmd.x, params.distance, params.strength, bounds.xMin + params.x);
+        if (cmd.y !== undefined) cmd.y = snapValue(cmd.y, params.distance, params.strength, bounds.yMin + params.y);
+        if (cmd.x1 !== undefined) cmd.x1 = snapValue(cmd.x1, params.distance, params.strength, bounds.xMin + params.x);
+        if (cmd.y1 !== undefined) cmd.y1 = snapValue(cmd.y1, params.distance, params.strength, bounds.yMin + params.y);
+        if (cmd.x2 !== undefined) cmd.x2 = snapValue(cmd.x2, params.distance, params.strength, bounds.xMin + params.x);
+        if (cmd.y2 !== undefined) cmd.y2 = snapValue(cmd.y2, params.distance, params.strength, bounds.yMin + params.y);
+    }
+}
+
+/**
+ * Snap path commands and compute new advance width for width-adjust mode.
+ * In this mode, snapping is to the absolute grid and the glyph width is 
+ * adjusted to fit the snapped content plus padding.
+ * 
+ * @param {Array<Object>} commands - Array of path commands
+ * @param {Object} params - Snap parameters
+ * @param {number} originalWidth - Original advance width
+ * @returns {number} New advance width (snapped xMax + distance/10)
+ */
+export function snapPathWithWidthAdjust(commands, params, originalWidth) {
+    // First, snap the path using absolute mode
+    snapPath(commands, params);
+    
+    // Get the new bounding box after snapping
+    const bounds = getPathBounds(commands);
+    
+    // New width is the snapped xMax plus a tenth of the distance
+    // This provides a small margin based on the grid spacing
+    const padding = params.distance / 10;
+    const newWidth = bounds.xMax + padding;
+    
+    // Interpolate between original and new width based on strength
+    return originalWidth * (1 - params.strength) + newWidth * params.strength;
+}
+
+/**
  * Apply snapping to a glyph by snapping in screen space then transforming back.
  * This ensures that the snapped result matches what the preview shows.
+ * Respects screenParams.mode for different snapping strategies.
  * 
  * @param {Object} glyph - The glyph to snap
  * @param {Object} screenParams - Screen-space snap parameters
@@ -75,41 +171,87 @@ export function applySnappingToGlyph(glyph, screenParams, font, fontSize = PREVI
     
     const scale = fontSize / font.unitsPerEm;
     const invScale = font.unitsPerEm / fontSize;
+    const mode = screenParams.mode || SnapMode.ABSOLUTE;
+    
+    // For glyph-relative mode, find the glyph's bounding box first
+    let glyphOffsetX = 0, glyphOffsetY = 0;
+    if (mode === SnapMode.GLYPH_RELATIVE) {
+        let minX = Infinity, minY = Infinity;
+        for (const cmd of glyph.path.commands) {
+            for (const prop of ['x', 'x1', 'x2']) {
+                if (cmd[prop] !== undefined) {
+                    const screenVal = cmd[prop] * scale;
+                    minX = Math.min(minX, screenVal);
+                }
+            }
+            for (const prop of ['y', 'y1', 'y2']) {
+                if (cmd[prop] !== undefined) {
+                    // Y is negated in screen space
+                    const screenVal = -cmd[prop] * scale;
+                    minY = Math.min(minY, screenVal);
+                }
+            }
+        }
+        if (minX !== Infinity) glyphOffsetX = minX;
+        if (minY !== Infinity) glyphOffsetY = minY;
+    }
     
     // Transform each point to screen space, snap, then transform back
     for (const cmd of glyph.path.commands) {
-        // Transform to screen space and snap
+        const offsetX = mode === SnapMode.GLYPH_RELATIVE ? glyphOffsetX + screenParams.x : screenParams.x;
+        const offsetY = mode === SnapMode.GLYPH_RELATIVE ? glyphOffsetY + screenParams.y : screenParams.y;
+        
         if (cmd.x !== undefined) {
             const screenX = cmd.x * scale;
-            const snappedScreenX = snapValue(screenX, screenParams.distance, screenParams.strength, screenParams.x);
+            const snappedScreenX = snapValue(screenX, screenParams.distance, screenParams.strength, offsetX);
             cmd.x = snappedScreenX * invScale;
         }
         if (cmd.y !== undefined) {
-            // Y is negated in screen space (getPath does -y * scale)
             const screenY = -cmd.y * scale;
-            const snappedScreenY = snapValue(screenY, screenParams.distance, screenParams.strength, screenParams.y);
+            const snappedScreenY = snapValue(screenY, screenParams.distance, screenParams.strength, offsetY);
             cmd.y = -snappedScreenY * invScale;
         }
         if (cmd.x1 !== undefined) {
             const screenX1 = cmd.x1 * scale;
-            const snappedScreenX1 = snapValue(screenX1, screenParams.distance, screenParams.strength, screenParams.x);
+            const snappedScreenX1 = snapValue(screenX1, screenParams.distance, screenParams.strength, offsetX);
             cmd.x1 = snappedScreenX1 * invScale;
         }
         if (cmd.y1 !== undefined) {
             const screenY1 = -cmd.y1 * scale;
-            const snappedScreenY1 = snapValue(screenY1, screenParams.distance, screenParams.strength, screenParams.y);
+            const snappedScreenY1 = snapValue(screenY1, screenParams.distance, screenParams.strength, offsetY);
             cmd.y1 = -snappedScreenY1 * invScale;
         }
         if (cmd.x2 !== undefined) {
             const screenX2 = cmd.x2 * scale;
-            const snappedScreenX2 = snapValue(screenX2, screenParams.distance, screenParams.strength, screenParams.x);
+            const snappedScreenX2 = snapValue(screenX2, screenParams.distance, screenParams.strength, offsetX);
             cmd.x2 = snappedScreenX2 * invScale;
         }
         if (cmd.y2 !== undefined) {
             const screenY2 = -cmd.y2 * scale;
-            const snappedScreenY2 = snapValue(screenY2, screenParams.distance, screenParams.strength, screenParams.y);
+            const snappedScreenY2 = snapValue(screenY2, screenParams.distance, screenParams.strength, offsetY);
             cmd.y2 = -snappedScreenY2 * invScale;
         }
+    }
+    
+    // For width-adjust mode, adjust the glyph's advanceWidth
+    if (mode === SnapMode.WIDTH_ADJUST && screenParams.strength > 0) {
+        // Find the snapped xMax in font units
+        let snappedXMax = 0;
+        for (const cmd of glyph.path.commands) {
+            for (const prop of ['x', 'x1', 'x2']) {
+                if (cmd[prop] !== undefined) {
+                    snappedXMax = Math.max(snappedXMax, cmd[prop]);
+                }
+            }
+        }
+        // New width is snapped xMax + distance/10 (converted to font units)
+        const paddingScreenSpace = screenParams.distance / 10;
+        const paddingFontUnits = paddingScreenSpace * invScale;
+        const newWidth = snappedXMax + paddingFontUnits;
+        
+        // Interpolate between original and new width based on strength
+        const originalWidth = glyph.advanceWidth || 0;
+        glyph.advanceWidth = originalWidth * (1 - screenParams.strength) + newWidth * screenParams.strength;
     }
 }
 
@@ -153,7 +295,9 @@ export function scaleSnapParamsToFontUnits(screenParams, unitsPerEm, fontSize = 
         // Y offset is NOT negated - the grid offset direction is the same even though
         // coordinates are flipped. The snapping happens to absolute positions, and the
         // Y-flip happens after snapping in both cases.
-        y: screenParams.y * scale
+        y: screenParams.y * scale,
+        // Preserve the mode for mode-aware snapping functions
+        mode: screenParams.mode
     };
 }
 
@@ -163,6 +307,11 @@ export function scaleSnapParamsToFontUnits(screenParams, unitsPerEm, fontSize = 
  * IMPORTANT: Snapping is position-dependent when offset is non-zero.
  * To ensure export matches preview, we snap at origin (0,0), then translate.
  * This way both preview and export snap in the same coordinate space.
+ * 
+ * Respects screenParams.mode to use the appropriate snapping strategy:
+ * - ABSOLUTE: Snap to absolute screen-space grid
+ * - GLYPH_RELATIVE: Snap relative to glyph's own bounding box
+ * - WIDTH_ADJUST: Like absolute, but glyph width is adjusted in export
  * 
  * @param {Object} glyph - The glyph object
  * @param {number} x - X position
@@ -175,8 +324,17 @@ export function scaleSnapParamsToFontUnits(screenParams, unitsPerEm, fontSize = 
 export function getSnappedPathForPreview(glyph, x, y, fontSize, screenParams, font) {
     // Get path at origin (0,0) to match export snapping behavior
     const path = glyph.getPath(0, 0, fontSize, {}, font);
-    // Snap at origin
-    snapPath(path.commands, screenParams);
+    
+    // Apply snapping based on mode
+    const mode = screenParams.mode || SnapMode.ABSOLUTE;
+    if (mode === SnapMode.GLYPH_RELATIVE) {
+        snapPathGlyphRelative(path.commands, screenParams);
+    } else {
+        // ABSOLUTE and WIDTH_ADJUST both use absolute snapping for path coordinates
+        // WIDTH_ADJUST handles width in export, not in preview rendering
+        snapPath(path.commands, screenParams);
+    }
+    
     // Translate to final position
     translatePath(path.commands, x, y);
     return path;
@@ -258,19 +416,20 @@ export function snapFontValueInScreenSpace(fontValue, screenParams, scale, invSc
 
 /**
  * Pre-compute snapped glyph points for VF delta generation.
- * Returns a Map of glyph index -> { originalPoints, snappedPoints }.
+ * Returns a Map of glyph index -> { originalPoints, snappedPoints, originalWidth, snappedWidth }.
  * Works with both TTF (glyph.points) and CFF (glyph.path -> pathToPoints).
  * 
  * @param {Object} font - The font object
- * @param {Object} screenParams - Screen-space snap parameters
+ * @param {Object} screenParams - Screen-space snap parameters (including mode)
  * @param {Object} opentypeModule - The opentype.js module (for pathToPoints)
  * @param {number} [fontSize=PREVIEW_FONT_SIZE] - Font size for screen-space calculation
- * @returns {Map<number, Object>} Map of glyph index to { originalPoints, snappedPoints }
+ * @returns {Map<number, Object>} Map of glyph index to { originalPoints, snappedPoints, originalWidth, snappedWidth }
  */
 export function computeSnappedGlyphPoints(font, screenParams, opentypeModule, fontSize = PREVIEW_FONT_SIZE) {
     const scale = fontSize / font.unitsPerEm;
     const invScale = font.unitsPerEm / fontSize;
     const result = new Map();
+    const mode = screenParams.mode || SnapMode.ABSOLUTE;
     
     // Get pathToPoints from opentype module for CFF font support
     const { pathToPoints } = opentypeModule;
@@ -280,6 +439,7 @@ export function computeSnappedGlyphPoints(font, screenParams, opentypeModule, fo
         if (!glyph) continue;
         
         let originalPoints;
+        const originalWidth = glyph.advanceWidth || 0;
         
         // For TTF fonts, use glyph.points (the actual contour points)
         if (glyph.points && glyph.points.length > 0) {
@@ -301,15 +461,63 @@ export function computeSnappedGlyphPoints(font, screenParams, opentypeModule, fo
             continue;
         }
         
-        // Clone and snap the points
-        const snappedPoints = originalPoints.map(pt => ({
-            x: snapFontValueInScreenSpace(pt.x, screenParams, scale, invScale, false),
-            y: snapFontValueInScreenSpace(pt.y, screenParams, scale, invScale, true),
-            onCurve: pt.onCurve,
-            lastPointOfContour: pt.lastPointOfContour
-        }));
+        // Compute glyph bounds for glyph-relative mode
+        let glyphBoundsOffset = { x: 0, y: 0 };
+        if (mode === SnapMode.GLYPH_RELATIVE) {
+            // Find min coords of the glyph in screen space
+            let minX = Infinity, minY = Infinity;
+            for (const pt of originalPoints) {
+                const screenX = pt.x * scale;
+                const screenY = -pt.y * scale;
+                minX = Math.min(minX, screenX);
+                minY = Math.min(minY, screenY);
+            }
+            if (minX !== Infinity && minY !== Infinity) {
+                // Adjust offset to be relative to glyph origin
+                glyphBoundsOffset.x = minX;
+                glyphBoundsOffset.y = minY;
+            }
+        }
         
-        result.set(i, { originalPoints, snappedPoints });
+        // Clone and snap the points
+        const snappedPoints = originalPoints.map(pt => {
+            const screenX = pt.x * scale;
+            const screenY = -pt.y * scale;
+            
+            // For glyph-relative mode, offset the snap grid to the glyph's origin
+            const offsetX = mode === SnapMode.GLYPH_RELATIVE 
+                ? glyphBoundsOffset.x + screenParams.x 
+                : screenParams.x;
+            const offsetY = mode === SnapMode.GLYPH_RELATIVE 
+                ? glyphBoundsOffset.y + screenParams.y 
+                : screenParams.y;
+            
+            const snappedScreenX = snapValue(screenX, screenParams.distance, 1.0, offsetX);
+            const snappedScreenY = snapValue(screenY, screenParams.distance, 1.0, offsetY);
+            
+            return {
+                x: snappedScreenX * invScale,
+                y: -snappedScreenY * invScale,
+                onCurve: pt.onCurve,
+                lastPointOfContour: pt.lastPointOfContour
+            };
+        });
+        
+        // Compute new width for width-adjust mode
+        let snappedWidth = originalWidth;
+        if (mode === SnapMode.WIDTH_ADJUST) {
+            // Find the snapped xMax in font units
+            let snappedXMax = 0;
+            for (const pt of snappedPoints) {
+                snappedXMax = Math.max(snappedXMax, pt.x);
+            }
+            // New width is snapped xMax + distance/10 (converted to font units)
+            const paddingScreenSpace = screenParams.distance / 10;
+            const paddingFontUnits = paddingScreenSpace * invScale;
+            snappedWidth = snappedXMax + paddingFontUnits;
+        }
+        
+        result.set(i, { originalPoints, snappedPoints, originalWidth, snappedWidth });
     }
     
     return result;
@@ -318,20 +526,22 @@ export function computeSnappedGlyphPoints(font, screenParams, opentypeModule, fo
 /**
  * Create a deltaGenerator function for SNAP VF axis.
  * Works with both TTF (glyph.points) and CFF (via pre-computed points from pathToPoints).
+ * Supports width adjustment mode where the RSB phantom point varies.
  * 
  * @param {Map<number, Object>} pointsDataMap - Map from computeSnappedGlyphPoints
- *        Each entry has { originalPoints, snappedPoints }
+ *        Each entry has { originalPoints, snappedPoints, originalWidth, snappedWidth }
  * @param {number} [scale=1.0] - Scale factor for deltas (maxValue/100 to make SNAP value equal strength %)
+ * @param {boolean} [adjustWidth=false] - Whether to include width adjustment deltas
  * @returns {Function} deltaGenerator function for use with VariationManager.addAxis
  */
-export function createSnapDeltaGenerator(pointsDataMap, scale = 1.0) {
+export function createSnapDeltaGenerator(pointsDataMap, scale = 1.0, adjustWidth = false) {
     return (glyph) => {
         if (!glyph) return null;
         
         const pointsData = pointsDataMap.get(glyph.index);
         if (!pointsData) return null;
         
-        const { originalPoints, snappedPoints } = pointsData;
+        const { originalPoints, snappedPoints, originalWidth, snappedWidth } = pointsData;
         if (!originalPoints || !snappedPoints || originalPoints.length !== snappedPoints.length) {
             return null;
         }
@@ -348,9 +558,21 @@ export function createSnapDeltaGenerator(pointsDataMap, scale = 1.0) {
             deltasY.push(Math.round((target.y - base.y) * scale));
         }
         
-        // Add 4 phantom points (LSB, RSB, TSB, BSB) with zero deltas
-        deltas.push(0, 0, 0, 0);
-        deltasY.push(0, 0, 0, 0);
+        // Phantom points: LSB, RSB, TSB, BSB
+        // LSB (leftSideBearing) - no change for snapping
+        deltas.push(0);
+        deltasY.push(0);
+        
+        // RSB (advanceWidth) - adjust for width-adjust mode
+        const widthDelta = adjustWidth && snappedWidth !== undefined
+            ? Math.round((snappedWidth - (originalWidth || 0)) * scale)
+            : 0;
+        deltas.push(widthDelta);
+        deltasY.push(0);
+        
+        // TSB and BSB - no change for snapping
+        deltas.push(0, 0);
+        deltasY.push(0, 0);
         
         // Only return if there are actual changes
         const hasDeltas = deltas.some(d => d !== 0) || deltasY.some(d => d !== 0);
@@ -359,11 +581,19 @@ export function createSnapDeltaGenerator(pointsDataMap, scale = 1.0) {
         }
         
         // Return delta set at peak=1.0 (axis max)
-        return [{
+        // Include advanceWidthDelta for HVAR table generation
+        const result = {
             peakTuple: [1.0],
             deltas,
             deltasY
-        }];
+        };
+        
+        // Add advanceWidthDelta for HVAR table (used by font renderers for metric interpolation)
+        if (adjustWidth && widthDelta !== 0) {
+            result.advanceWidthDelta = widthDelta;
+        }
+        
+        return [result];
     };
 }
 
@@ -396,7 +626,8 @@ export function addSnapAxisToFont(font, screenParams, opentypeModule, fontSize =
     // Create delta generator with scale so SNAP value directly equals strength %
     // At SNAP=maxValue, you get maxValue% strength (not 100%)
     const deltaScale = maxValue / 100;
-    const deltaGenerator = createSnapDeltaGenerator(snappedPointsMap, deltaScale);
+    const adjustWidth = screenParams.mode === SnapMode.WIDTH_ADJUST;
+    const deltaGenerator = createSnapDeltaGenerator(snappedPointsMap, deltaScale, adjustWidth);
     
     // Add SNAP axis with custom range
     font.variation.addAxis({
