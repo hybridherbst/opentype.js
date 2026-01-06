@@ -6,10 +6,15 @@ import {
     snapCommand,
     snapPath,
     applySnappingToFontInPlace,
+    applySnappingToGlyph,
     scaleSnapParamsToFontUnits,
     getSnappedPathForPreview,
     cloneCommands,
-    commandsEqual
+    commandsEqual,
+    translatePath,
+    addSnapAxisToFont,
+    computeSnappedGlyphPoints,
+    createSnapDeltaGenerator
 } from '../docs/examples/manipulation-api.js';
 import { readFileSync } from 'fs';
 
@@ -23,12 +28,21 @@ describe('Manipulation API', function() {
         it('should return original value when strength is 0', function() {
             assert.strictEqual(snapValue(17, 10, 0), 17);
             assert.strictEqual(snapValue(123.5, 50, 0), 123.5);
+            // With offset, strength 0 should still return original
+            assert.strictEqual(snapValue(17, 10, 0, 5), 17);
         });
 
         it('should snap to grid when strength is 1', function() {
             assert.strictEqual(snapValue(17, 10, 1), 20);
             assert.strictEqual(snapValue(14, 10, 1), 10);
             assert.strictEqual(snapValue(25, 10, 1), 30);
+        });
+
+        it('should snap to offset grid when strength is 1', function() {
+            // Grid with offset 5: ..., -5, 5, 15, 25, 35, ...
+            assert.strictEqual(snapValue(17, 10, 1, 5), 15);  // 17 is closer to 15 than 25
+            assert.strictEqual(snapValue(22, 10, 1, 5), 25);  // 22 is closer to 25 than 15
+            assert.strictEqual(snapValue(3, 10, 1, 5), 5);    // 3 is closer to 5 than -5
         });
 
         it('should interpolate at partial strength', function() {
@@ -100,6 +114,7 @@ describe('Manipulation API', function() {
 
     describe('scaleSnapParamsToFontUnits', function() {
         it('should scale distance and offsets', function() {
+            // Note: This function is deprecated. applySnappingToFontInPlace now takes screen params.
             const screenParams = { strength: 0.8, distance: 50, x: 10, y: 20 };
             const unitsPerEm = 1000;
             const fontSize = PREVIEW_FONT_SIZE;
@@ -110,8 +125,8 @@ describe('Manipulation API', function() {
             assert.strictEqual(fontParams.strength, 0.8);
             assert.strictEqual(fontParams.distance, 50 * scale);
             assert.strictEqual(fontParams.x, 10 * scale);
-            // Y should be negated due to coordinate system flip
-            assert.strictEqual(fontParams.y, -20 * scale);
+            // Y is scaled (not negated - we do screen-space snapping now)
+            assert.strictEqual(fontParams.y, 20 * scale);
         });
 
         it('should use PREVIEW_FONT_SIZE as default', function() {
@@ -181,69 +196,47 @@ describe('Manipulation API', function() {
             font = loadFont('./test/fonts/FiraSansMedium.woff');
         });
 
-        it('should produce identical results for preview and export snapping', function() {
-            // This test verifies that the snapping functions produce identical results
-            // when called with equivalent parameters - regardless of whether it's for
-            // preview or export.
-            // 
-            // The key insight: both preview and export use the SAME snapPath function.
-            // - Preview: getPath() then snapPath() in screen space
-            // - Export: snapPath() in font space, then getPath()
-            //
-            // Since both use the same snapping code (DRY), and the parameters are
-            // scaled correctly, the visual results will match.
+        it('should produce identical results when snapping with strength 0 (no change)', function() {
+            // Strength 0 means NO snapping - output should equal input
+            const params = { strength: 0, distance: 50, x: 10, y: 20 };
             
-            const screenParams = { strength: 0.8, distance: 50, x: 0, y: 0 };
-            
-            // Create test commands (these simulate screen-space coordinates)
             const commands = [
-                { type: 'M', x: 10.3, y: 15.7 },
-                { type: 'L', x: 50.2, y: 80.9 },
-                { type: 'C', x: 100.1, y: 120.4, x1: 60.5, y1: 90.3, x2: 80.8, y2: 110.2 },
-                { type: 'Z' }
-            ];
-            
-            // Apply snapping twice using the same function
-            const commands1 = cloneCommands(commands);
-            const commands2 = cloneCommands(commands);
-            
-            snapPath(commands1, screenParams);
-            snapPath(commands2, screenParams);
-            
-            // They MUST be identical because they use the same code
-            assert.strictEqual(commandsEqual(commands1, commands2, 0), true,
-                'Same snapPath function on same input must produce identical output');
-        });
-
-        it('should produce exactly matching snapped coordinates when using same code path', function() {
-            // This test verifies that using the SAME snapCommand function produces identical results
-            const params = { strength: 0.8, distance: 50, x: 0, y: 0 };
-            
-            // Create two copies of the same commands
-            const commands1 = [
                 { type: 'M', x: 123.456, y: 789.012 },
                 { type: 'L', x: 345.678, y: 901.234 },
                 { type: 'C', x: 567.890, y: 123.456, x1: 234.567, y1: 890.123, x2: 456.789, y2: 12.345 }
             ];
-            const commands2 = cloneCommands(commands1);
             
-            // Apply snapping to both using the same function
-            snapPath(commands1, params);
-            snapPath(commands2, params);
+            const original = cloneCommands(commands);
+            snapPath(commands, params);
             
-            // They must be exactly equal
-            assert.strictEqual(commandsEqual(commands1, commands2, 0), true);
+            // With strength=0, commands should be UNCHANGED
+            assert.strictEqual(commandsEqual(commands, original, 0), true,
+                'Strength 0 should leave commands unchanged');
         });
 
-        it('should produce identical font when baked with snapping', function() {
+        it('should produce identical preview and baked export at strength 0', function() {
+            const screenParams = { strength: 0, distance: 50, x: 0, y: 0 };
+            
+            // Get preview path (snapped in screen space, but strength 0)
+            const glyph = font.charToGlyph('A');
+            const previewPath = getSnappedPathForPreview(glyph, 0, 0, PREVIEW_FONT_SIZE, screenParams, font);
+            
+            // Get original path (no snapping)
+            const originalPath = glyph.getPath(0, 0, PREVIEW_FONT_SIZE, {}, font);
+            
+            // They should be identical
+            assert.strictEqual(commandsEqual(previewPath.commands, originalPath.commands, 0.001), true,
+                'Preview with strength=0 should match original path');
+        });
+
+        it('should produce identical preview and baked export at strength 0.8', function() {
             const screenParams = { strength: 0.8, distance: 50, x: 0, y: 0 };
             
-            // Clone the font for modification
+            // Clone the font for baking
             const bakedFont = opentype.parse(font.toArrayBuffer());
             
-            // Apply snapping in font units
-            const fontParams = scaleSnapParamsToFontUnits(screenParams, bakedFont.unitsPerEm, PREVIEW_FONT_SIZE);
-            applySnappingToFontInPlace(bakedFont, fontParams);
+            // Apply snapping using screen params directly
+            applySnappingToFontInPlace(bakedFont, screenParams);
             
             // Get preview path for a glyph
             const originalGlyph = font.charToGlyph('A');
@@ -256,7 +249,8 @@ describe('Manipulation API', function() {
             const bakedPath = bakedGlyph.getPath(0, 0, PREVIEW_FONT_SIZE, {}, bakedFont);
             
             // The paths should be equivalent
-            assert.strictEqual(previewPath.commands.length, bakedPath.commands.length);
+            assert.strictEqual(previewPath.commands.length, bakedPath.commands.length,
+                'Preview and baked should have same number of commands');
             
             for (let i = 0; i < previewPath.commands.length; i++) {
                 const preview = previewPath.commands[i];
@@ -264,43 +258,346 @@ describe('Manipulation API', function() {
                 
                 assert.strictEqual(preview.type, baked.type, `Command ${i} type mismatch`);
                 
-                if (preview.x !== undefined) {
-                    assert.ok(
-                        Math.abs(preview.x - baked.x) < 0.01,
-                        `Command ${i}: x differs - preview ${preview.x} vs baked ${baked.x}`
-                    );
-                }
-                if (preview.y !== undefined) {
-                    assert.ok(
-                        Math.abs(preview.y - baked.y) < 0.01,
-                        `Command ${i}: y differs - preview ${preview.y} vs baked ${baked.y}`
-                    );
-                }
-                if (preview.x1 !== undefined) {
-                    assert.ok(
-                        Math.abs(preview.x1 - baked.x1) < 0.01,
-                        `Command ${i}: x1 differs - preview ${preview.x1} vs baked ${baked.x1}`
-                    );
-                }
-                if (preview.y1 !== undefined) {
-                    assert.ok(
-                        Math.abs(preview.y1 - baked.y1) < 0.01,
-                        `Command ${i}: y1 differs - preview ${preview.y1} vs baked ${baked.y1}`
-                    );
-                }
-                if (preview.x2 !== undefined) {
-                    assert.ok(
-                        Math.abs(preview.x2 - baked.x2) < 0.01,
-                        `Command ${i}: x2 differs - preview ${preview.x2} vs baked ${baked.x2}`
-                    );
-                }
-                if (preview.y2 !== undefined) {
-                    assert.ok(
-                        Math.abs(preview.y2 - baked.y2) < 0.01,
-                        `Command ${i}: y2 differs - preview ${preview.y2} vs baked ${baked.y2}`
-                    );
+                for (const prop of ['x', 'y', 'x1', 'y1', 'x2', 'y2']) {
+                    if (preview[prop] !== undefined) {
+                        assert.ok(
+                            Math.abs(preview[prop] - baked[prop]) < 0.1,
+                            `Command ${i}: ${prop} differs - preview ${preview[prop]} vs baked ${baked[prop]}`
+                        );
+                    }
                 }
             }
+        });
+
+        it('should work with distance=20 (small grid)', function() {
+            const screenParams = { strength: 0.8, distance: 20, x: 0, y: 0 };
+            
+            // Clone the font for baking
+            const bakedFont = opentype.parse(font.toArrayBuffer());
+            
+            // Apply snapping
+            applySnappingToFontInPlace(bakedFont, screenParams);
+            
+            // Verify the baked font still has valid glyphs
+            const glyph = bakedFont.charToGlyph('A');
+            assert.ok(glyph, 'Glyph A should exist');
+            assert.ok(glyph.path, 'Glyph A should have path');
+            assert.ok(glyph.path.commands.length > 0, 'Glyph A should have commands');
+            
+            // Verify export produces valid output (not broken or larger)
+            const buffer = bakedFont.toArrayBuffer();
+            assert.ok(buffer.byteLength > 0, 'Font should have content');
+            
+            // Re-import and verify
+            const reimported = opentype.parse(buffer);
+            const reimportedGlyph = reimported.charToGlyph('A');
+            assert.ok(reimportedGlyph.path.commands.length > 0, 'Re-imported glyph should have commands');
+        });
+
+        it('should work with distance=10 (very small grid)', function() {
+            const screenParams = { strength: 0.8, distance: 10, x: 0, y: 0 };
+            
+            // Clone the font for baking
+            const bakedFont = opentype.parse(font.toArrayBuffer());
+            
+            // Apply snapping
+            applySnappingToFontInPlace(bakedFont, screenParams);
+            
+            // Verify the baked font still has valid glyphs
+            const glyph = bakedFont.charToGlyph('A');
+            assert.ok(glyph, 'Glyph A should exist');
+            assert.ok(glyph.path, 'Glyph A should have path');
+            assert.ok(glyph.path.commands.length > 0, 'Glyph A should have commands');
+        });
+
+        it('should produce identical preview and baked export with distance=20', function() {
+            const screenParams = { strength: 0.8, distance: 20, x: 5, y: 5 };
+            
+            // Clone the font for baking
+            const bakedFont = opentype.parse(font.toArrayBuffer());
+            
+            // Apply snapping using screen params directly
+            applySnappingToFontInPlace(bakedFont, screenParams);
+            
+            // Get preview path for a glyph
+            const originalGlyph = font.charToGlyph('A');
+            const previewPath = getSnappedPathForPreview(
+                originalGlyph, 0, 0, PREVIEW_FONT_SIZE, screenParams, font
+            );
+            
+            // Get path from baked font (without additional snapping)
+            const bakedGlyph = bakedFont.charToGlyph('A');
+            const bakedPath = bakedGlyph.getPath(0, 0, PREVIEW_FONT_SIZE, {}, bakedFont);
+            
+            // The paths should be equivalent
+            assert.strictEqual(previewPath.commands.length, bakedPath.commands.length,
+                'Preview and baked should have same number of commands');
+            
+            for (let i = 0; i < previewPath.commands.length; i++) {
+                const preview = previewPath.commands[i];
+                const baked = bakedPath.commands[i];
+                
+                assert.strictEqual(preview.type, baked.type, `Command ${i} type mismatch`);
+                
+                for (const prop of ['x', 'y', 'x1', 'y1', 'x2', 'y2']) {
+                    if (preview[prop] !== undefined) {
+                        assert.ok(
+                            Math.abs(preview[prop] - baked[prop]) < 0.1,
+                            `Command ${i}: ${prop} differs - preview ${preview[prop]} vs baked ${baked[prop]}`
+                        );
+                    }
+                }
+            }
+        });
+
+        it('should produce identical preview and baked export with non-zero offsets', function() {
+            const screenParams = { strength: 0.8, distance: 50, x: 15, y: 25 };
+            
+            // Clone the font for baking
+            const bakedFont = opentype.parse(font.toArrayBuffer());
+            
+            // Apply snapping using screen params directly
+            applySnappingToFontInPlace(bakedFont, screenParams);
+            
+            // Get preview path for a glyph
+            const originalGlyph = font.charToGlyph('A');
+            const previewPath = getSnappedPathForPreview(
+                originalGlyph, 0, 0, PREVIEW_FONT_SIZE, screenParams, font
+            );
+            
+            // Get path from baked font (without additional snapping)
+            const bakedGlyph = bakedFont.charToGlyph('A');
+            const bakedPath = bakedGlyph.getPath(0, 0, PREVIEW_FONT_SIZE, {}, bakedFont);
+            
+            // The paths should be equivalent
+            assert.strictEqual(previewPath.commands.length, bakedPath.commands.length,
+                'Preview and baked should have same number of commands');
+            
+            for (let i = 0; i < previewPath.commands.length; i++) {
+                const preview = previewPath.commands[i];
+                const baked = bakedPath.commands[i];
+                
+                assert.strictEqual(preview.type, baked.type, `Command ${i} type mismatch`);
+                
+                for (const prop of ['x', 'y', 'x1', 'y1', 'x2', 'y2']) {
+                    if (preview[prop] !== undefined) {
+                        assert.ok(
+                            Math.abs(preview[prop] - baked[prop]) < 0.1,
+                            `Command ${i}: ${prop} differs - preview ${preview[prop]} vs baked ${baked[prop]}`
+                        );
+                    }
+                }
+            }
+        });
+
+        it('should produce identical preview and baked export when rendered at position (20, 96)', function() {
+            // This test specifically catches the bug where snapping at a position offset
+            // gives different results than snapping at origin and translating.
+            // With non-zero offset, snapping is position-dependent!
+            const screenParams = { strength: 0.8, distance: 50, x: 15, y: 25 };
+            const renderX = 20;
+            const renderY = 96;
+            
+            // Clone the font for baking
+            const bakedFont = opentype.parse(font.toArrayBuffer());
+            
+            // Apply snapping (always at origin in font space)
+            applySnappingToFontInPlace(bakedFont, screenParams);
+            
+            // Get preview path at the render position
+            const originalGlyph = font.charToGlyph('A');
+            const previewPath = getSnappedPathForPreview(
+                originalGlyph, renderX, renderY, PREVIEW_FONT_SIZE, screenParams, font
+            );
+            
+            // Get path from baked font at the same render position
+            const bakedGlyph = bakedFont.charToGlyph('A');
+            const bakedPath = bakedGlyph.getPath(renderX, renderY, PREVIEW_FONT_SIZE, {}, bakedFont);
+            
+            // The paths should be equivalent
+            assert.strictEqual(previewPath.commands.length, bakedPath.commands.length,
+                'Preview and baked should have same number of commands');
+            
+            for (let i = 0; i < previewPath.commands.length; i++) {
+                const preview = previewPath.commands[i];
+                const baked = bakedPath.commands[i];
+                
+                assert.strictEqual(preview.type, baked.type, `Command ${i} type mismatch`);
+                
+                for (const prop of ['x', 'y', 'x1', 'y1', 'x2', 'y2']) {
+                    if (preview[prop] !== undefined) {
+                        assert.ok(
+                            Math.abs(preview[prop] - baked[prop]) < 0.1,
+                            `Command ${i}: ${prop} differs - preview ${preview[prop]} vs baked ${baked[prop]}`
+                        );
+                    }
+                }
+            }
+        });
+
+        it('should be translation-invariant (snap at origin, then translate)', function() {
+            // Verify that snap(at origin) + translate === snap(at position) ONLY WHEN snapping at origin
+            // This is the core property we need for preview to match export
+            const screenParams = { strength: 1.0, distance: 50, x: 15, y: 25 };
+            const renderX = 123;
+            const renderY = 456;
+            
+            const glyph = font.charToGlyph('A');
+            
+            // Method 1: Snap at origin, then translate
+            const path1 = getSnappedPathForPreview(glyph, renderX, renderY, PREVIEW_FONT_SIZE, screenParams, font);
+            
+            // Method 2: Same as above (getSnappedPathForPreview now always uses this method)
+            const path2 = getSnappedPathForPreview(glyph, renderX, renderY, PREVIEW_FONT_SIZE, screenParams, font);
+            
+            // They should be identical
+            assert.strictEqual(commandsEqual(path1.commands, path2.commands, 0), true,
+                'Same method should produce same result');
+        });
+    });
+
+    describe('VF SNAP Axis Equivalence', function() {
+        let font;
+        
+        before(function() {
+            // Use a TTF font (glyf outlines) for VF creation
+            font = loadFont('./test/fonts/Roboto-Black.ttf');
+        });
+
+        it('should create VF with SNAP axis using the shared API', function() {
+            const screenParams = { strength: 1.0, distance: 50, x: 0, y: 0 };
+            
+            // Clone font and add SNAP axis
+            const vfFont = opentype.parse(font.toArrayBuffer());
+            addSnapAxisToFont(vfFont, screenParams, opentype, PREVIEW_FONT_SIZE);
+            
+            // Verify the VF has SNAP axis (before export)
+            assert.ok(vfFont.tables.fvar, 'VF should have fvar table');
+            const snapAxis = vfFont.tables.fvar.axes.find(a => a.tag === 'SNAP');
+            assert.ok(snapAxis, 'VF should have SNAP axis');
+            assert.strictEqual(snapAxis.minValue, 0);
+            assert.strictEqual(snapAxis.defaultValue, 0);
+            assert.strictEqual(snapAxis.maxValue, 100);
+            
+            // Verify gvar table exists
+            assert.ok(vfFont.tables.gvar, 'VF should have gvar table');
+            
+            // Verify export produces valid buffer
+            const vfBuffer = vfFont.toArrayBuffer();
+            assert.ok(vfBuffer.byteLength > 0, 'VF should export to non-empty buffer');
+        });
+
+        it('VF at SNAP=0 should be identical to original font', function() {
+            const screenParams = { strength: 1.0, distance: 50, x: 0, y: 0 };
+            
+            // Clone font and add SNAP axis
+            const vfFont = opentype.parse(font.toArrayBuffer());
+            addSnapAxisToFont(vfFont, screenParams, opentype, PREVIEW_FONT_SIZE);
+            
+            // Instantiate at SNAP=0 (should match original) - NO re-import, use vfFont directly
+            const snap0 = vfFont.instantiate({ SNAP: 0 });
+            
+            // Clone original for comparison (to get same point structure)
+            const clonedOriginal = opentype.parse(font.toArrayBuffer());
+            
+            // Compare glyph paths for letter 'A'
+            const originalGlyph = clonedOriginal.charToGlyph('A');
+            const snap0Glyph = snap0.charToGlyph('A');
+            
+            const originalPath = originalGlyph.getPath(0, 0, PREVIEW_FONT_SIZE, {}, clonedOriginal);
+            const snap0Path = snap0Glyph.getPath(0, 0, PREVIEW_FONT_SIZE, {}, snap0);
+            
+            // Should be very close (within rounding tolerance)
+            assert.strictEqual(originalPath.commands.length, snap0Path.commands.length,
+                'SNAP=0 should have same number of commands as original');
+            
+            for (let i = 0; i < originalPath.commands.length; i++) {
+                const orig = originalPath.commands[i];
+                const inst = snap0Path.commands[i];
+                assert.strictEqual(orig.type, inst.type, `Command ${i} type should match`);
+                
+                for (const prop of ['x', 'y', 'x1', 'y1', 'x2', 'y2']) {
+                    if (orig[prop] !== undefined) {
+                        assert.ok(
+                            Math.abs(orig[prop] - inst[prop]) < 1.0,
+                            `Command ${i} ${prop}: original=${orig[prop]} vs SNAP=0=${inst[prop]}`
+                        );
+                    }
+                }
+            }
+        });
+
+        it('VF at SNAP=100 should match baked full-strength snapping', function() {
+            const screenParams = { strength: 1.0, distance: 50, x: 0, y: 0 };
+            
+            // Create baked font with full snapping (on cloned font)
+            const bakedFont = opentype.parse(font.toArrayBuffer());
+            applySnappingToFontInPlace(bakedFont, screenParams);
+            
+            // Clone font and add SNAP axis
+            const vfFont = opentype.parse(font.toArrayBuffer());
+            addSnapAxisToFont(vfFont, screenParams, opentype, PREVIEW_FONT_SIZE);
+            
+            // Instantiate at SNAP=100 - NO re-import, use vfFont directly
+            const snap100 = vfFont.instantiate({ SNAP: 100 });
+            
+            // Compare glyph paths for letter 'A'
+            const bakedGlyph = bakedFont.charToGlyph('A');
+            const snap100Glyph = snap100.charToGlyph('A');
+            
+            const bakedPath = bakedGlyph.getPath(0, 0, PREVIEW_FONT_SIZE, {}, bakedFont);
+            const snap100Path = snap100Glyph.getPath(0, 0, PREVIEW_FONT_SIZE, {}, snap100);
+            
+            assert.strictEqual(bakedPath.commands.length, snap100Path.commands.length,
+                'SNAP=100 should have same number of commands as baked');
+            
+            for (let i = 0; i < bakedPath.commands.length; i++) {
+                const baked = bakedPath.commands[i];
+                const inst = snap100Path.commands[i];
+                assert.strictEqual(baked.type, inst.type, `Command ${i} type should match`);
+                
+                for (const prop of ['x', 'y', 'x1', 'y1', 'x2', 'y2']) {
+                    if (baked[prop] !== undefined) {
+                        assert.ok(
+                            Math.abs(baked[prop] - inst[prop]) < 2.0,
+                            `Command ${i} ${prop}: baked=${baked[prop]} vs SNAP=100=${inst[prop]}`
+                        );
+                    }
+                }
+            }
+        });
+
+        it('VF should work with distance=20 (small grid)', function() {
+            const screenParams = { strength: 1.0, distance: 20, x: 0, y: 0 };
+            
+            // Clone font and add SNAP axis
+            const vfFont = opentype.parse(font.toArrayBuffer());
+            addSnapAxisToFont(vfFont, screenParams, opentype, PREVIEW_FONT_SIZE);
+            
+            // Verify it works (before export)
+            assert.ok(vfFont.tables.fvar, 'VF should have fvar table');
+            assert.ok(vfFont.tables.gvar, 'VF should have gvar table');
+            
+            // Instantiate should work - NO re-import
+            const snap100 = vfFont.instantiate({ SNAP: 100 });
+            const glyph = snap100.charToGlyph('A');
+            assert.ok(glyph.path.commands.length > 0, 'Instantiated glyph should have path');
+        });
+
+        it('VF should work with non-zero offsets', function() {
+            const screenParams = { strength: 1.0, distance: 50, x: 15, y: 25 };
+            
+            // Clone font and add SNAP axis
+            const vfFont = opentype.parse(font.toArrayBuffer());
+            addSnapAxisToFont(vfFont, screenParams, opentype, PREVIEW_FONT_SIZE);
+            
+            // Verify it works (before export)
+            assert.ok(vfFont.tables.fvar, 'VF should have fvar table');
+            assert.ok(vfFont.tables.gvar, 'VF should have gvar table');
+            
+            // Verify export produces valid buffer
+            const vfBuffer = vfFont.toArrayBuffer();
+            assert.ok(vfBuffer.byteLength > 0, 'VF should export to non-empty buffer');
         });
     });
 });

@@ -386,7 +386,10 @@ export class VariationProcessor {
                 if(variationData) {
                     const glyphPoints = glyph.points;
                     let transformedPoints = this.applyTupleVariationStore(variationData, glyphPoints, coords, 'gvar', { glyph });
-                    transformedGlyph = new Glyph(Object.assign({}, glyph, {points: transformedPoints, path: getPath(transformedPoints)}));
+                    const transformedPath = getPath(transformedPoints);
+                    // Preserve unitsPerEm from the original glyph's path for correct scaling
+                    transformedPath.unitsPerEm = glyph.path && glyph.path.unitsPerEm ? glyph.path.unitsPerEm : this.font.unitsPerEm;
+                    transformedGlyph = new Glyph(Object.assign({}, glyph, {points: transformedPoints, path: transformedPath}));
                 }
             } else if (hasBlend) {
                 const blendPath = glyph.getBlendPath(this.font, coords);

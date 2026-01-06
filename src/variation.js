@@ -402,9 +402,11 @@ export class VariationManager {
                 }
                 
                 // Initialize glyph variation if not present
+                // sharedPoints must be initialized (empty = all points)
                 if (!gvar.glyphVariations[i]) {
                     gvar.glyphVariations[i] = {
-                        headers: []
+                        headers: [],
+                        sharedPoints: []
                     };
                 }
                 
@@ -412,16 +414,13 @@ export class VariationManager {
                 const peakTuple = item.peakTuple ? [...item.peakTuple] : [...defaultPeakTuple];
                 
                 // Add new variation header
+                // privatePoints must be initialized (empty = all points affected)
                 const header = {
                     peakTuple,
                     deltas: item.deltas || [],
-                    deltasY: item.deltasY || []
+                    deltasY: item.deltasY || [],
+                    privatePoints: item.privatePoints || []
                 };
-                
-                // If there are private points (subset of points affected)
-                if (item.privatePoints) {
-                    header.privatePoints = item.privatePoints;
-                }
                 
                 gvar.glyphVariations[i].headers.push(header);
             }

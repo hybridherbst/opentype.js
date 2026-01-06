@@ -21,7 +21,7 @@ import gvar from './tables/gvar.js';
 import cvar from './tables/cvar.js';
 import avar from './tables/avar.js';
 import hvar from './tables/hvar.js';
-import glyf from './tables/glyf.js';
+import glyf, { pathToPoints } from './tables/glyf.js';
 import gdef from './tables/gdef.js';
 import gpos from './tables/gpos.js';
 import gsub from './tables/gsub.js';
@@ -592,6 +592,7 @@ export {
     Path,
     BoundingBox,
     VariationManager,
+    pathToPoints,
     parse as _parse,
     parseBuffer as parse,
     load,
