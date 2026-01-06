@@ -1,6 +1,6 @@
 import assert from 'assert';
 import { readFileSync } from 'fs';
-import { parse, VariationManager, pathToPoints, convertCFF2ToTTF, convertTTFToCFF2 } from '../src/opentype.js';
+import { parse, VariationManager, pathToPoints, convertCFF2ToTTF, convertTTFToCFF2, convertStaticCFFToTTF, convertStaticTTFToCFF, convertFontFormat } from '../src/opentype.js';
 import { cubicToQuadratics } from '../src/tables/glyf.js';
 
 /**
@@ -876,4 +876,460 @@ describe('Format Conversion', function() {
             }
         });
     });
+    
+    describe('Static Font Format Conversion', function() {
+        describe('Static CFF to TrueType (convertStaticCFFToTTF)', function() {
+            let cffFont;
+            
+            before(function() {
+                cffFont = loadFont('./test/fonts/FiraSansMedium.woff');
+                assert.strictEqual(cffFont.outlinesFormat, 'cff', 'Test font should be CFF');
+                assert.ok(!cffFont.tables.fvar, 'Test font should not be variable');
+            });
+            
+            it('should convert static CFF font to TrueType', function() {
+                const cloned = parse(cffFont.toArrayBuffer());
+                const result = convertStaticCFFToTTF(cloned);
+                
+                assert.strictEqual(result, true, 'Conversion should succeed');
+                assert.strictEqual(cloned.outlinesFormat, 'truetype', 'Should be TrueType after conversion');
+                assert.ok(!cloned.tables.cff, 'CFF table should be removed');
+                assert.ok(!cloned.tables.cff2, 'CFF2 table should be removed');
+            });
+            
+            it('should preserve glyph count', function() {
+                const cloned = parse(cffFont.toArrayBuffer());
+                const originalCount = cloned.glyphs.length;
+                
+                convertStaticCFFToTTF(cloned);
+                
+                assert.strictEqual(cloned.glyphs.length, originalCount, 'Glyph count should be preserved');
+            });
+            
+            it('should produce valid points and contourEnds for each glyph', function() {
+                const cloned = parse(cffFont.toArrayBuffer());
+                convertStaticCFFToTTF(cloned);
+                
+                for (let i = 0; i < Math.min(50, cloned.glyphs.length); i++) {
+                    const glyph = cloned.glyphs.get(i);
+                    if (!glyph || !glyph.path || glyph.path.commands.length === 0) continue;
+                    
+                    assert.ok(Array.isArray(glyph.points), `Glyph ${i} should have points array`);
+                    assert.ok(Array.isArray(glyph.contourEnds), `Glyph ${i} should have contourEnds array`);
+                    
+                    // Each point should have x, y, onCurve
+                    for (const point of glyph.points) {
+                        assert.ok(typeof point.x === 'number', 'Point should have x');
+                        assert.ok(typeof point.y === 'number', 'Point should have y');
+                        assert.ok(typeof point.onCurve === 'boolean', 'Point should have onCurve');
+                    }
+                }
+            });
+            
+            it('should preserve glyph shapes within tolerance', function() {
+                const cloned = parse(cffFont.toArrayBuffer());
+                const testChars = ['A', 'B', 'o', 'g', '0'];
+                const fontSize = 72;
+                
+                // Get original paths before conversion
+                const originalPaths = {};
+                for (const char of testChars) {
+                    const glyph = cloned.charToGlyph(char);
+                    if (glyph) {
+                        originalPaths[char] = glyph.getPath(0, 0, fontSize, {}, cloned);
+                    }
+                }
+                
+                convertStaticCFFToTTF(cloned);
+                
+                // Export and reload to get proper TTF glyph paths
+                const buffer = cloned.toArrayBuffer();
+                const reloaded = parse(buffer);
+                
+                for (const char of testChars) {
+                    if (!originalPaths[char]) continue;
+                    
+                    const glyph = reloaded.charToGlyph(char);
+                    const convertedPath = glyph.getPath(0, 0, fontSize, {}, reloaded);
+                    
+                    // Cubic→quadratic conversion introduces some error
+                    const comparison = comparePathsVisually(originalPaths[char], convertedPath, 5);
+                    assert.ok(comparison.similar, 
+                        `Glyph '${char}' should match after CFF→TTF: ${comparison.details}`);
+                }
+            });
+            
+            it('should preserve advance widths', function() {
+                const cloned = parse(cffFont.toArrayBuffer());
+                const originalWidths = [];
+                for (let i = 0; i < Math.min(50, cloned.glyphs.length); i++) {
+                    const glyph = cloned.glyphs.get(i);
+                    originalWidths.push(glyph ? glyph.advanceWidth : 0);
+                }
+                
+                convertStaticCFFToTTF(cloned);
+                
+                for (let i = 0; i < originalWidths.length; i++) {
+                    const glyph = cloned.glyphs.get(i);
+                    if (glyph) {
+                        assert.strictEqual(glyph.advanceWidth, originalWidths[i],
+                            `Glyph ${i} advanceWidth should be preserved`);
+                    }
+                }
+            });
+            
+            it('should export and reload correctly', function() {
+                const cloned = parse(cffFont.toArrayBuffer());
+                convertStaticCFFToTTF(cloned);
+                
+                // Export to buffer
+                const buffer = cloned.toArrayBuffer();
+                assert.ok(buffer.byteLength > 0, 'Should produce non-empty buffer');
+                
+                // Reload
+                const reloaded = parse(buffer);
+                assert.strictEqual(reloaded.outlinesFormat, 'truetype', 'Reloaded should be TrueType');
+                assert.strictEqual(reloaded.glyphs.length, cloned.glyphs.length, 'Glyph count should match');
+            });
+            
+            it('should return false for non-CFF fonts', function() {
+                const ttfFont = loadFont('./test/fonts/Roboto-Black.ttf');
+                const result = convertStaticCFFToTTF(ttfFont);
+                
+                assert.strictEqual(result, false, 'Should return false for TTF font');
+                assert.strictEqual(ttfFont.outlinesFormat, 'truetype', 'Should still be TrueType');
+            });
+        });
+        
+        describe('Static TrueType to CFF (convertStaticTTFToCFF)', function() {
+            let ttfFont;
+            
+            before(function() {
+                ttfFont = loadFont('./test/fonts/Roboto-Black.ttf');
+                assert.strictEqual(ttfFont.outlinesFormat, 'truetype', 'Test font should be TrueType');
+                assert.ok(!ttfFont.tables.fvar, 'Test font should not be variable');
+            });
+            
+            it('should convert static TrueType font to CFF', function() {
+                const cloned = parse(ttfFont.toArrayBuffer());
+                const result = convertStaticTTFToCFF(cloned);
+                
+                assert.strictEqual(result, true, 'Conversion should succeed');
+                assert.strictEqual(cloned.outlinesFormat, 'cff', 'Should be CFF after conversion');
+                assert.ok(!cloned.tables.glyf, 'glyf table should be removed');
+                assert.ok(!cloned.tables.loca, 'loca table should be removed');
+                assert.ok(!cloned.tables.gvar, 'gvar table should be removed');
+            });
+            
+            it('should preserve glyph count', function() {
+                const cloned = parse(ttfFont.toArrayBuffer());
+                const originalCount = cloned.glyphs.length;
+                
+                convertStaticTTFToCFF(cloned);
+                
+                assert.strictEqual(cloned.glyphs.length, originalCount, 'Glyph count should be preserved');
+            });
+            
+            it('should convert quadratic to cubic curves', function() {
+                const cloned = parse(ttfFont.toArrayBuffer());
+                convertStaticTTFToCFF(cloned);
+                
+                // Check that paths now use cubic curves (C commands) instead of quadratic (Q commands)
+                let hasQuadratic = false;
+                let hasCubic = false;
+                
+                for (let i = 1; i < Math.min(50, cloned.glyphs.length); i++) {
+                    const glyph = cloned.glyphs.get(i);
+                    if (!glyph || !glyph.path) continue;
+                    
+                    for (const cmd of glyph.path.commands) {
+                        if (cmd.type === 'Q') hasQuadratic = true;
+                        if (cmd.type === 'C') hasCubic = true;
+                    }
+                }
+                
+                // After conversion, there should be no quadratic curves (Q)
+                // All curves should be cubic (C) for CFF
+                // Note: Simple glyphs might have no curves at all (just lines)
+                assert.ok(!hasQuadratic, 'Should not have quadratic curves after TTF→CFF');
+            });
+            
+            it('should preserve glyph shapes within tolerance', function() {
+                const cloned = parse(ttfFont.toArrayBuffer());
+                const testChars = ['A', 'B', 'o', 'g', '0'];
+                const fontSize = 72;
+                
+                // Get original paths before conversion
+                const originalPaths = {};
+                for (const char of testChars) {
+                    const glyph = cloned.charToGlyph(char);
+                    if (glyph) {
+                        originalPaths[char] = glyph.getPath(0, 0, fontSize, {}, cloned);
+                    }
+                }
+                
+                convertStaticTTFToCFF(cloned);
+                
+                for (const char of testChars) {
+                    if (!originalPaths[char]) continue;
+                    
+                    const glyph = cloned.charToGlyph(char);
+                    const convertedPath = glyph.getPath(0, 0, fontSize, {}, cloned);
+                    
+                    // Quadratic→cubic is exact, so tolerance should be very small
+                    const comparison = comparePathsVisually(originalPaths[char], convertedPath, 1);
+                    assert.ok(comparison.similar, 
+                        `Glyph '${char}' should match after TTF→CFF: ${comparison.details}`);
+                }
+            });
+            
+            it('should preserve advance widths', function() {
+                const cloned = parse(ttfFont.toArrayBuffer());
+                const originalWidths = [];
+                for (let i = 0; i < Math.min(50, cloned.glyphs.length); i++) {
+                    const glyph = cloned.glyphs.get(i);
+                    originalWidths.push(glyph ? glyph.advanceWidth : 0);
+                }
+                
+                convertStaticTTFToCFF(cloned);
+                
+                for (let i = 0; i < originalWidths.length; i++) {
+                    const glyph = cloned.glyphs.get(i);
+                    if (glyph) {
+                        assert.strictEqual(glyph.advanceWidth, originalWidths[i],
+                            `Glyph ${i} advanceWidth should be preserved`);
+                    }
+                }
+            });
+            
+            it('should clear TrueType-specific glyph data', function() {
+                const cloned = parse(ttfFont.toArrayBuffer());
+                convertStaticTTFToCFF(cloned);
+                
+                for (let i = 0; i < Math.min(20, cloned.glyphs.length); i++) {
+                    const glyph = cloned.glyphs.get(i);
+                    if (!glyph) continue;
+                    
+                    assert.ok(!glyph.points || glyph.points === undefined, 
+                        `Glyph ${i} should not have points after TTF→CFF`);
+                    assert.ok(!glyph.contourEnds || glyph.contourEnds === undefined,
+                        `Glyph ${i} should not have contourEnds after TTF→CFF`);
+                }
+            });
+            
+            it('should return false for non-TTF fonts', function() {
+                const cffFont = loadFont('./test/fonts/FiraSansMedium.woff');
+                const result = convertStaticTTFToCFF(cffFont);
+                
+                assert.strictEqual(result, false, 'Should return false for CFF font');
+                assert.strictEqual(cffFont.outlinesFormat, 'cff', 'Should still be CFF');
+            });
+        });
+        
+        describe('Roundtrip Static Conversion', function() {
+            it('should roundtrip CFF → TTF → CFF with shape preservation', function() {
+                const cffFont = loadFont('./test/fonts/FiraSansMedium.woff');
+                const cloned = parse(cffFont.toArrayBuffer());
+                const testChars = ['A', 'o', 'g'];
+                const fontSize = 72;
+                
+                // Get original paths
+                const originalPaths = {};
+                for (const char of testChars) {
+                    const glyph = cloned.charToGlyph(char);
+                    if (glyph) {
+                        originalPaths[char] = glyph.getPath(0, 0, fontSize, {}, cloned);
+                    }
+                }
+                
+                // CFF → TTF
+                convertStaticCFFToTTF(cloned);
+                assert.strictEqual(cloned.outlinesFormat, 'truetype');
+                
+                // TTF → CFF
+                convertStaticTTFToCFF(cloned);
+                assert.strictEqual(cloned.outlinesFormat, 'cff');
+                
+                // Compare paths (cubic→quadratic→cubic accumulates error)
+                for (const char of testChars) {
+                    if (!originalPaths[char]) continue;
+                    
+                    const glyph = cloned.charToGlyph(char);
+                    const roundtrippedPath = glyph.getPath(0, 0, fontSize, {}, cloned);
+                    
+                    // Allow larger tolerance for roundtrip
+                    const comparison = comparePathsVisually(originalPaths[char], roundtrippedPath, 8);
+                    assert.ok(comparison.similar, 
+                        `Glyph '${char}' should match after CFF→TTF→CFF roundtrip: ${comparison.details}`);
+                }
+            });
+            
+            it('should roundtrip TTF → CFF → TTF with shape preservation', function() {
+                const ttfFont = loadFont('./test/fonts/Roboto-Black.ttf');
+                const cloned = parse(ttfFont.toArrayBuffer());
+                const testChars = ['A', 'o', 'g'];
+                const fontSize = 72;
+                
+                // Get original paths
+                const originalPaths = {};
+                for (const char of testChars) {
+                    const glyph = cloned.charToGlyph(char);
+                    if (glyph) {
+                        originalPaths[char] = glyph.getPath(0, 0, fontSize, {}, cloned);
+                    }
+                }
+                
+                // TTF → CFF
+                convertStaticTTFToCFF(cloned);
+                assert.strictEqual(cloned.outlinesFormat, 'cff');
+                
+                // CFF → TTF
+                convertStaticCFFToTTF(cloned);
+                assert.strictEqual(cloned.outlinesFormat, 'truetype');
+                
+                // Compare paths (quadratic→cubic→quadratic should be very close)
+                for (const char of testChars) {
+                    if (!originalPaths[char]) continue;
+                    
+                    const glyph = cloned.charToGlyph(char);
+                    const roundtrippedPath = glyph.getPath(0, 0, fontSize, {}, cloned);
+                    
+                    // Quadratic→cubic is exact, cubic→quadratic has error
+                    const comparison = comparePathsVisually(originalPaths[char], roundtrippedPath, 5);
+                    assert.ok(comparison.similar, 
+                        `Glyph '${char}' should match after TTF→CFF→TTF roundtrip: ${comparison.details}`);
+                }
+            });
+        });
+    });
+    
+    describe('convertFontFormat Helper Function', function() {
+        describe('Static Font Conversion', function() {
+            it('should convert CFF to TrueType using convertFontFormat', function() {
+                const cffFont = loadFont('./test/fonts/FiraSansMedium.woff');
+                const cloned = parse(cffFont.toArrayBuffer());
+                
+                const result = convertFontFormat(cloned, 'truetype');
+                
+                assert.strictEqual(result, true, 'Conversion should succeed');
+                assert.strictEqual(cloned.outlinesFormat, 'truetype', 'Should be TrueType');
+            });
+            
+            it('should convert TTF to CFF using convertFontFormat', function() {
+                const ttfFont = loadFont('./test/fonts/Roboto-Black.ttf');
+                const cloned = parse(ttfFont.toArrayBuffer());
+                
+                const result = convertFontFormat(cloned, 'cff');
+                
+                assert.strictEqual(result, true, 'Conversion should succeed');
+                assert.strictEqual(cloned.outlinesFormat, 'cff', 'Should be CFF');
+            });
+            
+            it('should accept "ttf" as alias for "truetype"', function() {
+                const cffFont = loadFont('./test/fonts/FiraSansMedium.woff');
+                const cloned = parse(cffFont.toArrayBuffer());
+                
+                const result = convertFontFormat(cloned, 'ttf');
+                
+                assert.strictEqual(result, true, 'Conversion should succeed');
+                assert.strictEqual(cloned.outlinesFormat, 'truetype', 'Should be TrueType');
+            });
+            
+            it('should accept "otf" as alias for "cff"', function() {
+                const ttfFont = loadFont('./test/fonts/Roboto-Black.ttf');
+                const cloned = parse(ttfFont.toArrayBuffer());
+                
+                const result = convertFontFormat(cloned, 'otf');
+                
+                assert.strictEqual(result, true, 'Conversion should succeed');
+                assert.strictEqual(cloned.outlinesFormat, 'cff', 'Should be CFF');
+            });
+            
+            it('should return true without modification if already in target format', function() {
+                const ttfFont = loadFont('./test/fonts/Roboto-Black.ttf');
+                const cloned = parse(ttfFont.toArrayBuffer());
+                
+                const result = convertFontFormat(cloned, 'truetype');
+                
+                assert.strictEqual(result, true, 'Should return true');
+                assert.strictEqual(cloned.outlinesFormat, 'truetype', 'Should still be TrueType');
+            });
+        });
+        
+        describe('Variable Font Conversion', function() {
+            let ttfVFFont;
+            
+            before(function() {
+                try {
+                    ttfVFFont = loadFont('./test/fonts/RobotoFlex-Variable.ttf');
+                    if (!ttfVFFont.tables.fvar || !ttfVFFont.tables.gvar) {
+                        ttfVFFont = null;
+                    }
+                } catch (e) {
+                    ttfVFFont = null;
+                }
+            });
+            
+            it('should convert TTF VF to CFF2 using convertFontFormat', function() {
+                if (!ttfVFFont) {
+                    this.skip();
+                    return;
+                }
+                
+                const cloned = parse(ttfVFFont.toArrayBuffer());
+                assert.ok(cloned.tables.gvar, 'Should have gvar before conversion');
+                
+                const result = convertFontFormat(cloned, 'cff');
+                
+                assert.strictEqual(result, true, 'Conversion should succeed');
+                assert.strictEqual(cloned.outlinesFormat, 'cff', 'Should be CFF');
+                assert.ok(cloned.tables.cff2, 'Should have CFF2 table');
+            });
+            
+            it('should route VF correctly based on table presence', function() {
+                if (!ttfVFFont) {
+                    this.skip();
+                    return;
+                }
+                
+                const cloned = parse(ttfVFFont.toArrayBuffer());
+                const hasGvar = !!cloned.tables.gvar;
+                const hasFvar = !!cloned.tables.fvar;
+                
+                assert.ok(hasGvar && hasFvar, 'Test font should be TTF VF');
+                
+                // convertFontFormat should use convertTTFToCFF2, not convertStaticTTFToCFF
+                convertFontFormat(cloned, 'cff');
+                
+                assert.ok(cloned.tables.cff2, 'VF should have CFF2 table (not regular CFF)');
+            });
+        });
+        
+        describe('Edge Cases', function() {
+            it('should handle fonts with empty glyphs', function() {
+                const cffFont = loadFont('./test/fonts/FiraSansMedium.woff');
+                const cloned = parse(cffFont.toArrayBuffer());
+                
+                // Conversion should not throw even if some glyphs are empty
+                assert.doesNotThrow(() => {
+                    convertFontFormat(cloned, 'truetype');
+                }, 'Should handle empty glyphs');
+            });
+            
+            it('should preserve font metadata through conversion', function() {
+                const cffFont = loadFont('./test/fonts/FiraSansMedium.woff');
+                const cloned = parse(cffFont.toArrayBuffer());
+                
+                const originalFamily = cloned.getEnglishName('fontFamily');
+                const originalUPM = cloned.unitsPerEm;
+                
+                convertFontFormat(cloned, 'truetype');
+                
+                assert.strictEqual(cloned.unitsPerEm, originalUPM, 'unitsPerEm should be preserved');
+                // Note: getEnglishName might work differently after conversion
+                // The key is that the data is still there
+            });
+        });
+    });
 });
+

@@ -645,6 +645,156 @@ function convertGvarDeltasToCFF2Deltas(glyph, glyphVariation, sharedTuples, tupl
 }
 
 /**
+ * Convert a static CFF font (no variation) to TrueType format.
+ * This handles cubic-to-quadratic bezier conversion for all glyphs.
+ * 
+ * @param {Font} font - The font to convert (modifies in place)
+ * @returns {boolean} True if conversion was successful
+ */
+export function convertStaticCFFToTTF(font) {
+    if (font.outlinesFormat !== 'cff') {
+        console.warn('convertStaticCFFToTTF: Font is not CFF format');
+        return false;
+    }
+    
+    // Don't use this for VF - use convertCFF2ToTTF instead
+    if (font.tables.cff2 && font.tables.fvar) {
+        console.warn('convertStaticCFFToTTF: Font is CFF2 VF, use convertCFF2ToTTF instead');
+        return false;
+    }
+    
+    // For each glyph, convert the path from cubic to quadratic
+    for (let i = 0; i < font.glyphs.length; i++) {
+        const glyph = font.glyphs.get(i);
+        if (!glyph || !glyph.path || !glyph.path.commands || glyph.path.commands.length === 0) {
+            continue;
+        }
+        
+        // Convert path to TrueType points (handles cubic→quadratic conversion)
+        const { points, contourEnds } = pathToPoints(glyph.path);
+        
+        // Store on glyph for glyf table export
+        glyph.points = points;
+        glyph.contourEnds = contourEnds;
+        glyph.numberOfContours = contourEnds.length;
+    }
+    
+    // Switch outline format
+    font.outlinesFormat = 'truetype';
+    
+    // Remove CFF tables, glyf/loca will be created on export
+    delete font.tables.cff;
+    delete font.tables.cff2;
+    
+    return true;
+}
+
+/**
+ * Convert a static TrueType font (no variation) to CFF format.
+ * This handles quadratic-to-cubic bezier conversion for all glyphs.
+ * 
+ * @param {Font} font - The font to convert (modifies in place)
+ * @returns {boolean} True if conversion was successful
+ */
+export function convertStaticTTFToCFF(font) {
+    if (font.outlinesFormat !== 'truetype') {
+        console.warn('convertStaticTTFToCFF: Font is not TrueType format');
+        return false;
+    }
+    
+    // Don't use this for VF - use convertTTFToCFF2 instead
+    if (font.tables.gvar && font.tables.fvar) {
+        console.warn('convertStaticTTFToCFF: Font is TTF VF, use convertTTFToCFF2 instead');
+        return false;
+    }
+    
+    const unitsPerEm = font.unitsPerEm;
+    
+    // For each glyph, convert the path from quadratic to cubic
+    for (let i = 0; i < font.glyphs.length; i++) {
+        const glyph = font.glyphs.get(i);
+        if (!glyph || !glyph.path || !glyph.path.commands || glyph.path.commands.length === 0) {
+            continue;
+        }
+        
+        // Convert quadratic path to cubic
+        const cubicPath = quadraticToCubic(glyph.path);
+        
+        // Preserve unitsPerEm on the new path (critical for getPath scaling)
+        cubicPath.unitsPerEm = unitsPerEm;
+        
+        glyph.path = cubicPath;
+        
+        // Clear TrueType-specific data
+        delete glyph.points;
+        delete glyph.contourEnds;
+        delete glyph.numberOfContours;
+    }
+    
+    // Switch outline format
+    font.outlinesFormat = 'cff';
+    
+    // Remove TrueType-specific tables
+    delete font.tables.glyf;
+    delete font.tables.loca;
+    delete font.tables.gvar;
+    
+    return true;
+}
+
+/**
+ * Convert a font to a specific format, handling both static and variable fonts.
+ * This is the main entry point for format conversion.
+ * 
+ * @param {Font} font - The font to convert (modifies in place)
+ * @param {string} targetFormat - Target format: 'truetype' or 'cff'
+ * @returns {boolean} True if conversion was successful (or already in target format)
+ */
+export function convertFontFormat(font, targetFormat) {
+    const sourceFormat = font.outlinesFormat;
+    
+    // Already in target format
+    if (sourceFormat === targetFormat) {
+        return true;
+    }
+    
+    // Normalize target format
+    if (targetFormat === 'ttf') targetFormat = 'truetype';
+    if (targetFormat === 'otf' || targetFormat === 'cff2') targetFormat = 'cff';
+    
+    const isVF = !!(font.tables && font.tables.fvar);
+    const hasGvar = !!(font.tables && font.tables.gvar);
+    const hasCFF2 = !!(font.tables && font.tables.cff2);
+    
+    if (targetFormat === 'truetype') {
+        // Converting to TrueType
+        if (sourceFormat === 'cff') {
+            if (hasCFF2 && isVF) {
+                // CFF2 VF → TTF VF
+                return convertCFF2ToTTF(font);
+            } else {
+                // Static CFF → Static TTF
+                return convertStaticCFFToTTF(font);
+            }
+        }
+    } else if (targetFormat === 'cff') {
+        // Converting to CFF
+        if (sourceFormat === 'truetype') {
+            if (hasGvar && isVF) {
+                // TTF VF → CFF2 VF
+                return convertTTFToCFF2(font);
+            } else {
+                // Static TTF → Static CFF
+                return convertStaticTTFToCFF(font);
+            }
+        }
+    }
+    
+    console.warn(`convertFontFormat: Unknown target format: ${targetFormat}`);
+    return false;
+}
+
+/**
  * Convert quadratic paths from TTF to cubic paths for CFF.
  * This is a simpler conversion since quadratic -> cubic is exact.
  * 

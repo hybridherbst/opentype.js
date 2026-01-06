@@ -60,7 +60,11 @@
     #preview-text { width: 100%; font-size: 18px; padding: 6px; }
     #snap-ui { border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 6px; background: #fafafa; }
     #snap-ui h3 { margin: 0 0 6px; }
+    #snap-toggle { margin-bottom: 10px; }
+    #snap-toggle label { font-weight: bold; cursor: pointer; }
+    #snap-toggle input { margin-right: 8px; }
     #snap-controls { display: grid; grid-template-columns: 160px 1fr 70px; gap: 6px 10px; align-items: center; }
+    #snap-controls.disabled { opacity: 0.5; pointer-events: none; }
     #snap-controls input[type="range"] { width: 100%; }
     #snap-series { margin-top: 8px; display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 8px; align-items: end; }
     #snap-results a { display: inline-block; margin-right: 8px; }
@@ -102,7 +106,7 @@
     </div>
 
     <div id="snap-ui">
-        <h3>Snapping</h3>
+        <h3>Export Options</h3>
         <div id="export-format-ui">
             <label for="export-format">Export Format:</label>
             <select id="export-format">
@@ -111,6 +115,9 @@
                 <option value="otf">OpenType CFF (.otf)</option>
             </select>
             <span class="note" id="format-note"></span>
+        </div>
+        <div id="snap-toggle">
+            <label><input type="checkbox" id="snap-enabled" checked /> Enable Snapping</label>
         </div>
         <div id="snap-controls">
             <label for="snap-strength">Strength</label>
@@ -130,7 +137,7 @@
             <output id="snap-y-out">0</output>
         </div>
     <div class="row-flex">
-            <button id="download-baked-snapped" type="button">Download baked (snapped)</button>
+            <button id="download-baked" type="button">Download (baked static)</button>
         </div>
         <div id="snap-series">
             <label for="snap-start">Start strength</label>
@@ -165,6 +172,9 @@ import {
     addSnapAxisToFont
 } from "./manipulation-api.js";
 
+// Use the conversion API from opentype.js
+const { convertFontFormat } = opentype;
+
 // Create a canvas and adds it to the document.
 // Returns the 2d drawing context.
 function createGlyphCanvas(glyph, size) {
@@ -189,6 +199,8 @@ const varUi = document.getElementById('var-ui');
 const previewText = document.getElementById('preview-text');
 const previewWrap = document.getElementById('preview-canvas-wrap');
 // Snapping controls
+const snapEnabledEl = document.getElementById('snap-enabled');
+const snapControlsEl = document.getElementById('snap-controls');
 const snapStrengthEl = document.getElementById('snap-strength');
 const snapStrengthOut = document.getElementById('snap-strength-out');
 const snapDistanceEl = document.getElementById('snap-distance');
@@ -200,7 +212,7 @@ const snapYOut = document.getElementById('snap-y-out');
 const snapStartEl = document.getElementById('snap-start');
 const snapEndEl = document.getElementById('snap-end');
 const snapStepsEl = document.getElementById('snap-steps');
-const bakedSnappedBtn = document.getElementById('download-baked-snapped');
+const bakedBtn = document.getElementById('download-baked');
 const genSnapSeriesBtn = document.getElementById('gen-snap-series');
 const snapResults = document.getElementById('snap-results');
 const exportFormatSelect = document.getElementById('export-format');
@@ -210,19 +222,32 @@ let currentFont = null;
 
 /**
  * Get the desired export format based on user selection and source font.
- * Returns { ext: 'ttf'|'otf', forceConvert: boolean, isCFF: boolean }
+ * Returns { ext: 'ttf'|'otf', targetFormat: 'truetype'|'cff' }
  */
 function getExportFormat(font) {
     const selection = exportFormatSelect.value;
     const sourceCFF = font.outlinesFormat === 'cff';
     
     if (selection === 'auto') {
-        return { ext: sourceCFF ? 'otf' : 'ttf', forceConvert: false, isCFF: sourceCFF };
+        return { ext: sourceCFF ? 'otf' : 'ttf', targetFormat: sourceCFF ? 'cff' : 'truetype' };
     } else if (selection === 'ttf') {
-        return { ext: 'ttf', forceConvert: sourceCFF, isCFF: false };
+        return { ext: 'ttf', targetFormat: 'truetype' };
     } else {  // otf
-        return { ext: 'otf', forceConvert: !sourceCFF, isCFF: true };
+        return { ext: 'otf', targetFormat: 'cff' };
     }
+}
+
+/**
+ * Apply format conversion to a font using the opentype.js conversion API.
+ * @param {Font} font - Font to potentially convert (modified in place)
+ * @param {Object} formatInfo - Result from getExportFormat
+ * @returns {boolean} True if conversion was successful
+ */
+function applyFormatConversion(font, formatInfo) {
+    const result = convertFontFormat(font, formatInfo.targetFormat);
+    // Update extension based on actual format after conversion
+    formatInfo.ext = font.outlinesFormat === 'cff' ? 'otf' : 'ttf';
+    return result;
 }
 
 /**
@@ -237,13 +262,18 @@ function updateFormatNote() {
     const selection = exportFormatSelect.value;
     const sourceCFF = currentFont.outlinesFormat === 'cff';
     const sourceFormat = sourceCFF ? 'OpenType CFF' : 'TrueType';
+    const isVF = !!(currentFont.tables && currentFont.tables.fvar);
     
     if (selection === 'auto') {
-        formatNote.textContent = `(Current: ${sourceFormat})`;
+        formatNote.textContent = `(Current: ${sourceFormat}${isVF ? ' VF' : ''})`;
     } else if (selection === 'ttf' && sourceCFF) {
         formatNote.textContent = '⚠️ Will convert CFF→TrueType (cubic→quadratic beziers)';
     } else if (selection === 'otf' && !sourceCFF) {
-        formatNote.textContent = '⚠️ CFF export from TrueType not yet supported, will export as TTF';
+        if (isVF) {
+            formatNote.textContent = '⚠️ Will convert TTF VF→CFF2 VF';
+        } else {
+            formatNote.textContent = '⚠️ Will convert TTF→CFF (quadratic→cubic beziers)';
+        }
     } else {
         formatNote.textContent = `(Same as source: ${sourceFormat})`;
     }
@@ -280,6 +310,10 @@ function setDownloadLinks(font, basename = 'font') {
     downloadStatic.download = `${base}-static.${ext}`;
 }
 
+function isSnappingEnabled() {
+    return snapEnabledEl.checked;
+}
+
 function renderPreview(font) {
     // Single-line canvas text preview rendered via glyph paths
     previewWrap.innerHTML = '';
@@ -290,12 +324,23 @@ function renderPreview(font) {
     const text = previewText.value || '';
     const fontSize = PREVIEW_FONT_SIZE;
     let x = 20, y = 96;
-    const snapParams = getSnapParams();
-    for (const ch of text) {
-        const g = font.charToGlyph(ch);
-        const p = getSnappedPathForPreview(g, x, y, fontSize, snapParams, font);
-        p.draw(ctx);
-        x += g.advanceWidth * (fontSize / font.unitsPerEm);
+    
+    if (isSnappingEnabled()) {
+        const snapParams = getSnapParams();
+        for (const ch of text) {
+            const g = font.charToGlyph(ch);
+            const p = getSnappedPathForPreview(g, x, y, fontSize, snapParams, font);
+            p.draw(ctx);
+            x += g.advanceWidth * (fontSize / font.unitsPerEm);
+        }
+    } else {
+        // No snapping - just render the glyph paths directly
+        for (const ch of text) {
+            const g = font.charToGlyph(ch);
+            const p = g.getPath(x, y, fontSize, {}, font);
+            p.draw(ctx);
+            x += g.advanceWidth * (fontSize / font.unitsPerEm);
+        }
     }
 }
 
@@ -466,24 +511,40 @@ instances.addEventListener('change', (e) => {
 
 previewText.addEventListener('input', () => currentFont && renderPreview(currentFont));
 
+// Snap toggle wiring
+snapEnabledEl.addEventListener('change', () => {
+    snapControlsEl.classList.toggle('disabled', !snapEnabledEl.checked);
+    renderPreview(currentFont);
+});
+
 // Snap controls wiring
 for (const [input, out] of [[snapStrengthEl, snapStrengthOut],[snapDistanceEl, snapDistanceOut],[snapXEl, snapXOut],[snapYEl, snapYOut]]) {
     input.addEventListener('input', (e) => { out.textContent = e.target.value; renderPreview(currentFont); });
 }
 
-bakedSnappedBtn.addEventListener('click', () => {
+bakedBtn.addEventListener('click', () => {
     if (!currentFont) return;
-    const baked = currentFont.instantiate ? currentFont.instantiate(currentFont.variation && currentFont.variation.get && currentFont.variation.get()) : cloneFontDeep(currentFont);
-    // Use screen-space params directly - applySnappingToFontInPlace handles the transformation
-    const params = getSnapParams();
-    applySnappingToFontInPlace(baked, params);
     
-    // Get export format
-    const { ext } = getExportFormat(baked);
-    const blob = new Blob([baked.toArrayBuffer()], { type: `font/${ext}` });
+    // Clone/instantiate the font
+    const baked = currentFont.instantiate 
+        ? currentFont.instantiate(currentFont.variation && currentFont.variation.get && currentFont.variation.get()) 
+        : cloneFontDeep(currentFont);
+    
+    // Apply snapping if enabled
+    if (isSnappingEnabled()) {
+        const params = getSnapParams();
+        applySnappingToFontInPlace(baked, params);
+    }
+    
+    // Get export format and convert if needed
+    const formatInfo = getExportFormat(baked);
+    applyFormatConversion(baked, formatInfo);
+    
+    const suffix = isSnappingEnabled() ? '-snapped' : '-static';
+    const blob = new Blob([baked.toArrayBuffer()], { type: `font/${formatInfo.ext}` });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${(guessFileName(baked) || 'font').replace(/\.(otf|ttf)$/i,'')}-snapped.${ext}`;
+    a.download = `${(guessFileName(currentFont) || 'font').replace(/\.(otf|ttf)$/i,'')}${suffix}.${formatInfo.ext}`;
     a.click();
 });
 
@@ -493,21 +554,23 @@ genSnapSeriesBtn.addEventListener('click', () => {
     const start = Number(snapStartEl.value);
     const end = Number(snapEndEl.value);
     const steps = Math.max(2, Number(snapStepsEl.value)|0);
+    
     for (let i = 0; i < steps; i++) {
         const t = steps === 1 ? 0 : i / (steps - 1);
         const strengthPct = Math.round(start + (end - start) * t);
-        // Use screen-space params directly
         const baseParams = getSnapParams();
         const params = { ...baseParams, strength: strengthPct / 100 };
-        const variant = cloneFontDeep(currentFont); // keep variation data intact
+        const variant = cloneFontDeep(currentFont);
         applySnappingToFontInPlace(variant, params);
         
-        // Get export format
-        const { ext } = getExportFormat(variant);
-        const blob = new Blob([variant.toArrayBuffer()], { type: `font/${ext}` });
+        // Get export format and convert if needed
+        const formatInfo = getExportFormat(variant);
+        applyFormatConversion(variant, formatInfo);
+        
+        const blob = new Blob([variant.toArrayBuffer()], { type: `font/${formatInfo.ext}` });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `${(guessFileName(variant) || 'font').replace(/\.(otf|ttf)$/i,'')}-snap${strengthPct}.${ext}`;
+        a.download = `${(guessFileName(currentFont) || 'font').replace(/\.(otf|ttf)$/i,'')}-snap${strengthPct}.${formatInfo.ext}`;
         a.textContent = `Download ${strengthPct}%`;
         snapResults.appendChild(a);
     }
@@ -527,23 +590,18 @@ document.getElementById('create-snap-vf').addEventListener('click', () => {
         // Add SNAP axis using the shared API function
         addSnapAxisToFont(vfFont, screenParams, opentype, PREVIEW_FONT_SIZE);
         
-        // Get export format - VF with gvar must be TTF
-        const selection = exportFormatSelect.value;
-        let ext = 'ttf';  // VF with glyf/gvar tables must be TTF
-        let note = '';
+        // Get export format and convert if needed
+        // SNAP VF creates gvar table, so we need to respect format selection
+        const formatInfo = getExportFormat(vfFont);
+        applyFormatConversion(vfFont, formatInfo);
         
-        if (selection === 'otf') {
-            // User requested OTF but VF with SNAP uses gvar which requires TTF
-            note = '\n\nNote: Variable fonts with gvar data are exported as TTF (TrueType).';
-        }
-        
-        const blob = new Blob([vfFont.toArrayBuffer()], { type: `font/${ext}` });
+        const blob = new Blob([vfFont.toArrayBuffer()], { type: `font/${formatInfo.ext}` });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `${(guessFileName(vfFont) || 'font').replace(/\.(otf|ttf)$/i,'')}-SNAP-VF.${ext}`;
+        a.download = `${(guessFileName(currentFont) || 'font').replace(/\.(otf|ttf)$/i,'')}-SNAP-VF.${formatInfo.ext}`;
         a.click();
         
-        alert('Variable font with SNAP axis created! The SNAP axis varies from 0 (no snapping) to 100 (full snapping effect).' + note);
+        alert(`Variable font with SNAP axis created as ${formatInfo.ext.toUpperCase()}! The SNAP axis varies from 0 (no snapping) to 100 (full snapping effect).`);
     } catch (e) {
         console.error('Error creating SNAP variable font:', e);
         alert('Error creating variable font: ' + e.message);
