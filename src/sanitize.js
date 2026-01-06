@@ -176,6 +176,158 @@ export function sanitizeFontForExport(font) {
     return font;
 }
 
+// =============================================================================
+// Google Fonts Profile Sanitization Functions
+// =============================================================================
+
+/**
+ * Set OS/2.sTypoLineGap to 0 as required by Google Fonts vertical metrics spec.
+ * Also ensures lineGap in hhea is 0.
+ * 
+ * @param {Object} font - The font object
+ */
+export function fixLineGap(font) {
+    if (!font.tables) return;
+    
+    if (font.tables.os2) {
+        font.tables.os2.sTypoLineGap = 0;
+    }
+    
+    if (font.tables.hhea) {
+        font.tables.hhea.lineGap = 0;
+    }
+}
+
+/**
+ * Check and optionally fix vertical metrics to be within Google Fonts recommended range.
+ * The sum of hhea ascender + abs(descender) + linegap should be 1.2-1.5x of UPM.
+ * 
+ * @param {Object} font - The font object
+ * @returns {Object} - { valid: boolean, ratio: number, message: string }
+ */
+export function checkVerticalMetricsRatio(font) {
+    if (!font.tables || !font.tables.hhea) {
+        return { valid: false, ratio: 0, message: 'Missing hhea table' };
+    }
+    
+    const hhea = font.tables.hhea;
+    const upm = font.unitsPerEm || 1000;
+    
+    const sum = hhea.ascender + Math.abs(hhea.descender) + (hhea.lineGap || 0);
+    const ratio = sum / upm;
+    
+    if (ratio < 1.2) {
+        return { valid: false, ratio, message: `Vertical metrics sum (${sum}) is less than 1.2x UPM (${upm}). Ratio: ${ratio.toFixed(2)}` };
+    } else if (ratio > 2.0) {
+        return { valid: false, ratio, message: `Vertical metrics sum (${sum}) exceeds 2.0x UPM (${upm}). Ratio: ${ratio.toFixed(2)}` };
+    } else if (ratio > 1.5) {
+        return { valid: true, ratio, message: `Warning: Vertical metrics sum (${sum}) exceeds 1.5x UPM (${upm}). Ratio: ${ratio.toFixed(2)}` };
+    }
+    
+    return { valid: true, ratio, message: `Vertical metrics are within recommended range. Ratio: ${ratio.toFixed(2)}` };
+}
+
+/**
+ * Ensure the font has a gasp table with all 4 flags ON for all sizes.
+ * This is required by Google Fonts for optimal rendering.
+ * 
+ * @param {Object} font - The font object
+ */
+export function ensureGaspTable(font) {
+    if (!font.tables) font.tables = {};
+    
+    // Set up gasp table with all 4 flags ON (0x000F) for all sizes (0xFFFF = max ppem)
+    // Flags: 0x0001 GRIDFIT, 0x0002 DOGRAY, 0x0004 SYMMETRIC_GRIDFIT, 0x0008 SYMMETRIC_SMOOTHING
+    font.tables.gasp = {
+        version: 1,
+        numRanges: 1,
+        gaspRanges: [
+            {
+                rangeMaxPPEM: 0xFFFF,  // All sizes
+                rangeGaspBehavior: 0x000F  // All 4 flags ON
+            }
+        ]
+    };
+}
+
+/**
+ * Ensure variable font has an HVAR table.
+ * Variable fonts require HVAR for proper text layout on some platforms.
+ * 
+ * This function creates a minimal HVAR table if the font has gvar data
+ * but no HVAR table. The HVAR table allows horizontal metrics to vary
+ * across the design space.
+ * 
+ * @param {Object} font - The font object
+ * @returns {boolean} - Whether HVAR was created or already exists
+ */
+export function ensureHvarTable(font) {
+    if (!font.tables) return false;
+    
+    // Only needed for variable fonts with gvar
+    const hasGvar = font.tables.gvar && font.tables.gvar.glyphVariations;
+    const hasFvar = font.tables.fvar && font.tables.fvar.axes;
+    
+    if (!hasGvar || !hasFvar) {
+        return false;
+    }
+    
+    // If HVAR already exists, we're good
+    if (font.tables.hvar && font.tables.hvar.itemVariationStore) {
+        return true;
+    }
+    
+    // Create a minimal HVAR table
+    // This indicates no horizontal metric variations (all deltas are 0)
+    const axes = font.tables.fvar.axes;
+    const numGlyphs = font.glyphs ? font.glyphs.length : (font.numGlyphs || 1);
+    
+    // Create a simple itemVariationStore with one empty region
+    // that applies to all glyphs with zero delta
+    font.tables.hvar = {
+        version: [1, 0],
+        itemVariationStore: {
+            format: 1,
+            variationRegions: axes.map(axis => ({
+                regionAxes: [{
+                    startCoord: axis.minValue,
+                    peakCoord: axis.defaultValue,
+                    endCoord: axis.maxValue
+                }]
+            })),
+            itemVariationData: [{
+                itemCount: numGlyphs,
+                regionIndices: [],
+                deltaSets: Array(numGlyphs).fill([]) // No deltas for any glyph
+            }]
+        },
+        advanceWidth: null,  // Use default mapping (glyph index = delta set index)
+        lsb: null,
+        rsb: null
+    };
+    
+    return true;
+}
+
+/**
+ * Apply all Google Fonts profile sanitization fixes.
+ * Includes all base sanitization plus Google-specific requirements.
+ * 
+ * @param {Object} font - The font object to sanitize (modified in place)
+ * @returns {Object} - The sanitized font object
+ */
+export function sanitizeFontForGoogleFonts(font) {
+    // First apply base sanitization
+    sanitizeFontForExport(font);
+    
+    // Google Fonts specific fixes
+    fixLineGap(font);
+    ensureGaspTable(font);
+    ensureHvarTable(font);
+    
+    return font;
+}
+
 export default {
     removeMacNameEntries,
     removeLtagTable,
@@ -183,5 +335,11 @@ export default {
     syncFontVersion,
     fixDefaultInstanceNameID,
     fixFullFontName,
-    sanitizeFontForExport
+    sanitizeFontForExport,
+    // Google Fonts profile
+    fixLineGap,
+    checkVerticalMetricsRatio,
+    ensureGaspTable,
+    ensureHvarTable,
+    sanitizeFontForGoogleFonts
 };

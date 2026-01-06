@@ -470,6 +470,47 @@ function fontToSfntTable(font) {
         tables.push(cffTable);
     }
 
+    // Ensure gasp table exists with Google Fonts recommended settings
+    // All 4 flags ON (0x000F) for all sizes (0xFFFF = max ppem)
+    if (!font.tables.gasp) {
+        font.tables.gasp = {
+            version: 1,
+            numRanges: 1,
+            gaspRanges: [
+                { rangeMaxPPEM: 0xFFFF, rangeGaspBehavior: 0x000F }
+            ]
+        };
+    }
+
+    // Ensure HVAR table for variable fonts (required by Google Fonts)
+    if (hasGvarData && font.tables.fvar && !font.tables.hvar) {
+        const axes = font.tables.fvar.axes || [];
+        const numGlyphs = font.glyphs ? font.glyphs.length : (font.numGlyphs || 1);
+        
+        // Create a minimal HVAR table indicating no horizontal metric variations
+        font.tables.hvar = {
+            version: [1, 0],
+            itemVariationStore: {
+                format: 1,
+                variationRegions: axes.length > 0 ? [{
+                    regionAxes: axes.map(() => ({
+                        startCoord: -1,
+                        peakCoord: 0,
+                        endCoord: 1
+                    }))
+                }] : [],
+                itemVariationData: [{
+                    itemCount: numGlyphs,
+                    regionIndices: [],
+                    deltaSets: Array(numGlyphs).fill([])
+                }]
+            },
+            advanceWidth: null,
+            lsb: null,
+            rsb: null
+        };
+    }
+
     // Optional tables
     const optionalTables = {
         gsub,

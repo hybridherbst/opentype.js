@@ -44,3 +44,4 @@ import './fontspector.js';
 import './font-editor-api.js';
 import './manipulation-api.js';
 import './format-conversion.js';
+import './sanitize.js';
