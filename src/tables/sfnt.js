@@ -12,7 +12,7 @@ import cff from './cff.js';
 import head from './head.js';
 import hhea from './hhea.js';
 import hmtx from './hmtx.js';
-import ltag from './ltag.js';
+// ltag is not imported - it's an Apple AAT table not part of OpenType spec
 import maxp from './maxp.js';
 import _name from './name.js';
 import os2 from './os2.js';
@@ -236,7 +236,20 @@ function fontToSfntTable(font) {
     }
     if (font.italicAngle < 0) {
         macStyle |= font.macStyleValues.ITALIC;
-    } 
+    }
+    
+    // Parse version from name table to sync with head.fontRevision
+    let fontRevision = 1.0;
+    const versionString = font.getEnglishName ? font.getEnglishName('version') : null;
+    if (versionString) {
+        // Parse version number from string like "Version 3.001" or "3.001"
+        const match = versionString.match(/(\d+)\.?(\d*)/);
+        if (match) {
+            const major = parseInt(match[1], 10);
+            const minor = match[2] ? parseInt(match[2].padEnd(3, '0').slice(0, 3), 10) : 0;
+            fontRevision = major + minor / 1000;
+        }
+    }
 
     const headTable = head.make({
         flags: 3, // 00000011 (baseline for font at y=0; left sidebearing point at x=0)
@@ -247,7 +260,8 @@ function fontToSfntTable(font) {
         yMax: globals.yMax,
         lowestRecPPEM: 3,
         macStyle: macStyle,
-        createdTimestamp: font.createdTimestamp
+        createdTimestamp: font.createdTimestamp,
+        fontRevision: fontRevision
     });
 
     const hheaTable = hhea.make({
@@ -270,6 +284,8 @@ function fontToSfntTable(font) {
 
     const maxpTable = maxp.make(font.glyphs.length, useTrueTypeOutlines);
 
+    // OS/2 sTypo* metrics should match hhea to produce consistent linespacing
+    // across Mac, GNU+Linux and Windows
     const os2Table = os2.make(Object.assign({
         xAvgCharWidth: Math.round(globals.advanceWidthAvg),
         usFirstCharIndex: firstCharIndex,
@@ -278,13 +294,10 @@ function fontToSfntTable(font) {
         ulUnicodeRange2: ulUnicodeRange2,
         ulUnicodeRange3: ulUnicodeRange3,
         ulUnicodeRange4: ulUnicodeRange4,
-        // See http://typophile.com/node/13081 for more info on vertical metrics.
-        // We get metrics for typical characters (such as "x" for xHeight).
-        // We provide some fallback characters if characters are unavailable: their
-        // ordering was chosen experimentally.
+        // OS/2 sTypo* values match hhea values for consistent linespacing
         sTypoAscender: globals.ascender,
         sTypoDescender: globals.descender,
-        sTypoLineGap: 0,
+        sTypoLineGap: 0, // hhea lineGap is 0
         usWinAscent: globals.yMax,
         usWinDescent: Math.abs(globals.yMin),
         ulCodePageRange1: 1, // FIXME: hard-code Latin 1 support for now
@@ -299,15 +312,26 @@ function fontToSfntTable(font) {
 
     const englishFamilyName = font.getEnglishName('fontFamily');
     const englishStyleName = font.getEnglishName('fontSubfamily');
-    const englishFullName = englishFamilyName + ' ' + englishStyleName;
+    
+    // Ensure fullName starts with familyName (required by fontspector)
+    let englishFullName = font.getEnglishName('fullName');
+    if (!englishFullName || !englishFullName.startsWith(englishFamilyName)) {
+        englishFullName = englishFamilyName + ' ' + englishStyleName;
+    }
+    
     let postScriptName = font.getEnglishName('postScriptName');
     if (!postScriptName) {
         postScriptName = englishFamilyName.replace(/\s/g, '') + '-' + englishStyleName;
     }
 
+    // Deep copy names to avoid mutating the original font object
     const names = {};
-    for (let n in font.names) {
-        names[n] = font.names[n];
+    for (let platform in font.names) {
+        names[platform] = {};
+        for (let key in font.names[platform]) {
+            // Each name value is an object like {en: 'string', ...}
+            names[platform][key] = { ...font.names[platform][key] };
+        }
     }
 
     names.unicode = names.unicode || {};
@@ -317,6 +341,22 @@ function fontToSfntTable(font) {
     const fontNamesUnicode = font.names.unicode || {};
     const fontNamesMacintosh = font.names.macintosh || {};
     const fontNamesWindows = font.names.windows || {};
+
+    // Since we're only outputting windows platform entries (to avoid ltag/Mac entries),
+    // ensure windows has all the best values from other platforms.
+    // Priority: unicode (most likely to be user-modified) > windows > macintosh
+    const namesToSync = ['fontFamily', 'fontSubfamily', 'fullName', 'postScriptName', 'version', 
+        'copyright', 'trademark', 'manufacturer', 'designer', 'description',
+        'manufacturerURL', 'designerURL', 'license', 'licenseURL',
+        'preferredFamily', 'preferredSubfamily', 'uniqueID'];
+    
+    for (const nameKey of namesToSync) {
+        if (!names.windows[nameKey] || 
+            (fontNamesUnicode[nameKey] && JSON.stringify(fontNamesUnicode[nameKey]) !== JSON.stringify(fontNamesWindows[nameKey]))) {
+            // Use unicode value if it differs from windows (meaning user modified unicode)
+            names.windows[nameKey] = fontNamesUnicode[nameKey] || fontNamesWindows[nameKey] || fontNamesMacintosh[nameKey];
+        }
+    }
 
     // do this as a loop to reduce redundant code
     for (const platform in ['unicode', 'macintosh', 'windows']) {
@@ -330,6 +370,16 @@ function fontToSfntTable(font) {
         if (!names[platform].postScriptName) {
             names.unicode.postScriptName = {en: postScriptName};
         }
+        
+        // Ensure fullName is set and starts with family name
+        if (!names[platform].fullName) {
+            names[platform].fullName = {en: englishFullName};
+        }
+    }
+
+    // Ensure windows fullName is always set correctly (most important for apps)
+    if (!names.windows.fullName || !Object.values(names.windows.fullName)[0]?.startsWith(englishFamilyName)) {
+        names.windows.fullName = {en: englishFullName};
     }
 
     // this cannot be done as a loop as each one is unique.
@@ -357,9 +407,12 @@ function fontToSfntTable(font) {
         names.windows.preferredSubfamily = fontNamesWindows.fontSubfamily || fontNamesUnicode.fontSubfamily || fontNamesMacintosh.fontSubfamily;
     }
 
+    // No ltag table - it's an Apple AAT table not part of OpenType spec
+    // Modern fonts should not include it (fontspector will flag as unwanted_aat_tables)
     const languageTags = [];
-    const nameTable = _name.make(names, languageTags);
-    const ltagTable = (languageTags.length > 0 ? ltag.make(languageTags) : undefined);
+    // Skip Mac platform name entries (fontspector no_mac_entries recommendation)
+    const nameTable = _name.make(names, languageTags, { skipMacPlatform: true });
+    // Skip ltag table creation - not needed for modern fonts
 
     const postTable = post.make(font);
     
@@ -415,10 +468,6 @@ function fontToSfntTable(font) {
             topDict: useCFFtable && useCFFtable.topDict || {},
         }, cffVersionToWrite);
         tables.push(cffTable);
-    }
-    
-    if (ltagTable) {
-        tables.push(ltagTable);
     }
 
     // Optional tables

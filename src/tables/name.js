@@ -744,15 +744,28 @@ function addStringToPool(s, pool) {
     return offset;
 }
 
-function makeNameTable(names, ltag) {
+function makeNameTable(names, ltag, options = {}) {
     const platformNameIds = reverseDict(platforms);
     const macLanguageIds = reverseDict(macLanguages);
     const windowsLanguageIds = reverseDict(windowsLanguages);
+    
+    // Skip Mac platform if requested (modern fonts don't need it per fontspector no_mac_entries)
+    // Also skip unicode platform (0) since it requires ltag table for language tags,
+    // and ltag is an Apple AAT table that fontspector flags as unwanted_aat_tables
+    const skipMacPlatform = options.skipMacPlatform === true;
 
     const nameRecords = [];
     const stringPool = [];
 
     for (let platform in names) {
+        // Skip macintosh platform entries if requested
+        if (skipMacPlatform && platform === 'macintosh') {
+            continue;
+        }
+        // Skip unicode platform if skipping Mac entries (unicode/platform 0 requires ltag table)
+        if (skipMacPlatform && platform === 'unicode') {
+            continue;
+        }
         let nameID;
         const nameIDs = [];
 

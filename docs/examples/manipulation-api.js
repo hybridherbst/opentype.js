@@ -287,8 +287,15 @@ export function computeSnappedGlyphPoints(font, screenParams, opentypeModule, fo
         }
         // For CFF fonts, convert path to points using pathToPoints
         else if (glyph.path && glyph.path.commands && glyph.path.commands.length > 0 && pathToPoints) {
-            const { points } = pathToPoints(glyph.path);
+            const { points, contourEnds } = pathToPoints(glyph.path);
             if (points.length === 0) continue;
+            
+            // Mark lastPointOfContour on points (pathToPoints doesn't do this)
+            for (const endIdx of contourEnds) {
+                if (points[endIdx]) {
+                    points[endIdx].lastPointOfContour = true;
+                }
+            }
             originalPoints = points;
         } else {
             continue;
@@ -314,9 +321,10 @@ export function computeSnappedGlyphPoints(font, screenParams, opentypeModule, fo
  * 
  * @param {Map<number, Object>} pointsDataMap - Map from computeSnappedGlyphPoints
  *        Each entry has { originalPoints, snappedPoints }
+ * @param {number} [scale=1.0] - Scale factor for deltas (maxValue/100 to make SNAP value equal strength %)
  * @returns {Function} deltaGenerator function for use with VariationManager.addAxis
  */
-export function createSnapDeltaGenerator(pointsDataMap) {
+export function createSnapDeltaGenerator(pointsDataMap, scale = 1.0) {
     return (glyph) => {
         if (!glyph) return null;
         
@@ -335,9 +343,9 @@ export function createSnapDeltaGenerator(pointsDataMap) {
             const base = originalPoints[i];
             const target = snappedPoints[i];
             
-            // Compute delta (rounded to integer for font units)
-            deltas.push(Math.round(target.x - base.x));
-            deltasY.push(Math.round(target.y - base.y));
+            // Compute delta scaled so SNAP value directly equals strength percentage
+            deltas.push(Math.round((target.x - base.x) * scale));
+            deltasY.push(Math.round((target.y - base.y) * scale));
         }
         
         // Add 4 phantom points (LSB, RSB, TSB, BSB) with zero deltas
@@ -350,7 +358,7 @@ export function createSnapDeltaGenerator(pointsDataMap) {
             return null;
         }
         
-        // Return delta set at peak=1.0 (SNAP=100)
+        // Return delta set at peak=1.0 (axis max)
         return [{
             peakTuple: [1.0],
             deltas,
@@ -361,15 +369,21 @@ export function createSnapDeltaGenerator(pointsDataMap) {
 
 /**
  * Add SNAP variation axis to a font.
- * This creates a variable font where SNAP=0 is original and SNAP=100 is fully snapped.
+ * This creates a variable font where SNAP=minValue is original and SNAP=maxValue is fully snapped.
  * Works with both TTF and CFF fonts (CFF fonts are converted to TTF at export).
  * 
  * @param {Object} font - The font object (will be modified in place)
  * @param {Object} screenParams - Screen-space snap parameters
  * @param {Object} opentypeModule - The opentype.js module (for VariationManager and pathToPoints)
  * @param {number} [fontSize=PREVIEW_FONT_SIZE] - Font size for screen-space calculation
+ * @param {Object} [axisOptions] - Optional axis configuration
+ * @param {number} [axisOptions.minValue=0] - Minimum SNAP axis value
+ * @param {number} [axisOptions.maxValue=100] - Maximum SNAP axis value
  */
-export function addSnapAxisToFont(font, screenParams, opentypeModule, fontSize = PREVIEW_FONT_SIZE) {
+export function addSnapAxisToFont(font, screenParams, opentypeModule, fontSize = PREVIEW_FONT_SIZE, axisOptions = {}) {
+    const minValue = axisOptions.minValue ?? 0;
+    const maxValue = axisOptions.maxValue ?? 100;
+    
     // Initialize VariationManager if not present
     if (!font.variation) {
         const { VariationManager } = opentypeModule;
@@ -379,35 +393,46 @@ export function addSnapAxisToFont(font, screenParams, opentypeModule, fontSize =
     // Pre-compute snapped points for all glyphs (works for both TTF and CFF)
     const snappedPointsMap = computeSnappedGlyphPoints(font, screenParams, opentypeModule, fontSize);
     
-    // Create delta generator
-    const deltaGenerator = createSnapDeltaGenerator(snappedPointsMap);
+    // Create delta generator with scale so SNAP value directly equals strength %
+    // At SNAP=maxValue, you get maxValue% strength (not 100%)
+    const deltaScale = maxValue / 100;
+    const deltaGenerator = createSnapDeltaGenerator(snappedPointsMap, deltaScale);
     
-    // Add SNAP axis
+    // Add SNAP axis with custom range
     font.variation.addAxis({
         tag: 'SNAP',
         name: 'Snapping',
-        minValue: 0,
-        defaultValue: 0,
-        maxValue: 100,
+        minValue,
+        defaultValue: minValue,
+        maxValue,
         deltaGenerator
     });
     
     // Add named instances
     const defaultCoords = font.variation.getDefaultCoordinates();
     font.variation.addInstance({ 
+        name: 'Regular', // Default instance required by fontspector
+        coordinates: { ...defaultCoords, SNAP: minValue } 
+    });
+    font.variation.addInstance({ 
         name: 'No Snap', 
-        coordinates: { ...defaultCoords, SNAP: 0 } 
+        coordinates: { ...defaultCoords, SNAP: minValue } 
     });
-    font.variation.addInstance({ 
-        name: 'Light Snap', 
-        coordinates: { ...defaultCoords, SNAP: 25 } 
-    });
-    font.variation.addInstance({ 
-        name: 'Medium Snap', 
-        coordinates: { ...defaultCoords, SNAP: 50 } 
-    });
+    
+    // Add intermediate instances if range is wide enough
+    const range = maxValue - minValue;
+    if (range >= 50) {
+        font.variation.addInstance({ 
+            name: 'Light Snap', 
+            coordinates: { ...defaultCoords, SNAP: minValue + range * 0.25 } 
+        });
+        font.variation.addInstance({ 
+            name: 'Medium Snap', 
+            coordinates: { ...defaultCoords, SNAP: minValue + range * 0.5 } 
+        });
+    }
     font.variation.addInstance({ 
         name: 'Heavy Snap', 
-        coordinates: { ...defaultCoords, SNAP: 100 } 
+        coordinates: { ...defaultCoords, SNAP: maxValue } 
     });
 }

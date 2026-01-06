@@ -43,17 +43,9 @@ describe('tables/sfnt.js', ()=>{
             
             const parsedNameTable = encodeAndParseTable(name_table, name.parse);
 
-            // Default names should only include required fields, not empty optional fields
+            // macintosh entries are skipped by default in modern fonts
+            // per fontspector recommendation (no_mac_entries)
             assert.deepEqual(parsedNameTable, {
-                macintosh: {
-                    fontFamily: { en: defaultFont.familyName }, // 'MyFont'
-                    fontSubfamily: { en: defaultFont.styleName }, // 'Medium'
-                    fullName: { en: `${defaultFont.familyName} ${defaultFont.styleName}` }, // 'MyFont Medium'
-                    version: { en: 'Version 0.1' },
-                    postScriptName: { en: `${defaultFont.familyName}${defaultFont.styleName}` }, // 'MyFontMedium'
-                    preferredFamily: { en: defaultFont.familyName }, // 'MyFont'
-                    preferredSubfamily: { en: defaultFont.styleName } // 'Medium'
-                },
                 windows: {
                     fontFamily: { en: defaultFont.familyName }, // 'MyFont'
                     fontSubfamily: { en: defaultFont.styleName }, // 'Medium'
@@ -97,15 +89,9 @@ describe('tables/sfnt.js', ()=>{
             const name_table = sfnt_table.tables.find((table)=>table.tableName == 'name');
             const parsedNameTable = encodeAndParseTable(name_table, name.parse);
 
+            // macintosh entries are skipped by default in modern fonts
+            // per fontspector recommendation (no_mac_entries)
             assert.deepEqual(parsedNameTable, {
-                macintosh: {
-                    fontFamily: { en: fontFamily },
-                    fontSubfamily: { en: fontSubfamily},
-                    fullName: { en: fullName },
-                    version: { en: version },
-                    preferredFamily: { en: preferredFamily },
-                    preferredSubfamily: { en: preferredSubfamily}
-                },
                 windows: {
                     fontFamily: { en: fontFamily },
                     fontSubfamily: { en: fontSubfamily},
@@ -119,16 +105,17 @@ describe('tables/sfnt.js', ()=>{
 
         it('should set preferredSubfamily as value of fontSubfamily, if not explicitly set', ()=>{
             const preferredSubfamily = 'Custom Subfamily';
-            font.names = { macintosh: {
-                fontFamily: {en: defaultFont.familyName },
-                fontSubfamily: { en: preferredSubfamily }
-            }};
+            font.names = { 
+                windows: {
+                    fontFamily: {en: defaultFont.familyName },
+                    fontSubfamily: { en: preferredSubfamily }
+                }
+            };
 
             const sfnt_table = sfnt.fontToTable(font);
             const name_table = sfnt_table.tables.find((table)=>table.tableName == 'name');
             const parsedNameTable = encodeAndParseTable(name_table, name.parse);
 
-            assert.deepEqual(parsedNameTable.macintosh.preferredSubfamily, { en: preferredSubfamily });
             assert.deepEqual(parsedNameTable.windows.preferredSubfamily, { en: preferredSubfamily });
         });
     });

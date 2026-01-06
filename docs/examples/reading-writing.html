@@ -140,15 +140,11 @@
             <button id="download-baked" type="button">Download (baked static)</button>
         </div>
         <div id="snap-series">
-            <label for="snap-start">Start strength</label>
-            <input id="snap-start" type="number" min="0" max="100" value="20" />
-            <label for="snap-end">End strength</label>
-            <input id="snap-end" type="number" min="0" max="100" value="80" />
-            <label for="snap-steps">Steps</label>
-            <input id="snap-steps" type="number" min="2" max="20" value="5" />
-            <button id="gen-snap-series" type="button">Generate snapped series</button>
+            <label for="snap-start">SNAP axis min</label>
+            <input id="snap-start" type="number" min="0" max="100" value="0" />
+            <label for="snap-end">SNAP axis max</label>
+            <input id="snap-end" type="number" min="0" max="100" value="100" />
         </div>
-    <div id="snap-results" class="mt-8"></div>
     <div class="row-flex mt-6">
         <button id="create-snap-vf" type="button">Create Variable Font with SNAP Axis</button>
         <span class="note">(Creates a new variable font where the SNAP axis controls the snapping effect)</span>
@@ -211,10 +207,7 @@ const snapYEl = document.getElementById('snap-y');
 const snapYOut = document.getElementById('snap-y-out');
 const snapStartEl = document.getElementById('snap-start');
 const snapEndEl = document.getElementById('snap-end');
-const snapStepsEl = document.getElementById('snap-steps');
 const bakedBtn = document.getElementById('download-baked');
-const genSnapSeriesBtn = document.getElementById('gen-snap-series');
-const snapResults = document.getElementById('snap-results');
 const exportFormatSelect = document.getElementById('export-format');
 const formatNote = document.getElementById('format-note');
 
@@ -548,34 +541,6 @@ bakedBtn.addEventListener('click', () => {
     a.click();
 });
 
-genSnapSeriesBtn.addEventListener('click', () => {
-    if (!currentFont) return;
-    snapResults.innerHTML = '';
-    const start = Number(snapStartEl.value);
-    const end = Number(snapEndEl.value);
-    const steps = Math.max(2, Number(snapStepsEl.value)|0);
-    
-    for (let i = 0; i < steps; i++) {
-        const t = steps === 1 ? 0 : i / (steps - 1);
-        const strengthPct = Math.round(start + (end - start) * t);
-        const baseParams = getSnapParams();
-        const params = { ...baseParams, strength: strengthPct / 100 };
-        const variant = cloneFontDeep(currentFont);
-        applySnappingToFontInPlace(variant, params);
-        
-        // Get export format and convert if needed
-        const formatInfo = getExportFormat(variant);
-        applyFormatConversion(variant, formatInfo);
-        
-        const blob = new Blob([variant.toArrayBuffer()], { type: `font/${formatInfo.ext}` });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `${(guessFileName(currentFont) || 'font').replace(/\.(otf|ttf)$/i,'')}-snap${strengthPct}.${formatInfo.ext}`;
-        a.textContent = `Download ${strengthPct}%`;
-        snapResults.appendChild(a);
-    }
-});
-
 // Create a variable font with SNAP axis
 document.getElementById('create-snap-vf').addEventListener('click', () => {
     if (!currentFont) return;
@@ -583,12 +548,14 @@ document.getElementById('create-snap-vf').addEventListener('click', () => {
     // Clone the font to work with
     const vfFont = cloneFontDeep(currentFont);
     
-    // Get screen-space snap params
+    // Get screen-space snap params and SNAP axis range
     const screenParams = getSnapParams();
+    const snapMin = Number(snapStartEl.value);
+    const snapMax = Number(snapEndEl.value);
     
     try {
-        // Add SNAP axis using the shared API function
-        addSnapAxisToFont(vfFont, screenParams, opentype, PREVIEW_FONT_SIZE);
+        // Add SNAP axis using the shared API function with custom range
+        addSnapAxisToFont(vfFont, screenParams, opentype, PREVIEW_FONT_SIZE, { minValue: snapMin, maxValue: snapMax });
         
         // Get export format and convert if needed
         // SNAP VF creates gvar table, so we need to respect format selection
@@ -601,7 +568,7 @@ document.getElementById('create-snap-vf').addEventListener('click', () => {
         a.download = `${(guessFileName(currentFont) || 'font').replace(/\.(otf|ttf)$/i,'')}-SNAP-VF.${formatInfo.ext}`;
         a.click();
         
-        alert(`Variable font with SNAP axis created as ${formatInfo.ext.toUpperCase()}! The SNAP axis varies from 0 (no snapping) to 100 (full snapping effect).`);
+        alert(`Variable font with SNAP axis created as ${formatInfo.ext.toUpperCase()}! The SNAP axis varies from ${snapMin} to ${snapMax}.`);
     } catch (e) {
         console.error('Error creating SNAP variable font:', e);
         alert('Error creating variable font: ' + e.message);

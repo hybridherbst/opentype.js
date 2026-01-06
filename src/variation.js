@@ -214,6 +214,22 @@ export class VariationManager {
         };
         fvar.axes.push(newAxis);
         
+        // Initialize STAT if not present
+        if (!this.font.tables.stat) {
+            this.font.tables.stat = {
+                axes: [],
+                values: [],
+                elidedFallbackNameID: 2 // "Regular"
+            };
+        }
+        
+        // Add axis to STAT
+        this.font.tables.stat.axes.push({
+            tag,
+            nameID: axisNameID,
+            ordering: fvar.axes.length - 1
+        });
+        
         // Initialize gvar if needed and deltaGenerator is provided
         if (deltaGenerator) {
             this._addGvarDeltasForAxis(fvar.axes.length - 1, deltaGenerator);
@@ -256,7 +272,19 @@ export class VariationManager {
             }
         }
         
-        const subfamilyNameID = this._addNameEntry(name);
+        // Check if this is the default instance (coordinates match default values)
+        const isDefaultInstance = fvar.axes.every(axis => 
+            coordinates[axis.tag] === axis.defaultValue
+        );
+        
+        // For the default instance, use nameID 2 (fontSubfamily) as per OpenType spec
+        // This is required for fontspector validation
+        let subfamilyNameID;
+        if (isDefaultInstance || name === 'Regular') {
+            subfamilyNameID = 2; // Use standard fontSubfamily nameID
+        } else {
+            subfamilyNameID = this._addNameEntry(name);
+        }
         
         const newInstance = {
             subfamilyNameID,

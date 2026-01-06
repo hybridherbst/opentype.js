@@ -214,6 +214,79 @@ describe('fontspector validation', function() {
         });
     });
     
+    describe('SNAP VF validation', function() {
+        it('should create SNAP VF with custom axis range', async function() {
+            this.timeout(15000);
+            
+            // Load a CFF font
+            const buffer = readFileSync('./test/fonts/FiraSansOT-Medium.otf');
+            const font = parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+            
+            // Import the SNAP axis function
+            const { addSnapAxisToFont } = await import('../docs/examples/manipulation-api.js');
+            const opentype = await import('../src/opentype.js');
+            
+            // Use default grid distance
+            const screenParams = {
+                x: 0,
+                y: 0,
+                distance: 50
+            };
+            
+            // Add SNAP axis with custom range
+            addSnapAxisToFont(font, screenParams, opentype, 72, { minValue: 20, maxValue: 80 });
+            
+            // Check the axis has correct range
+            const fvar = font.tables.fvar;
+            assert.ok(fvar, 'Should have fvar table');
+            const snapAxis = fvar.axes.find(a => a.tag === 'SNAP');
+            assert.ok(snapAxis, 'Should have SNAP axis');
+            assert.equal(snapAxis.minValue, 20, 'SNAP axis minValue should be 20');
+            assert.equal(snapAxis.maxValue, 80, 'SNAP axis maxValue should be 80');
+            assert.equal(snapAxis.defaultValue, 20, 'SNAP axis defaultValue should match minValue');
+            
+            // Export and validate with fontspector
+            const outBuffer = font.toArrayBuffer();
+            const results = runFontspector(outBuffer, {
+                checks: ['interpolation_issues']
+            });
+            
+            // Should not have any errors
+            assertNoErrors(results, assert);
+        });
+        
+        it('should add Regular named instance for fontspector compatibility', async function() {
+            // Create minimal font
+            const font = new Font({
+                familyName: 'TestFont',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200,
+                glyphs: [
+                    new Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: new Path() }),
+                    new Glyph({ name: 'space', unicode: 32, advanceWidth: 250, path: new Path() })
+                ]
+            });
+            
+            const { addSnapAxisToFont } = await import('../docs/examples/manipulation-api.js');
+            const opentype = await import('../src/opentype.js');
+            
+            addSnapAxisToFont(font, { x: 0, y: 0, distance: 50 }, opentype, 72);
+            
+            // Should have Regular instance
+            const instances = font.tables.fvar?.instances || [];
+            const regularInstance = instances.find(i => 
+                (i.name?.en || i.name) === 'Regular'
+            );
+            assert.ok(regularInstance, 'Should have a Regular named instance');
+            
+            // Regular should have SNAP=0 (default coordinates)
+            assert.equal(regularInstance.coordinates.SNAP, 0, 
+                'Regular instance should have SNAP=0');
+        });
+    });
+    
     describe('roundtrip validation', function() {
         it('should produce valid font after roundtrip of RobotoFlex', function() {
             this.timeout(15000);
