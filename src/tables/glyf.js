@@ -362,15 +362,82 @@ function encodeCoordinate(delta, shortBit, sameBit) {
 }
 
 /**
+ * Convert a cubic bezier curve to a sequence of quadratic bezier curves.
+ * Uses recursive subdivision to achieve accurate approximation.
+ * 
+ * @param {number} x0 - Start point x
+ * @param {number} y0 - Start point y
+ * @param {number} x1 - First control point x
+ * @param {number} y1 - First control point y
+ * @param {number} x2 - Second control point x
+ * @param {number} y2 - Second control point y
+ * @param {number} x3 - End point x
+ * @param {number} y3 - End point y
+ * @param {number} [tolerance=1] - Maximum allowed error in font units
+ * @returns {Array} Array of quadratic segments: { cx, cy, x, y }
+ */
+function cubicToQuadratics(x0, y0, x1, y1, x2, y2, x3, y3, tolerance = 1) {
+    // Check if cubic can be approximated by a single quadratic
+    // by checking if the control points are roughly collinear with proper positions
+    
+    // Calculate the ideal single quadratic control point (if the curve were exactly quadratic)
+    // For a cubic (p0, p1, p2, p3), the equivalent quadratic control point would be:
+    // q1 = (3*p1 - p0 + 3*p2 - p3) / 4 = (3*(p1 + p2) - (p0 + p3)) / 4
+    // This gives us the best single quadratic approximation
+    const qx = (3 * (x1 + x2) - (x0 + x3)) / 4;
+    const qy = (3 * (y1 + y2) - (y0 + y3)) / 4;
+    
+    // Check the error at t=0.5 (maximum deviation point for most cubic curves)
+    // Cubic at t=0.5: (1-t)^3*p0 + 3*(1-t)^2*t*p1 + 3*(1-t)*t^2*p2 + t^3*p3
+    // = 0.125*p0 + 0.375*p1 + 0.375*p2 + 0.125*p3
+    const cubicMidX = 0.125 * x0 + 0.375 * x1 + 0.375 * x2 + 0.125 * x3;
+    const cubicMidY = 0.125 * y0 + 0.375 * y1 + 0.375 * y2 + 0.125 * y3;
+    
+    // Quadratic at t=0.5 with control point (qx, qy) and endpoints (x0, y0), (x3, y3):
+    // (1-t)^2*p0 + 2*(1-t)*t*q + t^2*p3 = 0.25*p0 + 0.5*q + 0.25*p3
+    const quadMidX = 0.25 * x0 + 0.5 * qx + 0.25 * x3;
+    const quadMidY = 0.25 * y0 + 0.5 * qy + 0.25 * y3;
+    
+    const errorX = cubicMidX - quadMidX;
+    const errorY = cubicMidY - quadMidY;
+    const errorSq = errorX * errorX + errorY * errorY;
+    
+    if (errorSq <= tolerance * tolerance) {
+        // Single quadratic is accurate enough
+        return [{ cx: qx, cy: qy, x: x3, y: y3 }];
+    }
+    
+    // Subdivide the cubic at t=0.5 using de Casteljau's algorithm
+    const mx01 = (x0 + x1) / 2, my01 = (y0 + y1) / 2;
+    const mx12 = (x1 + x2) / 2, my12 = (y1 + y2) / 2;
+    const mx23 = (x2 + x3) / 2, my23 = (y2 + y3) / 2;
+    
+    const mx012 = (mx01 + mx12) / 2, my012 = (my01 + my12) / 2;
+    const mx123 = (mx12 + mx23) / 2, my123 = (my12 + my23) / 2;
+    
+    const mx0123 = (mx012 + mx123) / 2, my0123 = (my012 + my123) / 2;
+    
+    // Recursively convert both halves
+    const left = cubicToQuadratics(x0, y0, mx01, my01, mx012, my012, mx0123, my0123, tolerance);
+    const right = cubicToQuadratics(mx0123, my0123, mx123, my123, mx23, my23, x3, y3, tolerance);
+    
+    return left.concat(right);
+}
+
+/**
  * Convert a Path to TrueType glyph points.
+ * Uses proper cubic-to-quadratic conversion for CFF fonts.
+ * 
  * @param {Path} path - The path to convert
+ * @param {number} [tolerance=1] - Maximum error for cubic-to-quadratic conversion
  * @returns {Object} { points: Array, contourEnds: Array }
  */
-function pathToPoints(path) {
+function pathToPoints(path, tolerance = 1) {
     const points = [];
     const contourEnds = [];
     let contourStart = 0;
     let contourStartPoint = null;
+    let currentX = 0, currentY = 0;
     
     for (const cmd of path.commands) {
         switch (cmd.type) {
@@ -380,24 +447,38 @@ function pathToPoints(path) {
                     contourEnds.push(points.length - 1);
                     contourStart = points.length;
                 }
+                currentX = cmd.x;
+                currentY = cmd.y;
                 contourStartPoint = { x: Math.round(cmd.x), y: Math.round(cmd.y), onCurve: true };
                 points.push(contourStartPoint);
                 break;
             case 'L':
+                currentX = cmd.x;
+                currentY = cmd.y;
                 points.push({ x: Math.round(cmd.x), y: Math.round(cmd.y), onCurve: true });
                 break;
             case 'Q':
                 // Quadratic curve: off-curve control point then on-curve end
                 points.push({ x: Math.round(cmd.x1), y: Math.round(cmd.y1), onCurve: false });
                 points.push({ x: Math.round(cmd.x), y: Math.round(cmd.y), onCurve: true });
+                currentX = cmd.x;
+                currentY = cmd.y;
                 break;
             case 'C': {
-                // Cubic curves need to be approximated as quadratics
-                // Simple approximation: use midpoint of control points as single control point
-                const cx = Math.round((cmd.x1 + cmd.x2) / 2);
-                const cy = Math.round((cmd.y1 + cmd.y2) / 2);
-                points.push({ x: cx, y: cy, onCurve: false });
-                points.push({ x: Math.round(cmd.x), y: Math.round(cmd.y), onCurve: true });
+                // Convert cubic to quadratic(s) using proper algorithm
+                const quads = cubicToQuadratics(
+                    currentX, currentY, 
+                    cmd.x1, cmd.y1, 
+                    cmd.x2, cmd.y2, 
+                    cmd.x, cmd.y,
+                    tolerance
+                );
+                for (const q of quads) {
+                    points.push({ x: Math.round(q.cx), y: Math.round(q.cy), onCurve: false });
+                    points.push({ x: Math.round(q.x), y: Math.round(q.y), onCurve: true });
+                }
+                currentX = cmd.x;
+                currentY = cmd.y;
                 break;
             }
             case 'Z':
@@ -417,6 +498,8 @@ function pathToPoints(path) {
                     contourStart = points.length;
                 }
                 contourStartPoint = null;
+                currentX = 0;
+                currentY = 0;
                 break;
         }
     }
@@ -587,4 +670,4 @@ function makeGlyfTable(glyphs) {
 }
 
 export default { getPath, parse: parseGlyfTable, make: makeGlyfTable };
-export { getPath, transformPoints, pathToPoints };
+export { getPath, transformPoints, pathToPoints, cubicToQuadratics };

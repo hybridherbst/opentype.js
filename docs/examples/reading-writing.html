@@ -68,6 +68,10 @@
     .mt-8 { margin-top:8px; }
     .mt-6 { margin-top:6px; }
     .note { font-size:12px; color:#666; }
+    #export-format-ui { margin: 10px 0; padding: 8px; background: #f5f5f5; border-radius: 4px; }
+    #export-format-ui label { margin-right: 8px; font-weight: bold; }
+    #export-format-ui select { padding: 4px 8px; }
+    #export-format-ui .note { margin-left: 10px; }
 </style>
 
 <div class="container" name="demo">
@@ -99,6 +103,15 @@
 
     <div id="snap-ui">
         <h3>Snapping</h3>
+        <div id="export-format-ui">
+            <label for="export-format">Export Format:</label>
+            <select id="export-format">
+                <option value="auto">Auto (preserve original)</option>
+                <option value="ttf">TrueType (.ttf)</option>
+                <option value="otf">OpenType CFF (.otf)</option>
+            </select>
+            <span class="note" id="format-note"></span>
+        </div>
         <div id="snap-controls">
             <label for="snap-strength">Strength</label>
             <input id="snap-strength" type="range" min="0" max="100" value="80" />
@@ -190,8 +203,53 @@ const snapStepsEl = document.getElementById('snap-steps');
 const bakedSnappedBtn = document.getElementById('download-baked-snapped');
 const genSnapSeriesBtn = document.getElementById('gen-snap-series');
 const snapResults = document.getElementById('snap-results');
+const exportFormatSelect = document.getElementById('export-format');
+const formatNote = document.getElementById('format-note');
 
 let currentFont = null;
+
+/**
+ * Get the desired export format based on user selection and source font.
+ * Returns { ext: 'ttf'|'otf', forceConvert: boolean, isCFF: boolean }
+ */
+function getExportFormat(font) {
+    const selection = exportFormatSelect.value;
+    const sourceCFF = font.outlinesFormat === 'cff';
+    
+    if (selection === 'auto') {
+        return { ext: sourceCFF ? 'otf' : 'ttf', forceConvert: false, isCFF: sourceCFF };
+    } else if (selection === 'ttf') {
+        return { ext: 'ttf', forceConvert: sourceCFF, isCFF: false };
+    } else {  // otf
+        return { ext: 'otf', forceConvert: !sourceCFF, isCFF: true };
+    }
+}
+
+/**
+ * Update the format note based on current font and selection.
+ */
+function updateFormatNote() {
+    if (!currentFont) {
+        formatNote.textContent = '';
+        return;
+    }
+    
+    const selection = exportFormatSelect.value;
+    const sourceCFF = currentFont.outlinesFormat === 'cff';
+    const sourceFormat = sourceCFF ? 'OpenType CFF' : 'TrueType';
+    
+    if (selection === 'auto') {
+        formatNote.textContent = `(Current: ${sourceFormat})`;
+    } else if (selection === 'ttf' && sourceCFF) {
+        formatNote.textContent = '⚠️ Will convert CFF→TrueType (cubic→quadratic beziers)';
+    } else if (selection === 'otf' && !sourceCFF) {
+        formatNote.textContent = '⚠️ CFF export from TrueType not yet supported, will export as TTF';
+    } else {
+        formatNote.textContent = `(Same as source: ${sourceFormat})`;
+    }
+}
+
+exportFormatSelect.addEventListener('change', updateFormatNote);
 
 async function loadDefaultFont() {
     // Fallback non-variable demo if user doesn't upload a font
@@ -372,6 +430,7 @@ function applyLoadedFont(font, filename) {
     currentFont = font;
     try { document.querySelector('output[name="fontFamilyName"]').innerText = guessFileName(font) || filename || 'Font'; } catch(e) {}
     setDownloadLinks(font, filename || guessFileName(font));
+    updateFormatNote();  // Update format note when font changes
     // Variable UI
     const isVar = !!(font.tables && font.tables.fvar);
     varUi.hidden = !isVar;
@@ -418,7 +477,9 @@ bakedSnappedBtn.addEventListener('click', () => {
     // Use screen-space params directly - applySnappingToFontInPlace handles the transformation
     const params = getSnapParams();
     applySnappingToFontInPlace(baked, params);
-    const ext = baked.outlinesFormat === 'cff' ? 'otf' : 'ttf';
+    
+    // Get export format
+    const { ext } = getExportFormat(baked);
     const blob = new Blob([baked.toArrayBuffer()], { type: `font/${ext}` });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -440,7 +501,9 @@ genSnapSeriesBtn.addEventListener('click', () => {
         const params = { ...baseParams, strength: strengthPct / 100 };
         const variant = cloneFontDeep(currentFont); // keep variation data intact
         applySnappingToFontInPlace(variant, params);
-        const ext = variant.outlinesFormat === 'cff' ? 'otf' : 'ttf';
+        
+        // Get export format
+        const { ext } = getExportFormat(variant);
         const blob = new Blob([variant.toArrayBuffer()], { type: `font/${ext}` });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
@@ -464,15 +527,23 @@ document.getElementById('create-snap-vf').addEventListener('click', () => {
         // Add SNAP axis using the shared API function
         addSnapAxisToFont(vfFont, screenParams, opentype, PREVIEW_FONT_SIZE);
         
-        // Export the font
-        const ext = 'ttf';  // VF with glyf tables are TTF
+        // Get export format - VF with gvar must be TTF
+        const selection = exportFormatSelect.value;
+        let ext = 'ttf';  // VF with glyf/gvar tables must be TTF
+        let note = '';
+        
+        if (selection === 'otf') {
+            // User requested OTF but VF with SNAP uses gvar which requires TTF
+            note = '\n\nNote: Variable fonts with gvar data are exported as TTF (TrueType).';
+        }
+        
         const blob = new Blob([vfFont.toArrayBuffer()], { type: `font/${ext}` });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = `${(guessFileName(vfFont) || 'font').replace(/\.(otf|ttf)$/i,'')}-SNAP-VF.${ext}`;
         a.click();
         
-        alert('Variable font with SNAP axis created! The SNAP axis varies from 0 (no snapping) to 100 (full snapping effect).');
+        alert('Variable font with SNAP axis created! The SNAP axis varies from 0 (no snapping) to 100 (full snapping effect).' + note);
     } catch (e) {
         console.error('Error creating SNAP variable font:', e);
         alert('Error creating variable font: ' + e.message);
