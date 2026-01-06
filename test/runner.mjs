@@ -41,3 +41,4 @@ import './tables/stat.js';
 import './tables/svg.js';
 import './fontspector.js';
 import './font-editor-api.js';
+import './manipulation-api.js';

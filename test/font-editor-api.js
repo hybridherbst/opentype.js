@@ -961,4 +961,157 @@ describe('Font Editor API', () => {
             assert.equal(xGlyph.advanceWidth, 1680);
         });
     });
+
+    describe('Multi-Shape VF Roundtrip', () => {
+        it('should correctly compute deltas for multi-shape VF glyphs', function() {
+            const state = new FontEditorState({
+                familyName: 'Test Font VF',
+                styleName: 'Variable',
+                unitsPerEm: 800,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Shape 1: outer rectangle (4 points)
+            const baseShape1 = [[0, 0], [8, 0], [8, 10], [0, 10]];
+            // Shape 2: inner rectangle (4 points)
+            const baseShape2 = [[2, 2], [6, 2], [6, 5], [2, 5]];
+            
+            // Bold master - shapes are wider
+            const boldShape1 = [[0, 0], [10, 0], [10, 10], [0, 10]];
+            const boldShape2 = [[1, 2], [9, 2], [9, 5], [1, 5]];
+            
+            state.glyphs = {
+                'A': [baseShape1, baseShape2]
+            };
+            state.glyphWidths = { 'A': 8 };
+            
+            state.vfEnabled = true;
+            state.axes = [{
+                tag: 'wght',
+                name: 'Weight',
+                minValue: 100,
+                defaultValue: 400,
+                maxValue: 700
+            }];
+            state.masters = [
+                {
+                    name: 'Regular',
+                    coords: { wght: 400 },
+                    glyphs: { 'A': [baseShape1, baseShape2] },
+                    glyphWidths: { 'A': 8 }
+                },
+                {
+                    name: 'Bold',
+                    coords: { wght: 700 },
+                    glyphs: { 'A': [boldShape1, boldShape2] },
+                    glyphWidths: { 'A': 10 }
+                }
+            ];
+            state.instances = [];
+            
+            // Build the font - this should not throw
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            
+            // Check that fvar and gvar exist
+            assert.ok(font.tables.fvar, 'Font should have fvar table');
+            assert.ok(font.tables.gvar, 'Font should have gvar table');
+            
+            // Export and reimport
+            const buffer = font.toArrayBuffer();
+            const reimported = opentype.parse(buffer);
+            
+            // Should not throw during parsing
+            assert.ok(reimported, 'Should be able to reimport the font');
+            assert.ok(reimported.tables.gvar, 'Reimported font should have gvar');
+        });
+        
+        it('should not apply one glyph\'s deltas to another glyph', function() {
+            // This is the key regression test - deltas from one glyph
+            // should NOT affect other glyphs
+            
+            const state = new FontEditorState({
+                familyName: 'Test Font VF',
+                styleName: 'Variable',
+                unitsPerEm: 800,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Create two glyphs with very different shapes
+            const glyphA_base = [[[0, 0], [8, 0], [4, 10]]];  // Triangle pointing up
+            const glyphA_bold = [[[0, 0], [10, 0], [5, 12]]]; // Larger triangle
+            
+            const glyphB_base = [[[0, 10], [8, 10], [8, 0], [0, 0]]];  // Rectangle
+            const glyphB_bold = [[[0, 10], [8, 10], [8, 0], [0, 0]]];  // Same rectangle (no change)
+            
+            state.glyphs = {
+                'A': glyphA_base,
+                'B': glyphB_base
+            };
+            state.glyphWidths = { 'A': 8, 'B': 8 };
+            
+            state.vfEnabled = true;
+            state.axes = [{
+                tag: 'wght',
+                name: 'Weight',
+                minValue: 100,
+                defaultValue: 400,
+                maxValue: 700
+            }];
+            state.masters = [
+                {
+                    name: 'Regular',
+                    coords: { wght: 400 },
+                    glyphs: { 'A': glyphA_base, 'B': glyphB_base },
+                    glyphWidths: { 'A': 8, 'B': 8 }
+                },
+                {
+                    name: 'Bold',
+                    coords: { wght: 700 },
+                    glyphs: { 'A': glyphA_bold, 'B': glyphB_bold },
+                    glyphWidths: { 'A': 10, 'B': 8 }
+                }
+            ];
+            state.instances = [];
+            
+            // Build, export, and reimport
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const reimported = opentype.parse(buffer);
+            
+            // At wght=400 (default), glyph B should have its original coordinates
+            const glyphB = reimported.charToGlyph('B');
+            assert.ok(glyphB, 'Should find glyph B');
+            
+            // Get glyph B at default weight - coordinates should be unchanged
+            if (reimported.variation) {
+                const transformDefault = reimported.variation.getTransform(glyphB.index, { wght: 400 });
+                assert.ok(transformDefault, 'Should get transform at default');
+                
+                // At wght=700, glyph B should still have the same coordinates
+                // (since we defined both base and bold to be identical)
+                const transformBold = reimported.variation.getTransform(glyphB.index, { wght: 700 });
+                assert.ok(transformBold, 'Should get transform at bold');
+                
+                // Compare points - they should be the same (no delta)
+                const defaultPoints = transformDefault.points;
+                const boldPoints = transformBold.points;
+                
+                // Skip phantom points (last 4) when comparing
+                const pointCount = Math.min(defaultPoints.length, boldPoints.length) - 4;
+                for (let i = 0; i < pointCount; i++) {
+                    const dp = defaultPoints[i];
+                    const bp = boldPoints[i];
+                    const tolerance = 1; // Allow small rounding errors
+                    assert.ok(
+                        Math.abs(dp.x - bp.x) <= tolerance && Math.abs(dp.y - bp.y) <= tolerance,
+                        `Glyph B Point ${i} should not change: default=(${dp.x}, ${dp.y}) bold=(${bp.x}, ${bp.y})`
+                    );
+                }
+            }
+        });
+    });
 });

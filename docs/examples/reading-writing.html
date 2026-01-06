@@ -140,6 +140,16 @@
 
 <script type="module">
 import * as opentype from "/dist/opentype.module.js";
+import { 
+    PREVIEW_FONT_SIZE,
+    snapValue, 
+    snapCommand, 
+    snapPath, 
+    applySnappingToFontInPlace, 
+    scaleSnapParamsToFontUnits,
+    getSnappedPathForPreview,
+    cloneCommands
+} from "./manipulation-api.js";
 
 // Create a canvas and adds it to the document.
 // Returns the 2d drawing context.
@@ -219,13 +229,12 @@ function renderPreview(font) {
     previewWrap.appendChild(canvas);
     const ctx = canvas.getContext('2d');
     const text = previewText.value || '';
-    const fontSize = 72;
+    const fontSize = PREVIEW_FONT_SIZE;
     let x = 20, y = 96;
     const snapParams = getSnapParams();
     for (const ch of text) {
         const g = font.charToGlyph(ch);
-        const p = g.getPath(x, y, fontSize, {}, font);
-        for (const cmd of p.commands) snapCommand(cmd, snapParams);
+        const p = getSnappedPathForPreview(g, x, y, fontSize, snapParams, font);
         p.draw(ctx);
         x += g.advanceWidth * (fontSize / font.unitsPerEm);
     }
@@ -256,42 +265,8 @@ function getSnapParams() {
 }
 
 // Get snap params scaled for font units (for export/baking)
-// The preview uses screen-space snapping (fontSize=72), but font exports
-// need distance scaled to font units to match the preview appearance.
-const PREVIEW_FONT_SIZE = 72;
 function getSnapParamsForFont(font) {
-    const params = getSnapParams();
-    // Scale distance from screen pixels to font units
-    // distance_fontUnits = distance_screen * unitsPerEm / fontSize
-    const scale = font.unitsPerEm / PREVIEW_FONT_SIZE;
-    return {
-        ...params,
-        distance: params.distance * scale,
-        x: params.x * scale,
-        y: params.y * scale
-    };
-}
-
-function snapValue(v, dist, s) {
-    return (v * (1.0 - s)) + (s * Math.round(v / dist) * dist);
-}
-
-function snapCommand(cmd, p) {
-    const apply = (val, offset) => snapValue(val + offset, p.distance, p.strength) - offset;
-    if (cmd.x !== undefined) cmd.x = apply(cmd.x, p.x);
-    if (cmd.y !== undefined) cmd.y = apply(cmd.y, p.y);
-    if (cmd.x1 !== undefined) cmd.x1 = apply(cmd.x1, p.x);
-    if (cmd.y1 !== undefined) cmd.y1 = apply(cmd.y1, p.y);
-    if (cmd.x2 !== undefined) cmd.x2 = apply(cmd.x2, p.x);
-    if (cmd.y2 !== undefined) cmd.y2 = apply(cmd.y2, p.y);
-}
-
-function applySnappingToFontInPlace(font, params) {
-    for (let i = 0; i < font.glyphs.length; i++) {
-        const g = font.glyphs.get(i);
-        if (!g || !g.path || !g.path.commands) continue;
-        for (const cmd of g.path.commands) snapCommand(cmd, params);
-    }
+    return scaleSnapParamsToFontUnits(getSnapParams(), font.unitsPerEm, PREVIEW_FONT_SIZE);
 }
 
 function cloneFontDeep(font) {
@@ -487,25 +462,27 @@ document.getElementById('create-snap-vf').addEventListener('click', () => {
     }
     
     // Get snap params scaled to font units (to match preview appearance)
-    const snapParams = getSnapParamsForFont(vfFont);
+    const baseParams = getSnapParamsForFont(vfFont);
     
-    // Get snapped coordinates for each glyph ahead of time
-    const snappedPaths = new Map();
+    // Pre-compute fully snapped coordinates for each glyph (strength=1.0)
+    // Only one master is needed since snapping is linear with respect to strength:
+    // snapped(v, s) = v * (1-s) + s * target = v + s*(target - v)
+    const snapParams = { ...baseParams, strength: 1.0 };
+    const fullySnappedSnapshot = new Map();
+    
     for (let i = 0; i < vfFont.glyphs.length; i++) {
         const glyph = vfFont.glyphs.get(i);
         if (!glyph || !glyph.path || !glyph.path.commands || glyph.path.commands.length === 0) {
             continue;
         }
-        // Clone the path and apply snapping
-        const snappedCommands = glyph.path.commands.map(cmd => {
-            const newCmd = { ...cmd };
-            snapCommand(newCmd, snapParams);
-            return newCmd;
-        });
-        snappedPaths.set(i, snappedCommands);
+        // Clone the path and apply full snapping using the API
+        const snappedCommands = cloneCommands(glyph.path.commands);
+        snapPath(snappedCommands, snapParams);
+        fullySnappedSnapshot.set(i, snappedCommands);
     }
     
-    // Add SNAP axis with delta generator
+    // Add SNAP axis with single master at peak=1.0
+    // Linear interpolation from base to fully snapped gives correct behavior at all SNAP values
     try {
         vfFont.variation.addAxis({
             tag: 'SNAP',
@@ -514,12 +491,14 @@ document.getElementById('create-snap-vf').addEventListener('click', () => {
             defaultValue: 0,
             maxValue: 100,
             deltaGenerator: (glyph) => {
-                const snappedCommands = snappedPaths.get(glyph.index);
-                if (!snappedCommands) return null;
-                
                 const baseCommands = glyph.path.commands;
-                if (baseCommands.length !== snappedCommands.length) return null;
+                if (!baseCommands || baseCommands.length === 0) return null;
                 
+                const snappedCommands = fullySnappedSnapshot.get(glyph.index);
+                if (!snappedCommands || snappedCommands.length !== baseCommands.length) return null;
+                
+                // Single master at peak=1.0 (fully snapped)
+                const peakTuple = [1.0];
                 const deltas = [];
                 const deltasY = [];
                 
@@ -545,7 +524,13 @@ document.getElementById('create-snap-vf').addEventListener('click', () => {
                 deltas.push(0, 0, 0, 0);
                 deltasY.push(0, 0, 0, 0);
                 
-                return { deltas, deltasY };
+                // Only add if there are actual deltas (non-zero changes)
+                const hasDeltas = deltas.some(d => d !== 0) || deltasY.some(d => d !== 0);
+                if (hasDeltas) {
+                    return [{ peakTuple, deltas, deltasY }];
+                }
+                
+                return null;
             }
         });
         
@@ -563,7 +548,7 @@ document.getElementById('create-snap-vf').addEventListener('click', () => {
         a.download = `${(guessFileName(vfFont) || 'font').replace(/\.(otf|ttf)$/i,'')}-SNAP-VF.${ext}`;
         a.click();
         
-        alert('Variable font with SNAP axis created! The SNAP axis varies from 0 (no snapping) to 100 (full snapping effect).');
+        alert('Variable font with SNAP axis created with multiple masters! The SNAP axis varies from 0 (no snapping) to 100 (full snapping effect).');
     } catch (e) {
         console.error('Error creating SNAP variable font:', e);
         alert('Error creating variable font: ' + e.message);

@@ -695,6 +695,10 @@
 
                     <div class="property-group">
                         <h4>Shapes <button id="add-shape-btn" class="btn btn-small">+</button> <button id="delete-shape-btn" class="btn btn-small">−</button></h4>
+                        <div class="edit-mode-toggle" style="margin: 8px 0; display: flex; gap: 0;">
+                            <button id="mode-edit" class="btn btn-small" style="border-radius: 4px 0 0 4px;">Edit</button>
+                            <button id="mode-preview" class="btn btn-small" style="border-radius: 0 4px 4px 0;">Preview</button>
+                        </div>
                         <div class="shape-list" id="shape-list"></div>
                     </div>
 
@@ -704,12 +708,6 @@
                             <div class="vf-section">
                                 <h4>Axes <button id="add-axis-btn">+ Add</button></h4>
                                 <div id="axis-list"></div>
-                                <div class="preview-toggle" style="margin-top: 10px;">
-                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                        <input type="checkbox" id="toggle-result-preview">
-                                        <span>Preview result in editor</span>
-                                    </label>
-                                </div>
                             </div>
                             <div class="vf-section">
                                 <h4>Masters <button id="add-master-btn">+ Add</button></h4>
@@ -873,7 +871,7 @@
             dragEdgeIndices: null, // [startIdx, endIdx] of edge being dragged
             isPanning: false,
             lastMousePos: { x: 0, y: 0 },
-            showResultPreview: false, // Show resulting shape preview in editor
+            editMode: 'edit', // 'edit' shows individual shape outlines, 'preview' shows final glyph look
             // Variable font state
             vf: {
                 enabled: false,
@@ -941,11 +939,11 @@
             resizeCanvases();
             window.addEventListener('resize', resizeCanvases);
             
-            // Editor canvas events
-            editorCanvas.addEventListener('mousedown', onEditorMouseDown);
-            editorCanvas.addEventListener('mousemove', onEditorMouseMove);
-            editorCanvas.addEventListener('mouseup', onEditorMouseUp);
-            editorCanvas.addEventListener('mouseleave', onEditorMouseUp);
+            // Editor canvas events - use pointer events for reliable drag handling
+            editorCanvas.addEventListener('pointerdown', onEditorMouseDown);
+            editorCanvas.addEventListener('pointermove', onEditorMouseMove);
+            editorCanvas.addEventListener('pointerup', onEditorMouseUp);
+            editorCanvas.addEventListener('pointercancel', onEditorMouseUp);
             editorCanvas.addEventListener('dblclick', onEditorDoubleClick);
             editorCanvas.addEventListener('wheel', onEditorWheel);
 
@@ -997,8 +995,15 @@
             document.getElementById('add-axis-btn').addEventListener('click', () => showModal('axis-modal'));
             document.getElementById('add-master-btn').addEventListener('click', () => showMasterModal());
             document.getElementById('add-instance-btn').addEventListener('click', () => showInstanceModal());
-            document.getElementById('toggle-result-preview').addEventListener('change', e => {
-                state.showResultPreview = e.target.checked;
+            // Edit/Preview mode toggle
+            document.getElementById('mode-edit').addEventListener('click', () => {
+                state.editMode = 'edit';
+                updateModeButtons();
+                draw();
+            });
+            document.getElementById('mode-preview').addEventListener('click', () => {
+                state.editMode = 'preview';
+                updateModeButtons();
                 draw();
             });
             
@@ -1023,6 +1028,7 @@
 
             renderGlyphGrid();
             updateShapeList();
+            updateModeButtons();
             draw();
         }
 
@@ -1120,6 +1126,9 @@
             const rect = editorCanvas.getBoundingClientRect();
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
+
+            // Capture pointer for reliable drag handling even if mouse leaves canvas
+            editorCanvas.setPointerCapture(e.pointerId);
 
             if (e.button === 1 || e.altKey) {
                 // Middle click or alt+click for panning
@@ -1246,7 +1255,11 @@
             }
         }
 
-        function onEditorMouseUp() {
+        function onEditorMouseUp(e) {
+            // Release pointer capture
+            if (e && e.pointerId !== undefined) {
+                editorCanvas.releasePointerCapture(e.pointerId);
+            }
             // If we were dragging, update the preview
             if (state.isDragging || state.isDraggingShape || state.isDraggingEdge) {
                 drawPreview();
@@ -1428,14 +1441,32 @@
 
             if (shapes.length === 0) return;
 
-            // Draw all shapes
+            // In preview mode, draw the combined glyph shape first (filled)
+            if (state.editMode === 'preview') {
+                ctx.beginPath();
+                for (let si = 0; si < shapes.length; si++) {
+                    const points = shapes[si];
+                    if (points.length === 0) continue;
+                    const first = worldToScreen(points[0][0], points[0][1]);
+                    ctx.moveTo(first.x, first.y);
+                    for (let i = 1; i < points.length; i++) {
+                        const p = worldToScreen(points[i][0], points[i][1]);
+                        ctx.lineTo(p.x, p.y);
+                    }
+                    ctx.closePath();
+                }
+                ctx.fillStyle = 'rgba(74, 158, 255, 0.3)';
+                ctx.fill('nonzero'); // Use nonzero winding rule per OpenType spec
+            }
+
+            // Draw all shapes (outlines and points)
             for (let si = 0; si < shapes.length; si++) {
                 const points = shapes[si];
                 if (points.length === 0) continue;
                 
                 const isSelected = (si === state.selectedShape);
                 
-                // Draw path
+                // In edit mode, draw filled shapes; in preview mode just draw outline
                 ctx.beginPath();
                 const first = worldToScreen(points[0][0], points[0][1]);
                 ctx.moveTo(first.x, first.y);
@@ -1444,8 +1475,11 @@
                     ctx.lineTo(p.x, p.y);
                 }
                 ctx.closePath();
-                ctx.fillStyle = isSelected ? 'rgba(74, 158, 255, 0.15)' : 'rgba(74, 158, 255, 0.05)';
-                ctx.fill();
+                
+                if (state.editMode === 'edit') {
+                    ctx.fillStyle = isSelected ? 'rgba(74, 158, 255, 0.15)' : 'rgba(74, 158, 255, 0.05)';
+                    ctx.fill();
+                }
                 ctx.strokeStyle = isSelected ? '#4a9eff' : '#3a7acc';
                 ctx.lineWidth = isSelected ? 2 : 1;
                 ctx.stroke();
@@ -1470,8 +1504,8 @@
                 }
             }
 
-            // Draw interpolated result preview if enabled
-            if (state.showResultPreview && state.vf.enabled && state.vf.axes.length > 0) {
+            // Draw interpolated result preview if enabled (for VF preview with axes)
+            if (state.editMode === 'preview' && state.vf.enabled && state.vf.axes.length > 0) {
                 const interp = interpolateGlyphs(state.vf.previewCoords);
                 const currentChar = Object.keys(state.glyphs)[state.selectedGlyph];
                 const interpShapes = interp.glyphs[currentChar];
@@ -1560,7 +1594,7 @@
                 }
             }
             ctx.fillStyle = '#4a9eff';
-            ctx.fill('evenodd'); // Use evenodd for proper hole rendering
+            ctx.fill('nonzero'); // Use nonzero winding rule per OpenType spec
             ctx.restore();
         }
 
@@ -1689,7 +1723,7 @@
                 path.setAttribute('fill', '#4a9eff');
                 path.setAttribute('stroke', '#6ab0ff');
                 path.setAttribute('stroke-width', '0.5');
-                path.setAttribute('fill-rule', 'evenodd');
+                path.setAttribute('fill-rule', 'nonzero');
                 svg.appendChild(path);
                 item.appendChild(svg);
 
@@ -1725,6 +1759,18 @@
             } else {
                 clearBtn.style.opacity = '0.5';
                 clearBtn.title = 'Width is already auto-calculated';
+            }
+        }
+
+        function updateModeButtons() {
+            const editBtn = document.getElementById('mode-edit');
+            const previewBtn = document.getElementById('mode-preview');
+            if (state.editMode === 'edit') {
+                editBtn.classList.add('btn-primary');
+                previewBtn.classList.remove('btn-primary');
+            } else {
+                editBtn.classList.remove('btn-primary');
+                previewBtn.classList.add('btn-primary');
             }
         }
 
@@ -2164,17 +2210,32 @@
         }
 
         function extractTransformedPoints(transformPoints, unitsPerEm) {
-            const points = [];
             const scale = 10 / unitsPerEm * 1.2;
             
+            // Split points into shapes based on lastPointOfContour
+            const shapes = [];
+            let currentShape = [];
+            
             for (const pt of transformPoints) {
-                points.push([
+                currentShape.push([
                     Math.round(pt.x * scale * 10) / 10,
                     Math.round(pt.y * scale * 10) / 10
                 ]);
+                
+                if (pt.lastPointOfContour) {
+                    shapes.push(currentShape);
+                    currentShape = [];
+                }
             }
             
-            return points;
+            // If there's a remaining shape (shouldn't happen normally), add it
+            if (currentShape.length > 0) {
+                shapes.push(currentShape);
+            }
+            
+            // If there's only one shape, return it (nested format with single shape)
+            // If there are multiple shapes, return the nested format
+            return shapes.length === 1 ? shapes : shapes;
         }
 
         async function importFont(e) {
@@ -3111,7 +3172,7 @@
                     const val = parseFloat(e.target.value);
                     state.vf.previewCoords[axis.tag] = val;
                     item.querySelector('.value').textContent = val;
-                    if (state.showResultPreview) {
+                    if (state.editMode === 'preview') {
                         draw();
                     } else {
                         drawPreview();

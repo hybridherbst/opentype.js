@@ -683,6 +683,26 @@ export class FontBuilder {
             elidedFallbackNameID: elidedFallbackNameID
         };
     }
+    
+    /**
+     * Flatten multi-shape glyph data into a flat array of points.
+     * Handles both nested format [[[x,y]...], [[x,y]...]] and flat format [[x,y]...].
+     * @private
+     */
+    _flattenGlyphPoints(pointsOrShapes) {
+        if (!pointsOrShapes || pointsOrShapes.length === 0) return [];
+        
+        // Detect if this is nested format (multi-shape)
+        const isNested = Array.isArray(pointsOrShapes[0]) && Array.isArray(pointsOrShapes[0][0]);
+        
+        if (isNested) {
+            // Flatten all shapes into a single array of points
+            return pointsOrShapes.flat();
+        }
+        
+        // Already flat format
+        return pointsOrShapes;
+    }
 
     _buildMasterDeltas(axis, scale, axisIndex, axisCount) {
         const result = [];
@@ -737,9 +757,15 @@ export class FontBuilder {
             const peakTuple = new Array(axisCount).fill(0);
             peakTuple[axisIndex] = peakSign;
 
-            for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
-                const targetPoints = targetMaster.glyphs[char];
-                if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+            for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
+                const targetPointsRaw = targetMaster.glyphs[char];
+                if (!targetPointsRaw) continue;
+                
+                // Flatten multi-shape glyphs to flat point arrays
+                const basePoints = this._flattenGlyphPoints(basePointsRaw);
+                const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
+                
+                if (basePoints.length !== targetPoints.length) continue;
 
                 const deltaX = [];
                 const deltaY = [];
@@ -752,8 +778,8 @@ export class FontBuilder {
                 deltaX.push(0, 0, 0, 0);
                 deltaY.push(0, 0, 0, 0);
 
-                const baseWidth = this._getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
-                const targetWidth = this._getGlyphWidth(targetPoints, char, targetMaster.glyphWidths) + 1;
+                const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                const targetWidth = this._getGlyphWidth(targetPointsRaw, char, targetMaster.glyphWidths) + 1;
                 const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
 
                 const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -775,9 +801,15 @@ export class FontBuilder {
                 const peakTuple = new Array(axisCount).fill(0);
                 peakTuple[axisIndex] = 1;
 
-                for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
-                    const targetPoints = minMaster.glyphs[char];
-                    if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+                for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
+                    const targetPointsRaw = minMaster.glyphs[char];
+                    if (!targetPointsRaw) continue;
+                    
+                    // Flatten multi-shape glyphs to flat point arrays
+                    const basePoints = this._flattenGlyphPoints(basePointsRaw);
+                    const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
+                    
+                    if (basePoints.length !== targetPoints.length) continue;
 
                     const deltaX = [];
                     const deltaY = [];
@@ -788,8 +820,8 @@ export class FontBuilder {
                     deltaX.push(0, 0, 0, 0);
                     deltaY.push(0, 0, 0, 0);
 
-                    const baseWidth = this._getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
-                    const targetWidth = this._getGlyphWidth(targetPoints, char, minMaster.glyphWidths) + 1;
+                    const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                    const targetWidth = this._getGlyphWidth(targetPointsRaw, char, minMaster.glyphWidths) + 1;
                     const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
 
                     const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -812,9 +844,15 @@ export class FontBuilder {
                 const peakTuple = new Array(axisCount).fill(0);
                 peakTuple[axisIndex] = -1;
 
-                for (const [char, basePoints] of Object.entries(defaultMaster.glyphs)) {
-                    const targetPoints = maxMaster.glyphs[char];
-                    if (!targetPoints || basePoints.length !== targetPoints.length) continue;
+                for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
+                    const targetPointsRaw = maxMaster.glyphs[char];
+                    if (!targetPointsRaw) continue;
+                    
+                    // Flatten multi-shape glyphs to flat point arrays
+                    const basePoints = this._flattenGlyphPoints(basePointsRaw);
+                    const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
+                    
+                    if (basePoints.length !== targetPoints.length) continue;
 
                     const deltaX = [];
                     const deltaY = [];
@@ -825,8 +863,8 @@ export class FontBuilder {
                     deltaX.push(0, 0, 0, 0);
                     deltaY.push(0, 0, 0, 0);
 
-                    const baseWidth = this._getGlyphWidth(basePoints, char, defaultMaster.glyphWidths) + 1;
-                    const targetWidth = this._getGlyphWidth(targetPoints, char, maxMaster.glyphWidths) + 1;
+                    const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                    const targetWidth = this._getGlyphWidth(targetPointsRaw, char, maxMaster.glyphWidths) + 1;
                     const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
 
                     const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
