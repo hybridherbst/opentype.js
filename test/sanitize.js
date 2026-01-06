@@ -9,9 +9,13 @@ import {
     fixFullFontName,
     sanitizeFontForExport,
     fixLineGap,
+    fixAscenderForGlyphBounds,
+    fixContourDirections,
     checkVerticalMetricsRatio,
     ensureGaspTable,
     ensureHvarTable,
+    removeDuplicateInstances,
+    ensureAvarTable,
     sanitizeFontForGoogleFonts
 } from '../src/sanitize.js';
 
@@ -393,5 +397,439 @@ describe('Font Export Sanitization', function() {
         assert.ok(parsed.names.windows, 'windows names should exist');
         assert.ok(!parsed.names.macintosh, 'macintosh names should not exist');
         // unicode platform requires ltag which we don't create, so it won't be present
+    });
+});
+
+describe('Google Fonts Profile - Additional Sanitization', function() {
+    // Helper to create a basic font for testing
+    function createTestFont(options = {}) {
+        return new opentype.Font({
+            familyName: options.familyName || 'Test Font',
+            styleName: options.styleName || 'Regular',
+            unitsPerEm: options.unitsPerEm || 1000,
+            ascender: options.ascender || 800,
+            descender: options.descender || -200,
+            glyphs: options.glyphs || []
+        });
+    }
+
+    describe('fixAscenderForGlyphBounds', function() {
+        it('should increase ascender if yMax exceeds it', function() {
+            // Create a glyph with high yMax
+            const path = new opentype.Path();
+            path.moveTo(0, 0);
+            path.lineTo(100, 1000);  // yMax = 1000, exceeds ascender of 800
+            path.lineTo(200, 0);
+            path.closePath();
+            
+            const glyph = new opentype.Glyph({
+                name: 'tall',
+                unicode: 65,
+                advanceWidth: 500,
+                path: path
+            });
+            
+            const font = createTestFont({ glyphs: [glyph] });
+            font.tables.hhea = { ascender: 800, descender: -200 };
+            font.tables.os2 = { sTypoAscender: 800, sTypoDescender: -200 };
+            
+            const result = fixAscenderForGlyphBounds(font);
+            
+            assert.ok(result.adjusted, 'should have adjusted ascender');
+            assert.ok(font.ascender > 1000, 'ascender should exceed yMax of 1000');
+            assert.strictEqual(result.maxYMax, 1000);
+        });
+
+        it('should not adjust if ascender already exceeds yMax', function() {
+            const path = new opentype.Path();
+            path.moveTo(0, 0);
+            path.lineTo(100, 500);  // yMax = 500, less than ascender of 800
+            path.lineTo(200, 0);
+            path.closePath();
+            
+            const glyph = new opentype.Glyph({
+                name: 'short',
+                unicode: 65,
+                advanceWidth: 500,
+                path: path
+            });
+            
+            const font = createTestFont({ glyphs: [glyph] });
+            
+            const result = fixAscenderForGlyphBounds(font);
+            
+            assert.ok(!result.adjusted, 'should not adjust ascender');
+            assert.strictEqual(result.oldAscender, result.newAscender);
+        });
+    });
+
+    describe('removeDuplicateInstances', function() {
+        it('should remove instances with duplicate coordinates', function() {
+            const font = createTestFont();
+            font.tables.fvar = {
+                axes: [
+                    { tag: 'wght', minValue: 100, defaultValue: 400, maxValue: 900 }
+                ],
+                instances: [
+                    { name: { en: 'Regular' }, coordinates: { wght: 400 } },
+                    { name: { en: 'Duplicate' }, coordinates: { wght: 400 } },  // Same coords!
+                    { name: { en: 'Bold' }, coordinates: { wght: 700 } }
+                ]
+            };
+            
+            const removed = removeDuplicateInstances(font);
+            
+            assert.strictEqual(removed, 1, 'should have removed 1 duplicate');
+            assert.strictEqual(font.tables.fvar.instances.length, 2, 'should have 2 instances left');
+            assert.strictEqual(font.tables.fvar.instances[0].name.en, 'Regular');
+            assert.strictEqual(font.tables.fvar.instances[1].name.en, 'Bold');
+        });
+
+        it('should keep all instances if no duplicates', function() {
+            const font = createTestFont();
+            font.tables.fvar = {
+                axes: [
+                    { tag: 'wght', minValue: 100, defaultValue: 400, maxValue: 900 }
+                ],
+                instances: [
+                    { name: { en: 'Regular' }, coordinates: { wght: 400 } },
+                    { name: { en: 'Bold' }, coordinates: { wght: 700 } }
+                ]
+            };
+            
+            const removed = removeDuplicateInstances(font);
+            
+            assert.strictEqual(removed, 0, 'should not remove any instances');
+            assert.strictEqual(font.tables.fvar.instances.length, 2);
+        });
+    });
+
+    describe('ensureAvarTable', function() {
+        it('should create linear avar table for variable font', function() {
+            const font = createTestFont();
+            font.tables.fvar = {
+                axes: [
+                    { tag: 'wght', minValue: 100, defaultValue: 400, maxValue: 900 },
+                    { tag: 'wdth', minValue: 75, defaultValue: 100, maxValue: 125 }
+                ],
+                instances: []
+            };
+            
+            const created = ensureAvarTable(font);
+            
+            assert.ok(created, 'should create avar table');
+            assert.ok(font.tables.avar, 'avar table should exist');
+            assert.ok(font.tables.avar.segmentMaps, 'segmentMaps should exist');
+            assert.ok(font.tables.avar.segmentMaps.wght, 'wght mapping should exist');
+            assert.ok(font.tables.avar.segmentMaps.wdth, 'wdth mapping should exist');
+            
+            // Check linear mapping
+            const wghtMap = font.tables.avar.segmentMaps.wght;
+            assert.strictEqual(wghtMap.length, 3, 'should have 3 mapping points');
+            assert.strictEqual(wghtMap[0].fromCoord, -1);
+            assert.strictEqual(wghtMap[0].toCoord, -1);
+            assert.strictEqual(wghtMap[1].fromCoord, 0);
+            assert.strictEqual(wghtMap[1].toCoord, 0);
+            assert.strictEqual(wghtMap[2].fromCoord, 1);
+            assert.strictEqual(wghtMap[2].toCoord, 1);
+        });
+
+        it('should not modify existing avar table', function() {
+            const font = createTestFont();
+            font.tables.fvar = {
+                axes: [{ tag: 'wght', minValue: 100, defaultValue: 400, maxValue: 900 }],
+                instances: []
+            };
+            font.tables.avar = {
+                segmentMaps: {
+                    wght: [{ fromCoord: -1, toCoord: -0.5 }, { fromCoord: 0, toCoord: 0 }, { fromCoord: 1, toCoord: 0.5 }]
+                }
+            };
+            
+            const created = ensureAvarTable(font);
+            
+            assert.ok(created, 'should return true for existing avar');
+            // Check the custom mapping is preserved
+            assert.strictEqual(font.tables.avar.segmentMaps.wght[0].toCoord, -0.5);
+        });
+
+        it('should return false for non-variable fonts', function() {
+            const font = createTestFont();
+            
+            const created = ensureAvarTable(font);
+            
+            assert.ok(!created, 'should return false');
+            assert.ok(!font.tables.avar, 'avar should not be created');
+        });
+    });
+
+    describe('fixContourDirections', function() {
+        it('should fix counter-clockwise outer contours to clockwise', function() {
+            // Create a counter-clockwise contour (positive signed area in font coords)
+            // In Y-up coords, CCW goes: start, RIGHT, UP, LEFT
+            const path = new opentype.Path();
+            // CCW square: starting bottom-left, going right, up, left, close
+            path.moveTo(0, 0);
+            path.lineTo(100, 0);   // right
+            path.lineTo(100, 100); // up
+            path.lineTo(0, 100);   // left
+            path.closePath();      // down back to start
+            
+            const glyph = new opentype.Glyph({
+                name: 'test',
+                unicode: 65,
+                advanceWidth: 500,
+                path: path
+            });
+            
+            const font = createTestFont({ glyphs: [glyph] });
+            
+            const result = fixContourDirections(font);
+            
+            // The CCW contour should be fixed to CW
+            assert.strictEqual(result.totalFixed, 1, 'should fix 1 CCW contour');
+        });
+
+        it('should not modify already clockwise contours', function() {
+            // Create a clockwise contour (negative signed area in font coords)
+            // In Y-up coords, CW goes: start, UP, RIGHT, DOWN
+            const path = new opentype.Path();
+            // CW square: starting bottom-left, going up, right, down, close
+            path.moveTo(0, 0);
+            path.lineTo(0, 100);   // up
+            path.lineTo(100, 100); // right
+            path.lineTo(100, 0);   // down
+            path.closePath();      // left back to start
+            
+            const glyph = new opentype.Glyph({
+                name: 'test',
+                unicode: 65,
+                advanceWidth: 500,
+                path: path
+            });
+            
+            const font = createTestFont({ glyphs: [glyph] });
+            
+            const result = fixContourDirections(font);
+            
+            // CW contour should not be fixed
+            assert.strictEqual(result.totalFixed, 0, 'should not fix CW contours');
+        });
+    });
+
+    describe('sanitizeFontForGoogleFonts - Full Integration', function() {
+        it('should apply all Google Fonts fixes including new ones', function() {
+            const path = new opentype.Path();
+            path.moveTo(0, 0);
+            path.lineTo(100, 1000);
+            path.lineTo(200, 0);
+            path.closePath();
+            
+            const glyph = new opentype.Glyph({
+                name: 'A',
+                unicode: 65,
+                advanceWidth: 500,
+                path: path
+            });
+            
+            const font = createTestFont({ glyphs: [glyph], ascender: 800 });
+            font.tables = {
+                ltag: { tags: ['en'] },
+                hhea: { ascender: 800, descender: -200, lineGap: 100 },
+                os2: { sTypoAscender: 700, sTypoDescender: -150, sTypoLineGap: 200 },
+                head: { fontRevision: 0 },
+                fvar: {
+                    axes: [{ tag: 'wght', minValue: 100, defaultValue: 400, maxValue: 900 }],
+                    instances: [
+                        { name: { en: 'Regular' }, coordinates: { wght: 400 } },
+                        { name: { en: 'Also Regular' }, coordinates: { wght: 400 } }  // Duplicate!
+                    ]
+                }
+            };
+            font.names.windows.version = { en: 'Version 1.000' };
+            
+            sanitizeFontForGoogleFonts(font);
+            
+            // Base sanitization
+            assert.ok(!font.tables.ltag, 'ltag should be removed');
+            assert.ok(!font.names.macintosh, 'macintosh names should be removed');
+            
+            // Google Fonts specific - lineGap
+            assert.strictEqual(font.tables.os2.sTypoLineGap, 0, 'sTypoLineGap should be 0');
+            assert.strictEqual(font.tables.hhea.lineGap, 0, 'hhea lineGap should be 0');
+            
+            // Google Fonts specific - gasp
+            assert.ok(font.tables.gasp, 'gasp table should exist');
+            
+            // Google Fonts specific - duplicate instances
+            assert.strictEqual(font.tables.fvar.instances.length, 1, 'duplicate instances should be removed');
+            
+            // Google Fonts specific - avar table
+            assert.ok(font.tables.avar, 'avar table should be created for variable fonts');
+            
+            // Google Fonts specific - ascender should exceed yMax
+            assert.ok(font.ascender > 1000, 'ascender should be adjusted to exceed glyph yMax');
+        });
+    });
+});
+
+describe('Font Export - Additional Fixes', function() {
+    it('should set OS/2 xAvgCharWidth correctly (average of non-zero widths)', function() {
+        const glyphs = [
+            new opentype.Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: new opentype.Path() }),
+            new opentype.Glyph({ name: 'space', unicode: 32, advanceWidth: 0, path: new opentype.Path() }), // zero width
+            new opentype.Glyph({ name: 'A', unicode: 65, advanceWidth: 600, path: new opentype.Path() }),
+            new opentype.Glyph({ name: 'B', unicode: 66, advanceWidth: 700, path: new opentype.Path() }),
+            new opentype.Glyph({ name: 'C', unicode: 67, advanceWidth: 800, path: new opentype.Path() })
+        ];
+        
+        const font = new opentype.Font({
+            familyName: 'Test',
+            styleName: 'Regular',
+            unitsPerEm: 1000,
+            ascender: 800,
+            descender: -200,
+            glyphs: glyphs
+        });
+        
+        const buffer = font.toArrayBuffer();
+        const parsed = opentype.parse(buffer);
+        
+        // xAvgCharWidth should be average of non-zero width glyphs (excluding .notdef)
+        // Non-zero widths: 600, 700, 800 = average 700
+        // Note: space (0) is excluded from average
+        assert.strictEqual(parsed.tables.os2.xAvgCharWidth, 700, 
+            'xAvgCharWidth should be average of non-zero width glyphs');
+    });
+
+    it('should set head.fontRevision from name table version correctly', function() {
+        const font = new opentype.Font({
+            familyName: 'Test',
+            styleName: 'Regular',
+            unitsPerEm: 1000,
+            ascender: 800,
+            descender: -200,
+            glyphs: []
+        });
+        
+        // Set version to 3.001
+        font.names.windows.version = { en: 'Version 3.001' };
+        font.names.unicode.version = { en: 'Version 3.001' };
+        
+        const buffer = font.toArrayBuffer();
+        const parsed = opentype.parse(buffer);
+        
+        // fontRevision should be 3.001 (with some tolerance for fixed-point conversion)
+        assert.ok(Math.abs(parsed.tables.head.fontRevision - 3.001) < 0.001,
+            `fontRevision should be ~3.001, got ${parsed.tables.head.fontRevision}`);
+    });
+
+    it('should default fsType to 0x0004 (Print & Preview) for new fonts', function() {
+        const font = new opentype.Font({
+            familyName: 'Test',
+            styleName: 'Regular',
+            unitsPerEm: 1000,
+            ascender: 800,
+            descender: -200,
+            glyphs: []
+        });
+        
+        const buffer = font.toArrayBuffer();
+        const parsed = opentype.parse(buffer);
+        
+        // Default fsType should be 0x0004 (Print & Preview) for new fonts
+        assert.strictEqual(parsed.tables.os2.fsType, 4,
+            'fsType should default to Print & Preview (bit 4)');
+    });
+
+    it('should add description (nameID 10) if missing', function() {
+        const font = new opentype.Font({
+            familyName: 'Test Font',
+            styleName: 'Regular',
+            unitsPerEm: 1000,
+            ascender: 800,
+            descender: -200,
+            glyphs: []
+        });
+        
+        const buffer = font.toArrayBuffer();
+        const parsed = opentype.parse(buffer);
+        
+        // description should be auto-generated
+        assert.ok(parsed.names.windows.description, 'description should exist');
+        assert.strictEqual(parsed.names.windows.description.en, 'Test Font font',
+            'description should be based on family name');
+    });
+
+    it('should add variationsPostScriptNamePrefix (nameID 25) for variable fonts', function() {
+        const font = new opentype.Font({
+            familyName: 'Test VF',
+            styleName: 'Regular',
+            unitsPerEm: 1000,
+            ascender: 800,
+            descender: -200,
+            glyphs: [
+                new opentype.Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: new opentype.Path() })
+            ]
+        });
+        
+        // Make it a variable font
+        font.variation = new opentype.VariationManager(font);
+        font.variation.addAxis({
+            tag: 'wght',
+            name: 'Weight',
+            minValue: 100,
+            defaultValue: 400,
+            maxValue: 900,
+            deltaGenerator: () => null
+        });
+        font.variation.addInstance({ name: 'Regular', coordinates: { wght: 400 } });
+        
+        const buffer = font.toArrayBuffer();
+        const parsed = opentype.parse(buffer);
+        
+        // variationsPostScriptNamePrefix should be auto-generated for VF
+        assert.ok(parsed.names.windows.variationsPostScriptNamePrefix, 
+            'variationsPostScriptNamePrefix should exist for VF');
+    });
+});
+
+describe('Variable Font STAT Table', function() {
+    it('should add STAT axis values when adding instances', function() {
+        const font = new opentype.Font({
+            familyName: 'Test VF',
+            styleName: 'Regular',
+            unitsPerEm: 1000,
+            ascender: 800,
+            descender: -200,
+            glyphs: [
+                new opentype.Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: new opentype.Path() })
+            ]
+        });
+        
+        font.variation = new opentype.VariationManager(font);
+        font.variation.addAxis({
+            tag: 'wght',
+            name: 'Weight',
+            minValue: 100,
+            defaultValue: 400,
+            maxValue: 900,
+            deltaGenerator: () => null
+        });
+        
+        // Add instances at different coordinates
+        font.variation.addInstance({ name: 'Regular', coordinates: { wght: 400 } });
+        font.variation.addInstance({ name: 'Bold', coordinates: { wght: 700 } });
+        
+        // Check STAT values were created
+        assert.ok(font.tables.stat, 'STAT table should exist');
+        assert.ok(font.tables.stat.values, 'STAT values should exist');
+        
+        // Should have values for wght=400 and wght=700
+        const values400 = font.tables.stat.values.filter(v => v.value === 400);
+        const values700 = font.tables.stat.values.filter(v => v.value === 700);
+        
+        assert.ok(values400.length > 0, 'Should have STAT value for wght=400');
+        assert.ok(values700.length > 0, 'Should have STAT value for wght=700');
     });
 });

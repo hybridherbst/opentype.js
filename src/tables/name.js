@@ -29,7 +29,10 @@ export const nameTableNames = [
     'sampleText',             // 19
     'postScriptFindFontName', // 20
     'wwsFamily',              // 21
-    'wwsSubfamily'            // 22
+    'wwsSubfamily',           // 22
+    'lightBackgroundPalette', // 23
+    'darkBackgroundPalette',  // 24
+    'variationsPostScriptNamePrefix' // 25 (required for variable fonts)
 ];
 
 const macLanguages = {

@@ -53,7 +53,8 @@ describe('tables/sfnt.js', ()=>{
                     version: { en: 'Version 0.1' },
                     postScriptName: { en: `${defaultFont.familyName}${defaultFont.styleName}` }, // 'MyFontMedium'
                     preferredFamily: { en: defaultFont.familyName }, // 'MyFont'
-                    preferredSubfamily: { en: defaultFont.styleName } // 'Medium'
+                    preferredSubfamily: { en: defaultFont.styleName }, // 'Medium'
+                    description: { en: `${defaultFont.familyName} font` } // Auto-generated description
                 }
             });
         });
@@ -98,7 +99,8 @@ describe('tables/sfnt.js', ()=>{
                     fullName: { en: fullName },
                     version: { en: version },
                     preferredFamily: { en: preferredFamily },
-                    preferredSubfamily: { en: preferredSubfamily}
+                    preferredSubfamily: { en: preferredSubfamily},
+                    description: { en: `${fontFamily} font` } // Auto-generated description
                 }
             });
         });

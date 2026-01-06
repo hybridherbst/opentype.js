@@ -408,31 +408,24 @@ export function addSnapAxisToFont(font, screenParams, opentypeModule, fontSize =
         deltaGenerator
     });
     
-    // Add named instances
+    // Add named instances - only add unique coordinate combinations
+    // Google Fonts requires distinct coordinates for each instance
     const defaultCoords = font.variation.getDefaultCoordinates();
+    
+    // Required: Default instance at SNAP=minValue (no snapping)
     font.variation.addInstance({ 
-        name: 'Regular', // Default instance required by fontspector
-        coordinates: { ...defaultCoords, SNAP: minValue } 
-    });
-    font.variation.addInstance({ 
-        name: 'No Snap', 
+        name: 'Regular', // Default instance required by Google Fonts
         coordinates: { ...defaultCoords, SNAP: minValue } 
     });
     
-    // Add intermediate instances if range is wide enough
-    const range = maxValue - minValue;
-    if (range >= 50) {
-        font.variation.addInstance({ 
-            name: 'Light Snap', 
-            coordinates: { ...defaultCoords, SNAP: minValue + range * 0.25 } 
-        });
-        font.variation.addInstance({ 
-            name: 'Medium Snap', 
-            coordinates: { ...defaultCoords, SNAP: minValue + range * 0.5 } 
-        });
-    }
+    // Note: We don't add "No Snap" since it has same coordinates as "Regular"
+    // which would cause duplicate instance validation error
+    
+    /*
+    // Add Full Snap at max value
     font.variation.addInstance({ 
-        name: 'Heavy Snap', 
+        name: 'Full Snap', 
         coordinates: { ...defaultCoords, SNAP: maxValue } 
     });
+    */
 }

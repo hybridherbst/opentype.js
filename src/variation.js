@@ -224,10 +224,27 @@ export class VariationManager {
         }
         
         // Add axis to STAT
+        const axisIndex = fvar.axes.length - 1;
         this.font.tables.stat.axes.push({
             tag,
             nameID: axisNameID,
-            ordering: fvar.axes.length - 1
+            ordering: axisIndex
+        });
+        
+        // Add STAT axis values for the new axis (required by Microsoft/fontspector)
+        // Add at least a value for the default (and optionally min/max if they differ)
+        if (!this.font.tables.stat.values) {
+            this.font.tables.stat.values = [];
+        }
+        
+        // Add a STAT value for the default position of this axis
+        // Format 1: single value for one axis
+        this.font.tables.stat.values.push({
+            format: 1,
+            axisIndex: axisIndex,
+            flags: 0x0002, // ELIDABLE_AXIS_VALUE_NAME - value can be omitted when constructing name
+            valueNameID: axisNameID, // Use axis name
+            value: defaultValue
         });
         
         // Initialize gvar if needed and deltaGenerator is provided
@@ -293,7 +310,53 @@ export class VariationManager {
         };
         
         fvar.instances.push(newInstance);
+        
+        // Ensure STAT table has values for all axis coordinates used by this instance
+        // This is required by Microsoft/fontspector ("fvar_STAT_axis_ranges" check)
+        this._ensureStatValuesForInstance(coordinates);
+        
         return newInstance;
+    }
+    
+    /**
+     * Ensure STAT table has axis values for all coordinates in an instance.
+     * @private
+     */
+    _ensureStatValuesForInstance(coordinates) {
+        if (!this.font.tables.stat) {
+            this.font.tables.stat = {
+                axes: [],
+                values: [],
+                elidedFallbackNameID: 2
+            };
+        }
+        
+        const stat = this.font.tables.stat;
+        if (!stat.values) stat.values = [];
+        
+        const fvar = this.font.tables.fvar;
+        
+        for (const axis of fvar.axes) {
+            const value = coordinates[axis.tag];
+            const axisIndex = fvar.axes.indexOf(axis);
+            
+            // Check if a STAT value already exists for this axis at this value
+            const existingValue = stat.values.find(v => 
+                v.axisIndex === axisIndex && v.value === value
+            );
+            
+            if (!existingValue) {
+                // Add a STAT value for this axis at this coordinate
+                // Use the axis nameID as the value name (simple approach)
+                stat.values.push({
+                    format: 1,
+                    axisIndex: axisIndex,
+                    flags: 0, // No special flags
+                    valueNameID: axis.axisNameID,
+                    value: value
+                });
+            }
+        }
     }
 
     /**

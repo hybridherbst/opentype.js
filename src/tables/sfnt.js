@@ -150,6 +150,11 @@ function average(vs) {
 // Convert the font object to a SFNT data structure.
 // This structure contains all the necessary tables and metadata to create a binary OTF file.
 function fontToSfntTable(font) {
+    // NOTE: Contour direction fixing is not done automatically during export
+    // as it can have unintended consequences for fonts with proper inner contours.
+    // Use sanitizeFontForGoogleFonts() or fixContourDirections() explicitly
+    // before export if needed.
+    
     const xMins = [];
     const yMins = [];
     const xMaxs = [];
@@ -207,13 +212,17 @@ function fontToSfntTable(font) {
         advanceWidths.push(glyph.advanceWidth);
     }
 
+    // OS/2 xAvgCharWidth should be average of all non-zero width glyphs (OpenType spec)
+    const nonZeroAdvanceWidths = advanceWidths.filter(w => w > 0);
+
     const globals = {
         xMin: xMins.length > 0 ? Math.min.apply(null, xMins) : 0,
         yMin: yMins.length > 0 ? Math.min.apply(null, yMins) : 0,
         xMax: xMaxs.length > 0 ? Math.max.apply(null, xMaxs) : 0,
         yMax: yMaxs.length > 0 ? Math.max.apply(null, yMaxs) : 0,
         advanceWidthMax: advanceWidths.length > 0 ? Math.max.apply(null, advanceWidths) : 0,
-        advanceWidthAvg: advanceWidths.length > 0 ? average(advanceWidths) : 0,
+        // xAvgCharWidth should be average of non-zero width glyphs only (per OpenType spec)
+        advanceWidthAvg: nonZeroAdvanceWidths.length > 0 ? average(nonZeroAdvanceWidths) : 0,
         minLeftSideBearing: leftSideBearings.length > 0 ? Math.min.apply(null, leftSideBearings) : 0,
         maxLeftSideBearing: leftSideBearings.length > 0 ? Math.max.apply(null, leftSideBearings) : 0,
         minRightSideBearing: rightSideBearings.length > 0 ? Math.min.apply(null, rightSideBearings) : 0
@@ -250,6 +259,8 @@ function fontToSfntTable(font) {
             fontRevision = major + minor / 1000;
         }
     }
+    // Convert fontRevision to 16.16 fixed-point format for FIXED encoding
+    const fontRevisionFixed = Math.round(fontRevision * 65536);
 
     const headTable = head.make({
         flags: 3, // 00000011 (baseline for font at y=0; left sidebearing point at x=0)
@@ -261,7 +272,7 @@ function fontToSfntTable(font) {
         lowestRecPPEM: 3,
         macStyle: macStyle,
         createdTimestamp: font.createdTimestamp,
-        fontRevision: fontRevision
+        fontRevision: fontRevisionFixed
     });
 
     const hheaTable = hhea.make({
@@ -286,7 +297,14 @@ function fontToSfntTable(font) {
 
     // OS/2 sTypo* metrics should match hhea to produce consistent linespacing
     // across Mac, GNU+Linux and Windows
-    const os2Table = os2.make(Object.assign({
+    // Note: We put font.tables.os2 FIRST so our calculated values override
+    // any existing values from the original font (e.g., sTypoLineGap must be 0)
+    // Preserve original fsType if defined, otherwise default to Print & Preview (bit 4 = 0x0004)
+    // Use !== undefined to also preserve fsType=0 (Installable embedding)
+    const existingFsType = font.tables.os2 && font.tables.os2.fsType;
+    const fsType = existingFsType !== undefined ? existingFsType : 0x0004;
+    
+    const os2Table = os2.make(Object.assign({}, font.tables.os2, {
         xAvgCharWidth: Math.round(globals.advanceWidthAvg),
         usFirstCharIndex: firstCharIndex,
         usLastCharIndex: lastCharIndex,
@@ -297,15 +315,16 @@ function fontToSfntTable(font) {
         // OS/2 sTypo* values match hhea values for consistent linespacing
         sTypoAscender: globals.ascender,
         sTypoDescender: globals.descender,
-        sTypoLineGap: 0, // hhea lineGap is 0
+        sTypoLineGap: 0, // hhea lineGap is 0 (Google Fonts requirement)
         usWinAscent: globals.yMax,
         usWinDescent: Math.abs(globals.yMin),
+        fsType: fsType, // Embedding permissions (Fontwerk requires bit 4)
         ulCodePageRange1: 1, // FIXME: hard-code Latin 1 support for now
         sxHeight: metricsForChar(font, 'xyvw', {yMax: Math.round(globals.ascender / 2)}).yMax,
         sCapHeight: metricsForChar(font, 'HIKLEFJMNTZBDPRAGOQSUVWXY', globals).yMax,
         usDefaultChar: font.hasChar(' ') ? 32 : 0, // Use space as the default character, if available.
         usBreakChar: font.hasChar(' ') ? 32 : 0, // Use space as the break character, if available.
-    }, font.tables.os2));
+    }));
 
     const hmtxTable = hmtx.make(font.glyphs);
     const cmapTable = cmap.make(font.glyphs);
@@ -405,6 +424,20 @@ function fontToSfntTable(font) {
 
     if (!names.windows.preferredSubfamily) {
         names.windows.preferredSubfamily = fontNamesWindows.fontSubfamily || fontNamesUnicode.fontSubfamily || fontNamesMacintosh.fontSubfamily;
+    }
+
+    // Ensure description (nameID 10) exists - required by some validators
+    if (!names.windows.description) {
+        names.windows.description = {en: englishFamilyName + ' font'};
+    }
+    
+    // For variable fonts, ensure variationsPostScriptNamePrefix (nameID 25) exists
+    // This is required by Google Fonts and should match the PostScript name prefix
+    const isVariableFont = font.tables.fvar && font.tables.fvar.axes && font.tables.fvar.axes.length > 0;
+    if (isVariableFont && !names.windows.variationsPostScriptNamePrefix) {
+        // Use the base PostScript name without style suffix as the prefix
+        const basePostScriptName = postScriptName.replace(/-(Regular|Bold|Italic|Light|Medium|Thin|Black|SemiBold|ExtraBold|ExtraLight|Hairline)$/i, '');
+        names.windows.variationsPostScriptNamePrefix = {en: basePostScriptName};
     }
 
     // No ltag table - it's an Apple AAT table not part of OpenType spec

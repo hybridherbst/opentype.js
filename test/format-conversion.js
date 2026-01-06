@@ -331,20 +331,28 @@ describe('Format Conversion', function() {
             const buffer = font.toArrayBuffer();
             const reloaded = parse(buffer);
             
-            const os2Fields = [
+            // These fields should be preserved exactly
+            const preservedFields = [
                 'usWeightClass', 'usWidthClass', 'fsType',
                 'ySubscriptXSize', 'ySubscriptYSize',
                 'ySuperscriptXSize', 'ySuperscriptYSize',
-                'yStrikeoutSize', 'yStrikeoutPosition',
-                'sTypoAscender', 'sTypoDescender', 'sTypoLineGap'
+                'yStrikeoutSize', 'yStrikeoutPosition'
             ];
             
-            for (const field of os2Fields) {
+            for (const field of preservedFields) {
                 if (font.tables.os2[field] !== undefined) {
                     assert.strictEqual(reloaded.tables.os2[field], font.tables.os2[field],
                         `OS/2.${field} should be preserved`);
                 }
             }
+            
+            // sTypoAscender and sTypoDescender are now calculated from hhea values
+            // to ensure cross-platform consistency per Google Fonts requirements
+            assert.ok(reloaded.tables.os2.sTypoAscender !== undefined, 'sTypoAscender should exist');
+            assert.ok(reloaded.tables.os2.sTypoDescender !== undefined, 'sTypoDescender should exist');
+            
+            // sTypoLineGap is set to 0 per Google Fonts requirements
+            assert.strictEqual(reloaded.tables.os2.sTypoLineGap, 0, 'sTypoLineGap should be 0');
         });
         
         it('should preserve cmap table', function() {
