@@ -383,6 +383,25 @@ Sets the variation coordinates to be used by default for rendering in the font's
 Gets the current variation settings from the font's default render options.
 * Returns: Object with the current variation settings.
 
+###### `Font.variation.addAxis(axisOptions)`
+Adds a new variation axis to the font, creating the fvar and gvar tables as needed. This enables creating variable fonts from static fonts or adding custom axes to existing variable fonts.
+* `axisOptions`: Object containing axis configuration:
+  * `tag`: Four-character axis tag (e.g., `'wght'`, `'wdth'`, or custom like `'SNAP'`)
+  * `name`: Human-readable name for the axis (e.g., `'Weight'`)
+  * `minValue`: Minimum value for the axis
+  * `defaultValue`: Default value for the axis
+  * `maxValue`: Maximum value for the axis
+  * `deltaGenerator`: Optional function `(glyph, font) => Array` that returns glyph variation data for each glyph when the axis is at maximum. Each array element should be `{ deltas: number[], deltasY: number[], peakTuple?: number[], privatePoints?: number[] }`.
+* Returns: The newly added axis object.
+* Note: Adding an axis with a `deltaGenerator` will convert CFF fonts to TrueType outlines (gvar requires TrueType).
+
+###### `Font.variation.addInstance(instanceOptions)`
+Adds a named instance (preset) to the font's fvar table.
+* `instanceOptions`: Object containing:
+  * `name`: Human-readable name (e.g., `'Bold'`, `'Light'`)
+  * `coordinates`: Object mapping axis tags to values (e.g., `{ wght: 700 }`)
+* Returns: The newly added instance object.
+
 
 ##### The `Font.variation.process` object (`VariationProcessor`)
 The `VariationProcessor` is a component of the `VariationManager`, used mainly internally for computing and applying variations to the glyphs in a variable font. It handles transformations and adjustments based on the font's variable axes and instances.
@@ -545,6 +564,25 @@ const path = Path.fromSVG('M0 0');
 * **Curve To**: Draw a bézier curve from the current position to the given coordinate. Example: `{type: 'C', x1: 0, y1: 50, x2: 100, y2: 200, x: 100, y: 200}`
 * **Quad To**: Draw a quadratic bézier curve from the current position to the given coordinate. Example: `{type: 'Q', x1: 0, y1: 50, x: 100, y: 200}`
 * **Close**: Close the path. If stroked, this will draw a line from the first to the last point of the contour. Example: `{type: 'Z'}`
+
+
+### Utility functions
+
+#### `opentype.pathToPoints(path, options)`
+Converts a Path object to TrueType glyph points (for use with the glyf table). Automatically converts cubic bézier curves (CFF/OpenType) to quadratic bézier curves (TrueType).
+* `path`: A Path object containing drawing commands.
+* `options`: Optional object:
+  * `tolerance`: Maximum error allowed when converting cubic to quadratic curves (default: `1`)
+* Returns: `{ points: Array, endPointIndices: Array }` where points are `{ x, y, onCurve }` objects.
+
+#### `opentype.cubicToQuadratics(x0, y0, x1, y1, x2, y2, x3, y3, tolerance)`
+Converts a single cubic bézier curve to a sequence of quadratic bézier curves using recursive subdivision.
+* `x0, y0`: Start point coordinates.
+* `x1, y1`: First control point coordinates.
+* `x2, y2`: Second control point coordinates.
+* `x3, y3`: End point coordinates.
+* `tolerance`: Maximum allowed approximation error (default: `1`).
+* Returns: Array of quadratic segments `{ cx, cy, x, y }` where `(cx, cy)` is the control point and `(x, y)` is the endpoint.
 
 
 ## Versioning
