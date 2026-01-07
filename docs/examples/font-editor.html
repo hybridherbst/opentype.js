@@ -156,6 +156,16 @@
             background: rgba(74, 158, 255, 0.15);
         }
 
+        .glyph-item.selected {
+            border-color: #ffb74d;
+            background: rgba(255, 183, 77, 0.15);
+        }
+
+        .glyph-item.selected.active {
+            border-color: var(--accent);
+            background: linear-gradient(135deg, rgba(74, 158, 255, 0.15), rgba(255, 183, 77, 0.15));
+        }
+
         .glyph-item svg {
             width: 50px;
             height: 50px;
@@ -859,6 +869,7 @@
             // Explicit glyph widths (advance widths). If not set, computed from rightmost point + 1
             glyphWidths: {},
             currentGlyph: 'A',
+            selectedGlyphs: new Set(), // Multi-select: glyphs selected for batch operations
             selectedShape: 0, // Index of currently selected shape within the glyph
             selectedPoint: -1,
             zoom: 20,
@@ -938,6 +949,9 @@
         function init() {
             resizeCanvases();
             window.addEventListener('resize', resizeCanvases);
+            
+            // Keyboard shortcuts
+            document.addEventListener('keydown', onKeyDown);
             
             // Editor canvas events - use pointer events for reliable drag handling
             editorCanvas.addEventListener('pointerdown', onEditorMouseDown);
@@ -1120,6 +1134,45 @@
                 }
             }
             return -1;
+        }
+
+        function onKeyDown(e) {
+            // Skip if we're in an input field
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+            
+            // Escape - clear multi-selection
+            if (e.key === 'Escape') {
+                if (state.selectedGlyphs.size > 0) {
+                    state.selectedGlyphs.clear();
+                    renderGlyphGrid();
+                }
+                return;
+            }
+            
+            // Ctrl/Cmd+A - select all glyphs (when not in input)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+                e.preventDefault();
+                const chars = Object.keys(state.glyphs);
+                for (const char of chars) {
+                    state.selectedGlyphs.add(char);
+                }
+                renderGlyphGrid();
+                return;
+            }
+            
+            // Delete or Backspace - delete selected point or glyphs
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (state.selectedGlyphs.size > 0) {
+                    e.preventDefault();
+                    deleteCurrentGlyph();
+                } else if (state.selectedPoint >= 0) {
+                    e.preventDefault();
+                    deleteSelectedPoint();
+                }
+                return;
+            }
         }
 
         function onEditorMouseDown(e) {
@@ -1702,7 +1755,12 @@
             glyphGrid.innerHTML = '';
             for (const [char, glyphData] of Object.entries(state.glyphs)) {
                 const item = document.createElement('div');
-                item.className = 'glyph-item' + (char === state.currentGlyph ? ' active' : '');
+                const isActive = char === state.currentGlyph;
+                const isSelected = state.selectedGlyphs.has(char);
+                let className = 'glyph-item';
+                if (isActive) className += ' active';
+                if (isSelected) className += ' selected';
+                item.className = className;
                 item.dataset.char = char;
 
                 const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1720,8 +1778,8 @@
                     }
                 }
                 path.setAttribute('d', d.trim());
-                path.setAttribute('fill', '#4a9eff');
-                path.setAttribute('stroke', '#6ab0ff');
+                path.setAttribute('fill', isSelected ? '#ffb74d' : '#4a9eff');
+                path.setAttribute('stroke', isSelected ? '#ffd54f' : '#6ab0ff');
                 path.setAttribute('stroke-width', '0.5');
                 path.setAttribute('fill-rule', 'nonzero');
                 svg.appendChild(path);
@@ -1731,12 +1789,40 @@
                 label.textContent = char;
                 item.appendChild(label);
 
-                item.addEventListener('click', () => selectGlyph(char));
+                item.addEventListener('click', (e) => selectGlyph(char, e));
                 glyphGrid.appendChild(item);
             }
+            updateDeleteButtonText();
         }
 
-        function selectGlyph(char) {
+        function selectGlyph(char, event) {
+            const isMultiSelect = event && (event.ctrlKey || event.metaKey);
+            const isShiftSelect = event && event.shiftKey;
+            
+            if (isMultiSelect) {
+                // Toggle selection for multi-select
+                if (state.selectedGlyphs.has(char)) {
+                    state.selectedGlyphs.delete(char);
+                } else {
+                    state.selectedGlyphs.add(char);
+                }
+            } else if (isShiftSelect && state.currentGlyph) {
+                // Range select from current to clicked
+                const chars = Object.keys(state.glyphs);
+                const startIdx = chars.indexOf(state.currentGlyph);
+                const endIdx = chars.indexOf(char);
+                if (startIdx !== -1 && endIdx !== -1) {
+                    const minIdx = Math.min(startIdx, endIdx);
+                    const maxIdx = Math.max(startIdx, endIdx);
+                    for (let i = minIdx; i <= maxIdx; i++) {
+                        state.selectedGlyphs.add(chars[i]);
+                    }
+                }
+            } else {
+                // Regular click - clear selection and set current
+                state.selectedGlyphs.clear();
+            }
+            
             state.currentGlyph = char;
             state.selectedPoint = -1;
             state.selectedShape = 0;
@@ -1745,6 +1831,16 @@
             renderGlyphGrid();
             updateShapeList();
             draw();
+        }
+        
+        function updateDeleteButtonText() {
+            const deleteBtn = document.getElementById('delete-glyph');
+            const count = state.selectedGlyphs.size;
+            if (count > 1) {
+                deleteBtn.textContent = `− Delete ${count} Glyphs`;
+            } else {
+                deleteBtn.textContent = '− Delete Glyph';
+            }
         }
         
         function updateWidthDisplay() {
@@ -1898,23 +1994,42 @@
 
         function deleteCurrentGlyph() {
             const chars = Object.keys(state.glyphs);
-            if (chars.length <= 1) {
-                alert('Cannot delete the last glyph');
+            
+            // Determine which glyphs to delete: selected glyphs, or just current
+            const glyphsToDelete = state.selectedGlyphs.size > 0 
+                ? Array.from(state.selectedGlyphs) 
+                : [state.currentGlyph];
+            
+            // Ensure we don't delete all glyphs
+            if (chars.length - glyphsToDelete.length < 1) {
+                alert('Cannot delete all glyphs - at least one glyph must remain');
                 return;
             }
             
-            if (!confirm(`Delete glyph "${state.currentGlyph}"?`)) {
+            const confirmMsg = glyphsToDelete.length === 1
+                ? `Delete glyph "${glyphsToDelete[0]}"?`
+                : `Delete ${glyphsToDelete.length} glyphs (${glyphsToDelete.slice(0, 5).join(', ')}${glyphsToDelete.length > 5 ? '...' : ''})?`;
+            
+            if (!confirm(confirmMsg)) {
                 return;
             }
             
-            delete state.glyphs[state.currentGlyph];
-            
-            // Also delete from all masters
-            if (state.vf.enabled) {
-                for (const master of state.vf.masters) {
-                    delete master.glyphs[state.currentGlyph];
+            // Delete each glyph
+            for (const char of glyphsToDelete) {
+                delete state.glyphs[char];
+                delete state.glyphWidths[char];
+                
+                // Also delete from all masters
+                if (state.vf.enabled) {
+                    for (const master of state.vf.masters) {
+                        if (master.glyphs) delete master.glyphs[char];
+                        if (master.glyphWidths) delete master.glyphWidths[char];
+                    }
                 }
             }
+            
+            // Clear selection
+            state.selectedGlyphs.clear();
             
             // Select first remaining glyph
             state.currentGlyph = Object.keys(state.glyphs)[0];

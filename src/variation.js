@@ -416,10 +416,12 @@ export class VariationManager {
         const gvar = font.tables.gvar;
         
         // Update existing shared tuples and glyph variations to account for the new axis
-        // by adding a 0 value for the new axis dimension
+        // by adding a 0 value for the new axis dimension (only if they're shorter than axisCount)
         if (gvar.sharedTuples) {
             for (const tuple of gvar.sharedTuples) {
-                tuple.push(0);
+                while (tuple.length < axisCount) {
+                    tuple.push(0);
+                }
             }
         }
         
@@ -428,13 +430,19 @@ export class VariationManager {
             if (variation && variation.headers) {
                 for (const header of variation.headers) {
                     if (header.peakTuple) {
-                        header.peakTuple.push(0);
+                        while (header.peakTuple.length < axisCount) {
+                            header.peakTuple.push(0);
+                        }
                     }
                     if (header.intermediateStartTuple) {
-                        header.intermediateStartTuple.push(0);
+                        while (header.intermediateStartTuple.length < axisCount) {
+                            header.intermediateStartTuple.push(0);
+                        }
                     }
                     if (header.intermediateEndTuple) {
-                        header.intermediateEndTuple.push(0);
+                        while (header.intermediateEndTuple.length < axisCount) {
+                            header.intermediateEndTuple.push(0);
+                        }
                     }
                 }
             }
