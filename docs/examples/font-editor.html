@@ -132,14 +132,27 @@
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 8px;
+            align-content: start; /* Align items to top, don't stretch */
         }
 
         .glyph-item {
-            aspect-ratio: 1;
+            width: 100%;
+            height: 0;
+            padding-bottom: 100%; /* Square aspect ratio using padding trick */
+            position: relative;
             background: var(--bg-tertiary);
             border: 2px solid transparent;
             border-radius: 6px;
             cursor: pointer;
+            box-sizing: border-box;
+        }
+        
+        .glyph-item-content {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -164,6 +177,24 @@
         .glyph-item.selected.active {
             border-color: var(--accent);
             background: linear-gradient(135deg, rgba(74, 158, 255, 0.15), rgba(255, 183, 77, 0.15));
+        }
+        
+        .glyph-item.fallback {
+            opacity: 0.35;
+            border-style: dashed;
+            border-color: var(--border);
+        }
+        
+        .glyph-item.fallback:hover {
+            opacity: 0.6;
+            border-color: var(--accent);
+        }
+        
+        .glyph-item.fallback .fallback-char {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-size: 32px;
+            color: var(--text-secondary);
+            line-height: 1;
         }
 
         .glyph-item svg {
@@ -1751,18 +1782,79 @@
             draw();
         }
 
+        // Google Fonts Latin character set (basic + extended)
+        const GOOGLE_FONTS_LATIN = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ ¡¢£¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ';
+        
+        // Map lowercase to uppercase for approximation from starter set
+        function getApproximationChar(char) {
+            // If we have the uppercase version, use that as approximation for lowercase
+            const upper = char.toUpperCase();
+            if (upper !== char && state.glyphs[upper]) {
+                return upper;
+            }
+            // For accented characters, try base character
+            const baseChars = {
+                'À': 'A', 'Á': 'A', 'Â': 'A', 'Ã': 'A', 'Ä': 'A', 'Å': 'A',
+                'È': 'E', 'É': 'E', 'Ê': 'E', 'Ë': 'E',
+                'Ì': 'I', 'Í': 'I', 'Î': 'I', 'Ï': 'I',
+                'Ò': 'O', 'Ó': 'O', 'Ô': 'O', 'Õ': 'O', 'Ö': 'O', 'Ø': 'O',
+                'Ù': 'U', 'Ú': 'U', 'Û': 'U', 'Ü': 'U',
+                'Ý': 'Y', 'Ñ': 'N', 'Ç': 'C', 'Ð': 'D', 'Þ': 'P',
+                'à': 'A', 'á': 'A', 'â': 'A', 'ã': 'A', 'ä': 'A', 'å': 'A',
+                'è': 'E', 'é': 'E', 'ê': 'E', 'ë': 'E',
+                'ì': 'I', 'í': 'I', 'î': 'I', 'ï': 'I',
+                'ò': 'O', 'ó': 'O', 'ô': 'O', 'õ': 'O', 'ö': 'O', 'ø': 'O',
+                'ù': 'U', 'ú': 'U', 'û': 'U', 'ü': 'U',
+                'ý': 'Y', 'ÿ': 'Y', 'ñ': 'N', 'ç': 'C', 'ð': 'D', 'þ': 'P',
+                'ß': 'B', 'æ': 'A', 'Æ': 'A', 'œ': 'O', 'Œ': 'O'
+            };
+            const base = baseChars[char];
+            if (base && state.glyphs[base]) return base;
+            return null;
+        }
+
         function renderGlyphGrid() {
             glyphGrid.innerHTML = '';
+            
+            // First, render existing glyphs
             for (const [char, glyphData] of Object.entries(state.glyphs)) {
-                const item = document.createElement('div');
-                const isActive = char === state.currentGlyph;
-                const isSelected = state.selectedGlyphs.has(char);
-                let className = 'glyph-item';
-                if (isActive) className += ' active';
-                if (isSelected) className += ' selected';
-                item.className = className;
-                item.dataset.char = char;
+                const item = createGlyphItem(char, glyphData, false);
+                glyphGrid.appendChild(item);
+            }
+            
+            // Then, render fallback characters from Google Fonts Latin set
+            for (const char of GOOGLE_FONTS_LATIN) {
+                if (state.glyphs[char]) continue; // Skip if already exists
+                if (char === ' ') continue; // Skip space
+                const item = createGlyphItem(char, null, true);
+                glyphGrid.appendChild(item);
+            }
+            
+            updateDeleteButtonText();
+        }
+        
+        function createGlyphItem(char, glyphData, isFallback) {
+            const item = document.createElement('div');
+            const isActive = char === state.currentGlyph;
+            const isSelected = state.selectedGlyphs.has(char);
+            let className = 'glyph-item';
+            if (isActive) className += ' active';
+            if (isSelected) className += ' selected';
+            if (isFallback) className += ' fallback';
+            item.className = className;
+            item.dataset.char = char;
+            
+            // Content wrapper for absolute positioning
+            const content = document.createElement('div');
+            content.className = 'glyph-item-content';
 
+            if (isFallback) {
+                // Show system font fallback character
+                const fallbackSpan = document.createElement('span');
+                fallbackSpan.className = 'fallback-char';
+                fallbackSpan.textContent = char;
+                content.appendChild(fallbackSpan);
+            } else {
                 const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
                 svg.setAttribute('viewBox', '-2 -2 14 14');
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -1783,16 +1875,60 @@
                 path.setAttribute('stroke-width', '0.5');
                 path.setAttribute('fill-rule', 'nonzero');
                 svg.appendChild(path);
-                item.appendChild(svg);
-
-                const label = document.createElement('span');
-                label.textContent = char;
-                item.appendChild(label);
-
-                item.addEventListener('click', (e) => selectGlyph(char, e));
-                glyphGrid.appendChild(item);
+                content.appendChild(svg);
             }
-            updateDeleteButtonText();
+
+            const label = document.createElement('span');
+            label.textContent = char;
+            content.appendChild(label);
+            
+            item.appendChild(content);
+
+            if (isFallback) {
+                // Double-click to create glyph from approximation
+                item.addEventListener('dblclick', () => createGlyphFromApproximation(char));
+                // Single click shows a tooltip or does nothing
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // Could show tooltip: "Double-click to create"
+                });
+            } else {
+                item.addEventListener('click', (e) => selectGlyph(char, e));
+            }
+            
+            return item;
+        }
+        
+        function createGlyphFromApproximation(char) {
+            const approxChar = getApproximationChar(char);
+            if (approxChar && state.glyphs[approxChar]) {
+                // Deep copy the approximation glyph
+                const sourceGlyph = state.glyphs[approxChar];
+                state.glyphs[char] = JSON.parse(JSON.stringify(sourceGlyph));
+                
+                // Also copy to all masters if VF is enabled
+                if (state.vf.enabled) {
+                    for (const master of state.vf.masters) {
+                        if (master.glyphs && master.glyphs[approxChar]) {
+                            master.glyphs[char] = JSON.parse(JSON.stringify(master.glyphs[approxChar]));
+                        }
+                    }
+                }
+            } else {
+                // Create default triangle glyph
+                state.glyphs[char] = [[[0, 0], [4, 10], [8, 0]]];
+                
+                if (state.vf.enabled) {
+                    for (const master of state.vf.masters) {
+                        if (master.glyphs) {
+                            master.glyphs[char] = [[[0, 0], [4, 10], [8, 0]]];
+                        }
+                    }
+                }
+            }
+            
+            selectGlyph(char);
+            renderGlyphGrid();
         }
 
         function selectGlyph(char, event) {
@@ -3596,131 +3732,199 @@
         }
 
         // Interpolation helpers for variable font preview
+        /**
+         * Multi-axis variable font interpolation - matches export behavior
+         * Uses additive delta approach: start from default, add scaled deltas per axis
+         */
         function interpolateGlyphs(coords) {
-            if (state.vf.masters.length < 2) {
+            if (!state.vf.enabled || state.vf.masters.length < 1) {
                 return { glyphs: state.glyphs, widths: state.glyphWidths };
             }
             
-            // Proper interval-based linear interpolation between masters
-            const resultGlyphs = {};
-            const resultWidths = {};
+            const axes = state.vf.axes;
+            const masters = state.vf.masters;
             
-            const axis = state.vf.axes[0];
-            if (!axis) {
-                const m = state.vf.masters[0];
-                return { 
-                    glyphs: m.glyphs, 
-                    widths: m.glyphWidths || state.glyphWidths 
-                };
+            if (axes.length === 0) {
+                const m = masters[0];
+                return { glyphs: m?.glyphs || state.glyphs, widths: m?.glyphWidths || state.glyphWidths };
             }
             
-            const targetVal = coords[axis.tag] ?? axis.defaultValue;
-            
-            // Sort masters by axis value (not distance!) for proper interval finding
-            const sortedMasters = [...state.vf.masters].sort((a, b) => {
-                const aVal = a.coords[axis.tag] ?? axis.defaultValue;
-                const bVal = b.coords[axis.tag] ?? axis.defaultValue;
-                return aVal - bVal;
-            });
-            
-            // Find the bracketing masters
-            let m1, m2;
-            
-            // Below minimum - extrapolate from first two masters
-            if (targetVal <= (sortedMasters[0].coords[axis.tag] ?? axis.defaultValue)) {
-                m1 = sortedMasters[0];
-                m2 = sortedMasters.length > 1 ? sortedMasters[1] : sortedMasters[0];
-            }
-            // Above maximum - extrapolate from last two masters
-            else if (targetVal >= (sortedMasters[sortedMasters.length - 1].coords[axis.tag] ?? axis.defaultValue)) {
-                m1 = sortedMasters.length > 1 ? sortedMasters[sortedMasters.length - 2] : sortedMasters[0];
-                m2 = sortedMasters[sortedMasters.length - 1];
-            }
-            // In between - find the interval containing targetVal
-            else {
-                for (let i = 0; i < sortedMasters.length - 1; i++) {
-                    const v1 = sortedMasters[i].coords[axis.tag] ?? axis.defaultValue;
-                    const v2 = sortedMasters[i + 1].coords[axis.tag] ?? axis.defaultValue;
-                    if (targetVal >= v1 && targetVal <= v2) {
-                        m1 = sortedMasters[i];
-                        m2 = sortedMasters[i + 1];
+            // Find the default master (all coords at default values)
+            let defaultMaster = masters[0];
+            for (const master of masters) {
+                let isDefault = true;
+                for (const axis of axes) {
+                    const v = master.coords[axis.tag];
+                    if (v !== undefined && v !== axis.defaultValue) {
+                        isDefault = false;
                         break;
                     }
                 }
-                // Fallback
-                if (!m1 || !m2) {
-                    m1 = sortedMasters[0];
-                    m2 = sortedMasters[sortedMasters.length - 1];
+                if (isDefault) {
+                    defaultMaster = master;
+                    break;
                 }
             }
             
-            const v1 = m1.coords[axis.tag] ?? axis.defaultValue;
-            const v2 = m2.coords[axis.tag] ?? axis.defaultValue;
+            // For each axis, find the min and max masters
+            const axisMasters = [];
+            for (let axisIdx = 0; axisIdx < axes.length; axisIdx++) {
+                const axis = axes[axisIdx];
+                let minMaster = null, maxMaster = null;
+                let minVal = axis.defaultValue, maxVal = axis.defaultValue;
+                
+                for (const master of masters) {
+                    const v = master.coords[axis.tag];
+                    if (v === undefined || v === axis.defaultValue) continue;
+                    
+                    // Check if this master only deviates on this axis (or is primarily for this axis)
+                    // For simplicity, we use any master that deviates on this axis
+                    if (v < axis.defaultValue && (minMaster === null || v < minVal)) {
+                        minMaster = master;
+                        minVal = v;
+                    }
+                    if (v > axis.defaultValue && (maxMaster === null || v > maxVal)) {
+                        maxMaster = master;
+                        maxVal = v;
+                    }
+                }
+                
+                axisMasters.push({ axis, minMaster, maxMaster, minVal, maxVal });
+            }
             
-            // Calculate interpolation factor (can be outside 0-1 for extrapolation)
-            const t = v1 === v2 ? 0 : (targetVal - v1) / (v2 - v1);
+            const resultGlyphs = {};
+            const resultWidths = {};
             
             for (const char of Object.keys(state.glyphs)) {
-                const p1 = m1.glyphs[char];
-                const p2 = m2.glyphs[char];
-                
-                if (!p1 || !p2) {
-                    resultGlyphs[char] = p1 || p2 || [];
-                    // Don't set explicit width - let it auto-calculate
+                const baseGlyph = defaultMaster.glyphs?.[char];
+                if (!baseGlyph) {
+                    resultGlyphs[char] = state.glyphs[char] || [];
                     continue;
                 }
                 
-                // Handle nested shape format
-                const shapes1 = flattenShapesToPoints(p1);
-                const shapes2 = flattenShapesToPoints(p2);
+                // Get base points (handle nested vs flat format)
+                const isNested = baseGlyph[0] && Array.isArray(baseGlyph[0]) && Array.isArray(baseGlyph[0][0]);
                 
-                if (shapes1.length !== shapes2.length) {
-                    resultGlyphs[char] = p1; // Can't interpolate different point counts
-                    // Don't set explicit width - let it auto-calculate
-                    continue;
-                }
-                
-                // Check if nested format
-                const isNested = p1[0] && Array.isArray(p1[0]) && Array.isArray(p1[0][0]);
-                
+                // Start with a deep copy of the base glyph
+                let resultGlyph;
                 if (isNested) {
-                    // Interpolate each shape
-                    const extrapolatedShapes = [];
-                    for (let shapeIdx = 0; shapeIdx < p1.length; shapeIdx++) {
-                        const shape1 = p1[shapeIdx];
-                        const shape2 = p2[shapeIdx];
-                        if (!shape1 || !shape2 || shape1.length !== shape2.length) {
-                            extrapolatedShapes.push(shape1 || shape2 || []);
-                        } else {
-                            const extrapolatedShape = shape1.map((pt, i) => [
-                                pt[0] + (shape2[i][0] - pt[0]) * t,
-                                pt[1] + (shape2[i][1] - pt[1]) * t
-                            ]);
-                            extrapolatedShapes.push(extrapolatedShape);
+                    resultGlyph = baseGlyph.map(shape => shape.map(pt => [pt[0], pt[1]]));
+                } else {
+                    resultGlyph = baseGlyph.map(pt => [pt[0], pt[1]]);
+                }
+                
+                // Track width delta
+                let widthDelta = 0;
+                const baseWidth = getGlyphWidth(baseGlyph, null, defaultMaster.glyphWidths?.[char]);
+                
+                // Apply deltas from each axis
+                for (const { axis, minMaster, maxMaster, minVal, maxVal } of axisMasters) {
+                    const targetVal = coords[axis.tag] ?? axis.defaultValue;
+                    
+                    // Calculate normalized position: -1 at min, 0 at default, +1 at max
+                    let normalizedPos = 0;
+                    if (targetVal < axis.defaultValue && minMaster) {
+                        // Moving toward min
+                        const range = axis.defaultValue - axis.minValue;
+                        const masterOffset = axis.defaultValue - minVal;
+                        if (range > 0 && masterOffset > 0) {
+                            // How far toward min are we (0 to 1 = default to minValue)
+                            const t = (axis.defaultValue - targetVal) / range;
+                            // Scale factor to adjust for master not being at axis min
+                            const scale = range / masterOffset;
+                            normalizedPos = -t * scale;
+                        }
+                    } else if (targetVal > axis.defaultValue && maxMaster) {
+                        // Moving toward max
+                        const range = axis.maxValue - axis.defaultValue;
+                        const masterOffset = maxVal - axis.defaultValue;
+                        if (range > 0 && masterOffset > 0) {
+                            const t = (targetVal - axis.defaultValue) / range;
+                            const scale = range / masterOffset;
+                            normalizedPos = t * scale;
+                        }
+                    } else if (targetVal < axis.defaultValue && !minMaster && maxMaster) {
+                        // No min master, but have max - mirror the max deltas
+                        const range = axis.defaultValue - axis.minValue;
+                        const masterOffset = maxVal - axis.defaultValue;
+                        if (range > 0 && masterOffset > 0) {
+                            const t = (axis.defaultValue - targetVal) / range;
+                            const scale = range / masterOffset;
+                            normalizedPos = -t * scale; // Negative = use negated max deltas
+                        }
+                    } else if (targetVal > axis.defaultValue && !maxMaster && minMaster) {
+                        // No max master, but have min - mirror the min deltas
+                        const range = axis.maxValue - axis.defaultValue;
+                        const masterOffset = axis.defaultValue - minVal;
+                        if (range > 0 && masterOffset > 0) {
+                            const t = (targetVal - axis.defaultValue) / range;
+                            const scale = range / masterOffset;
+                            normalizedPos = t * scale; // Positive = use negated min deltas
                         }
                     }
-                    resultGlyphs[char] = extrapolatedShapes;
-                } else {
-                    // Flat format - interpolate directly
-                    const extrapolatedPoints = p1.map((pt, i) => [
-                        pt[0] + (p2[i][0] - pt[0]) * t,
-                        pt[1] + (p2[i][1] - pt[1]) * t
-                    ]);
-                    resultGlyphs[char] = extrapolatedPoints;
+                    
+                    if (Math.abs(normalizedPos) < 0.0001) continue;
+                    
+                    // Get the contributing master
+                    let deltaMaster = null;
+                    let deltaSign = 1;
+                    
+                    if (normalizedPos < 0 && minMaster) {
+                        deltaMaster = minMaster;
+                        deltaSign = -normalizedPos; // Make positive
+                    } else if (normalizedPos > 0 && maxMaster) {
+                        deltaMaster = maxMaster;
+                        deltaSign = normalizedPos;
+                    } else if (normalizedPos < 0 && !minMaster && maxMaster) {
+                        // Mirror from max
+                        deltaMaster = maxMaster;
+                        deltaSign = normalizedPos; // Keep negative to invert deltas
+                    } else if (normalizedPos > 0 && !maxMaster && minMaster) {
+                        // Mirror from min
+                        deltaMaster = minMaster;
+                        deltaSign = -normalizedPos; // Negate to invert deltas
+                    }
+                    
+                    if (!deltaMaster) continue;
+                    
+                    const deltaGlyph = deltaMaster.glyphs?.[char];
+                    if (!deltaGlyph) continue;
+                    
+                    // Apply deltas
+                    if (isNested) {
+                        for (let shapeIdx = 0; shapeIdx < resultGlyph.length && shapeIdx < deltaGlyph.length; shapeIdx++) {
+                            const baseShape = defaultMaster.glyphs[char][shapeIdx];
+                            const deltaShape = deltaGlyph[shapeIdx];
+                            if (!baseShape || !deltaShape || baseShape.length !== deltaShape.length) continue;
+                            
+                            for (let ptIdx = 0; ptIdx < resultGlyph[shapeIdx].length && ptIdx < deltaShape.length; ptIdx++) {
+                                const dx = deltaShape[ptIdx][0] - baseShape[ptIdx][0];
+                                const dy = deltaShape[ptIdx][1] - baseShape[ptIdx][1];
+                                resultGlyph[shapeIdx][ptIdx][0] += dx * deltaSign;
+                                resultGlyph[shapeIdx][ptIdx][1] += dy * deltaSign;
+                            }
+                        }
+                    } else {
+                        const baseFlat = defaultMaster.glyphs[char];
+                        for (let ptIdx = 0; ptIdx < resultGlyph.length && ptIdx < deltaGlyph.length; ptIdx++) {
+                            const dx = deltaGlyph[ptIdx][0] - baseFlat[ptIdx][0];
+                            const dy = deltaGlyph[ptIdx][1] - baseFlat[ptIdx][1];
+                            resultGlyph[ptIdx][0] += dx * deltaSign;
+                            resultGlyph[ptIdx][1] += dy * deltaSign;
+                        }
+                    }
+                    
+                    // Width delta
+                    const deltaWidth = getGlyphWidth(deltaGlyph, null, deltaMaster.glyphWidths?.[char]);
+                    widthDelta += (deltaWidth - baseWidth) * deltaSign;
                 }
                 
-                // Width handling: only interpolate if BOTH masters have explicit overrides
-                // Otherwise, calculate from the extrapolated glyph bounds
-                const hasExplicitW1 = m1.glyphWidths && m1.glyphWidths[char] !== undefined;
-                const hasExplicitW2 = m2.glyphWidths && m2.glyphWidths[char] !== undefined;
+                resultGlyphs[char] = resultGlyph;
                 
-                if (hasExplicitW1 && hasExplicitW2) {
-                    // Both have explicit widths - interpolate them
-                    const w1 = m1.glyphWidths[char];
-                    const w2 = m2.glyphWidths[char];
-                    resultWidths[char] = w1 + (w2 - w1) * t;
+                // Only set explicit width if there's a meaningful delta
+                if (Math.abs(widthDelta) > 0.01) {
+                    resultWidths[char] = baseWidth + widthDelta;
                 }
-                // Otherwise, don't set explicit width - will be auto-calculated from extrapolated points
             }
             
             return { glyphs: resultGlyphs, widths: resultWidths };
