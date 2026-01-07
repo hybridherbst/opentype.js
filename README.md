@@ -76,6 +76,24 @@ If you plan on improving or debugging opentype.js, you can:
 - check if all still works fine with `npm run test`
 - commit and open a Pull Request with your changes. Thank you!
 
+## Testing
+
+Run tests with `npm test` (builds, runs mocha tests, validates fonts, lints).
+
+### Dependencies
+
+- **fonttools** (Python): Install via `pip install fonttools` or `brew install fonttools`
+- **ots-sanitize** (macOS): Located at `test/ots-9.2.0-macOS/ots-sanitize` (included)
+- **Node.js dependencies**: Run `npm install` to install mocha, esbuild, eslint
+
+### Test Coverage
+
+- Mocha unit tests (589+ tests)
+- Font export validation with fonttools
+- Font structure validation (maxp, hhea, head tables)
+- Static and variable font export tests
+- Code linting with ESLint
+
 ## Usage
 
 ### Loading a WOFF/OTF/TTF font

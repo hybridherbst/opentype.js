@@ -2901,7 +2901,8 @@
                     state.vf.masters.push({
                         name: 'Default',
                         coords: {},
-                        glyphs: JSON.parse(JSON.stringify(state.glyphs))
+                        glyphs: JSON.parse(JSON.stringify(state.glyphs)),
+                        glyphWidths: JSON.parse(JSON.stringify(state.glyphWidths))
                     });
                 }
                 updateVFUI();

@@ -1113,5 +1113,115 @@ describe('Font Editor API', () => {
                 }
             }
         });
+        
+        it('should correctly extrapolate width beyond defined masters', () => {
+            // Test case: masters at wght=100 and wght=400, axis goes to 900
+            // Width should extrapolate correctly (not clamp to 0)
+            const state = new FontEditorState({
+                familyName: 'Extrapolation Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add base glyph first (will become the default master)
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.setGlyphWidth('A', 10);
+            
+            // Define axis: wght 100-900, default 400
+            state.addAxis({ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 });
+            state.setVariableFontEnabled(true);
+            
+            // Light master at wght=100: narrow glyph (width 5)
+            state.addMaster('Light', { wght: 100 }, { 'A': [[0, 0], [5, 0], [5, 10], [0, 10]] }, { 'A': 5 });
+            
+            // Note: Default master at wght=400 is already created from addGlyph above
+            
+            // No master at 900, so extrapolation is needed
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+            
+            const glyphA = parsed.charToGlyph('A');
+            assert.ok(glyphA, 'Should find glyph A');
+            
+            // Width at wght=100: should be ~5 * scale
+            const width100 = parsed.variation.process.getTransform(glyphA, { wght: 100 }).advanceWidth;
+            
+            // Width at wght=400 (default): should be ~10 * scale
+            const width400 = parsed.variation.process.getTransform(glyphA, { wght: 400 }).advanceWidth;
+            
+            // Width at wght=900 (extrapolated): should be ~15 * scale (extrapolating the trend)
+            // From 100->400 (300 range), width goes 5->10 (delta of 5)
+            // From 400->900 (500 range), extrapolation should add 5 * (500/300) ≈ 8.33
+            // So width at 900 should be approximately 10 + 8.33 = 18.33 * scale
+            const width900 = parsed.variation.process.getTransform(glyphA, { wght: 900 }).advanceWidth;
+            
+            // The key assertion: width at 900 should be larger than width at 400 (not stuck or zero)
+            assert.ok(width900 > width400, `Width at wght=900 (${width900}) should be greater than at wght=400 (${width400})`);
+            
+            // Also check that width increases proportionally
+            // Delta from 100 to 400 should predict delta from 400 to 900
+            const delta100to400 = width400 - width100;
+            const expectedDelta400to900 = delta100to400 * (500 / 300); // proportional extrapolation
+            const actualDelta400to900 = width900 - width400;
+            
+            // Allow some tolerance for rounding
+            assert.ok(
+                Math.abs(actualDelta400to900 - expectedDelta400to900) < 100,
+                `Width should extrapolate proportionally: expected delta ~${expectedDelta400to900}, got ${actualDelta400to900}`
+            );
+        });
+        
+        it('should correctly extrapolate width when masters only on max side of default', () => {
+            // Test case: default=400, master at 700, axis goes to 100 and 900
+            // This tests extrapolation in the MIN direction (below default)
+            const state = new FontEditorState({
+                familyName: 'Max Side Extrapolation Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add base glyph at default width
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.setGlyphWidth('A', 10);
+            
+            // Define axis: wght 100-900, default 400
+            state.addAxis({ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 });
+            state.setVariableFontEnabled(true);
+            
+            // Bold master at wght=700: wider glyph (width 15)
+            // No light master, so extrapolation is needed for wght < 400
+            state.addMaster('Bold', { wght: 700 }, { 'A': [[0, 0], [15, 0], [15, 10], [0, 10]] }, { 'A': 15 });
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+            
+            const glyphA = parsed.charToGlyph('A');
+            assert.ok(glyphA, 'Should find glyph A');
+            
+            // Width at wght=700: should be ~15 * scale
+            const width700 = parsed.variation.process.getTransform(glyphA, { wght: 700 }).advanceWidth;
+            
+            // Width at wght=400 (default): should be ~10 * scale
+            const width400 = parsed.variation.process.getTransform(glyphA, { wght: 400 }).advanceWidth;
+            
+            // Width at wght=100 (extrapolated in min direction): should be less than 400
+            const width100 = parsed.variation.process.getTransform(glyphA, { wght: 100 }).advanceWidth;
+            
+            // Width at wght=900 (extrapolated in max direction): should be more than 700
+            const width900 = parsed.variation.process.getTransform(glyphA, { wght: 900 }).advanceWidth;
+            
+            // Key assertions
+            assert.ok(width100 < width400, `Width at wght=100 (${width100}) should be less than at wght=400 (${width400})`);
+            assert.ok(width900 > width700, `Width at wght=900 (${width900}) should be greater than at wght=700 (${width700})`);
+        });
     });
 });
