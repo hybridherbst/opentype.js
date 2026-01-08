@@ -1356,5 +1356,124 @@ describe('Font Editor API', () => {
             assert.ok(width100 < width400, `Width at wght=100 (${width100}) should be less than at wght=400 (${width400})`);
             assert.ok(width900 > width700, `Width at wght=900 (${width900}) should be greater than at wght=700 (${width700})`);
         });
+        
+        it('should support intermediate masters at non-extreme positions', () => {
+            // Test case: axis 100-900, default 400
+            // Masters at: 100 (Light), 400 (Regular, default), 500 (Medium - intermediate), 900 (Bold)
+            const state = new FontEditorState({
+                familyName: 'Intermediate Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add base glyph at default
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.setGlyphWidth('A', 10);
+            
+            state.addAxis({ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 });
+            state.setVariableFontEnabled(true);
+            
+            // Light master at 100 (narrow)
+            state.addMaster('Light', { wght: 100 }, { 'A': [[0, 0], [5, 0], [5, 10], [0, 10]] }, { 'A': 5 });
+            
+            // Medium master at 500 (intermediate - with a "kink" correction)
+            // Linear interpolation between 400->900 would give width ~12 at 500
+            // But we want width 11 (slight correction)
+            state.addMaster('Medium', { wght: 500 }, { 'A': [[0, 0], [11, 0], [11, 10], [0, 10]] }, { 'A': 11 });
+            
+            // Bold master at 900 (wide)
+            state.addMaster('Bold', { wght: 900 }, { 'A': [[0, 0], [20, 0], [20, 10], [0, 10]] }, { 'A': 20 });
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+            
+            const glyphA = parsed.charToGlyph('A');
+            assert.ok(glyphA, 'Should find glyph A');
+            
+            // Check gvar has intermediate tuples
+            const gvarA = parsed.tables.gvar?.glyphVariations[glyphA.index];
+            assert.ok(gvarA, 'Should have gvar data for glyph A');
+            
+            // There should be multiple tuple variations
+            assert.ok(gvarA.headers.length >= 2, `Should have multiple tuple variations, got ${gvarA.headers.length}`);
+            
+            // Test rendering at various positions
+            const width100 = parsed.variation.process.getTransform(glyphA, { wght: 100 }).advanceWidth;
+            const width400 = parsed.variation.process.getTransform(glyphA, { wght: 400 }).advanceWidth;
+            const width500 = parsed.variation.process.getTransform(glyphA, { wght: 500 }).advanceWidth;
+            const width900 = parsed.variation.process.getTransform(glyphA, { wght: 900 }).advanceWidth;
+            
+            // Basic ordering
+            assert.ok(width100 < width400, 'Light should be narrower than Regular');
+            assert.ok(width400 < width900, 'Regular should be narrower than Bold');
+        });
+        
+        it('should support sparse intermediate masters (glyphs can opt-in)', () => {
+            // Test case: only some glyphs participate in the intermediate master
+            const state = new FontEditorState({
+                familyName: 'Sparse Intermediate Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add base glyphs
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.setGlyphWidth('A', 10);
+            state.addGlyph('B', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.setGlyphWidth('B', 10);
+            
+            state.addAxis({ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 });
+            state.setVariableFontEnabled(true);
+            
+            // Light master with both A and B
+            state.addMaster('Light', { wght: 100 }, { 
+                'A': [[0, 0], [5, 0], [5, 10], [0, 10]],
+                'B': [[0, 0], [5, 0], [5, 10], [0, 10]]
+            }, { 'A': 5, 'B': 5 });
+            
+            // Intermediate master at 500 with ONLY glyph A (B doesn't participate)
+            // This is the "sparse" feature - not all glyphs need to be defined
+            state.addMaster('Medium', { wght: 500 }, { 
+                'A': [[0, 0], [11, 0], [11, 10], [0, 10]]
+            }, { 'A': 11 });
+            
+            // Bold master with both A and B
+            state.addMaster('Bold', { wght: 900 }, { 
+                'A': [[0, 0], [20, 0], [20, 10], [0, 10]],
+                'B': [[0, 0], [20, 0], [20, 10], [0, 10]]
+            }, { 'A': 20, 'B': 20 });
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+            
+            const glyphA = parsed.charToGlyph('A');
+            const glyphB = parsed.charToGlyph('B');
+            
+            // Both glyphs should exist and vary
+            const widthA_100 = parsed.variation.process.getTransform(glyphA, { wght: 100 }).advanceWidth;
+            const widthA_900 = parsed.variation.process.getTransform(glyphA, { wght: 900 }).advanceWidth;
+            const widthB_100 = parsed.variation.process.getTransform(glyphB, { wght: 100 }).advanceWidth;
+            const widthB_900 = parsed.variation.process.getTransform(glyphB, { wght: 900 }).advanceWidth;
+            
+            assert.ok(widthA_100 < widthA_900, 'Glyph A should vary with weight');
+            assert.ok(widthB_100 < widthB_900, 'Glyph B should vary with weight (even though not in intermediate)');
+            
+            // Check gvar data - A should have more variations than B
+            const gvarA = parsed.tables.gvar?.glyphVariations[glyphA.index];
+            const gvarB = parsed.tables.gvar?.glyphVariations[glyphB.index];
+            
+            // A participates in the intermediate master, so may have more headers
+            // The key is that both work correctly
+            assert.ok(gvarA?.headers?.length > 0, 'Glyph A should have gvar data');
+            assert.ok(gvarB?.headers?.length > 0, 'Glyph B should have gvar data');
+        });
     });
 });

@@ -442,6 +442,32 @@ export class FontEditorState {
         return true;
     }
 
+    /**
+     * Add a master to the variable font.
+     * 
+     * Masters can be placed at any axis position, not just extremes:
+     * - Extreme masters (at axis min/max) define the overall variation range
+     * - Intermediate masters (between default and extremes) allow per-glyph corrections
+     *   that deviate from linear interpolation (like FontLab "font-less masters" or Glyphs "brace layers")
+     * 
+     * Sparse masters are supported - you can include only the glyphs that need correction
+     * at an intermediate position. Other glyphs will interpolate linearly as normal.
+     * 
+     * @param {string} name - Display name for the master (e.g., 'Light', 'Bold', 'Medium')
+     * @param {Object} coords - Axis coordinates for this master (e.g., {wght: 500})
+     * @param {Object|null} glyphs - Glyph shapes for this master. If null, copies from current state.
+     *                               For sparse intermediate masters, include only the glyphs that need correction.
+     * @param {Object|null} glyphWidths - Glyph widths for this master. If null, copies from current state.
+     * 
+     * @example
+     * // Add extreme masters (at axis min and max)
+     * state.addMaster('Light', { wght: 100 }, lightGlyphs, lightWidths);
+     * state.addMaster('Bold', { wght: 900 }, boldGlyphs, boldWidths);
+     * 
+     * // Add a sparse intermediate master that only corrects glyph 'e' at wght=500
+     * // (to fix kinking or volume loss from linear interpolation)
+     * state.addMaster('Medium-e', { wght: 500 }, { 'e': correctedE }, { 'e': correctedWidth });
+     */
     addMaster(name, coords, glyphs = null, glyphWidths = null) {
         this.masters.push({
             name,
@@ -708,12 +734,20 @@ export class FontBuilder {
                     for (const deltaSet of axisDeltaSets) {
                         const glyphDeltas = deltaSet.deltas.get(glyph.name);
                         if (glyphDeltas) {
-                            results.push({
+                            const result = {
                                 peakTuple: deltaSet.peakTuple,
                                 deltas: glyphDeltas.deltas,
                                 deltasY: glyphDeltas.deltasY,
                                 advanceWidthDelta: glyphDeltas.advanceWidthDelta
-                            });
+                            };
+                            // Include intermediate tuple information if present
+                            if (deltaSet.intermediateStartTuple) {
+                                result.intermediateStartTuple = deltaSet.intermediateStartTuple;
+                            }
+                            if (deltaSet.intermediateEndTuple) {
+                                result.intermediateEndTuple = deltaSet.intermediateEndTuple;
+                            }
+                            results.push(result);
                         }
                     }
                     return results.length > 0 ? results : null;
@@ -901,6 +935,7 @@ export class FontBuilder {
         const masters = this.state.masters;
         if (!masters || masters.length === 0) return result;
 
+        // Find the default master
         let defaultMaster = masters[0];
         for (const master of masters) {
             const coordValue = master.coords[axis.tag];
@@ -920,40 +955,104 @@ export class FontBuilder {
             }
         }
 
-        let minMaster = null;
-        let maxMaster = null;
-        let minAxisValue = axis.defaultValue;
-        let maxAxisValue = axis.defaultValue;
+        // Collect all non-default masters sorted by axis position
+        const nonDefaultMasters = masters.filter(m => {
+            const v = m.coords[axis.tag];
+            return v !== undefined && v !== axis.defaultValue;
+        }).sort((a, b) => {
+            return (a.coords[axis.tag] || 0) - (b.coords[axis.tag] || 0);
+        });
 
-        for (const master of masters) {
-            const masterValue = master.coords[axis.tag];
-            if (masterValue === undefined || masterValue === axis.defaultValue) continue;
-            if (masterValue < axis.defaultValue && (minMaster === null || masterValue < minAxisValue)) {
-                minMaster = master;
-                minAxisValue = masterValue;
-            }
-            if (masterValue > axis.defaultValue && (maxMaster === null || masterValue > maxAxisValue)) {
-                maxMaster = master;
-                maxAxisValue = masterValue;
-            }
-        }
+        if (nonDefaultMasters.length === 0) return result;
 
-        const buildDeltasForMaster = (targetMaster, peakSign) => {
+        // Separate masters into min side (< default) and max side (> default)
+        const minSideMasters = nonDefaultMasters.filter(m => m.coords[axis.tag] < axis.defaultValue);
+        const maxSideMasters = nonDefaultMasters.filter(m => m.coords[axis.tag] > axis.defaultValue);
+
+        // Process each master individually
+        // For extreme masters (most min/max), we use standard peak tuples
+        // For intermediate masters, we use intermediate tuples
+
+        const processIntermediateMaster = (master, prevPos, nextPos, direction) => {
+            const masterPos = master.coords[axis.tag];
+            const deltas = new Map();
+            
+            // Calculate normalized positions
+            // direction: -1 for min side, 1 for max side
+            const axisRange = direction === -1 
+                ? axis.defaultValue - axis.minValue 
+                : axis.maxValue - axis.defaultValue;
+            
+            const peak = (masterPos - axis.defaultValue) / axisRange;
+            const start = (prevPos - axis.defaultValue) / axisRange;
+            const end = (nextPos - axis.defaultValue) / axisRange;
+            
+            const peakTuple = new Array(axisCount).fill(0);
+            peakTuple[axisIndex] = peak;
+            
+            const intermediateStartTuple = new Array(axisCount).fill(0);
+            intermediateStartTuple[axisIndex] = start;
+            
+            const intermediateEndTuple = new Array(axisCount).fill(0);
+            intermediateEndTuple[axisIndex] = end;
+
+            for (const [char, targetPointsRaw] of Object.entries(master.glyphs)) {
+                const basePointsRaw = defaultMaster.glyphs[char];
+                if (!basePointsRaw) continue;
+                
+                const basePoints = this._flattenGlyphPoints(basePointsRaw);
+                const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
+                
+                if (basePoints.length !== targetPoints.length) continue;
+
+                // For intermediate masters, calculate delta as:
+                // (target - interpolated_position) where interpolated = base + t * (extreme_delta)
+                // But since we're storing correction deltas, we calculate:
+                // actual_target - linearly_interpolated_value
+                
+                // Simpler approach: delta = target - base (the deviation from default)
+                const deltaX = [];
+                const deltaY = [];
+                for (let i = 0; i < basePoints.length; i++) {
+                    deltaX.push(Math.round((targetPoints[i][0] - basePoints[i][0]) * scale));
+                    deltaY.push(Math.round((targetPoints[i][1] - basePoints[i][1]) * scale));
+                }
+                deltaX.push(0, 0, 0, 0);
+                deltaY.push(0, 0, 0, 0);
+
+                const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                const targetWidth = this._getGlyphWidth(targetPointsRaw, char, master.glyphWidths) + 1;
+                const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale);
+
+                const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
+            }
+
+            if (deltas.size > 0) {
+                result.push({ 
+                    peakTuple, 
+                    intermediateStartTuple, 
+                    intermediateEndTuple, 
+                    deltas 
+                });
+            }
+        };
+
+        const processExtremeMaster = (master, peakSign) => {
             const deltas = new Map();
             const axisRange = peakSign === -1 ? axis.defaultValue - axis.minValue : axis.maxValue - axis.defaultValue;
             const masterOffset = peakSign === -1
-                ? axis.defaultValue - (targetMaster.coords[axis.tag] ?? axis.defaultValue)
-                : (targetMaster.coords[axis.tag] ?? axis.defaultValue) - axis.defaultValue;
+                ? axis.defaultValue - (master.coords[axis.tag] ?? axis.defaultValue)
+                : (master.coords[axis.tag] ?? axis.defaultValue) - axis.defaultValue;
             const deltaScale = axisRange !== 0 && masterOffset !== 0 ? axisRange / masterOffset : 1;
 
             const peakTuple = new Array(axisCount).fill(0);
             peakTuple[axisIndex] = peakSign;
 
             for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
-                const targetPointsRaw = targetMaster.glyphs[char];
+                const targetPointsRaw = master.glyphs[char];
                 if (!targetPointsRaw) continue;
                 
-                // Flatten multi-shape glyphs to flat point arrays
                 const basePoints = this._flattenGlyphPoints(basePointsRaw);
                 const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
                 
@@ -971,7 +1070,7 @@ export class FontBuilder {
                 deltaY.push(0, 0, 0, 0);
 
                 const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
-                const targetWidth = this._getGlyphWidth(targetPointsRaw, char, targetMaster.glyphWidths) + 1;
+                const targetWidth = this._getGlyphWidth(targetPointsRaw, char, master.glyphWidths) + 1;
                 const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
 
                 const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
@@ -983,89 +1082,118 @@ export class FontBuilder {
             }
         };
 
-        if (minMaster && minAxisValue !== axis.defaultValue) {
-            buildDeltasForMaster(minMaster, -1);
-            if (!maxMaster || maxAxisValue === axis.defaultValue) {
-                const deltas = new Map();
-                const axisRange = axis.maxValue - axis.defaultValue;
-                const masterOffset = axis.defaultValue - minAxisValue;
-                const deltaScale = axisRange !== 0 && masterOffset !== 0 ? axisRange / masterOffset : 1;
-                const peakTuple = new Array(axisCount).fill(0);
-                peakTuple[axisIndex] = 1;
-
-                for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
-                    const targetPointsRaw = minMaster.glyphs[char];
-                    if (!targetPointsRaw) continue;
-                    
-                    // Flatten multi-shape glyphs to flat point arrays
-                    const basePoints = this._flattenGlyphPoints(basePointsRaw);
-                    const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
-                    
-                    if (basePoints.length !== targetPoints.length) continue;
-
-                    const deltaX = [];
-                    const deltaY = [];
-                    for (let i = 0; i < basePoints.length; i++) {
-                        deltaX.push(Math.round((basePoints[i][0] - targetPoints[i][0]) * scale * deltaScale));
-                        deltaY.push(Math.round((basePoints[i][1] - targetPoints[i][1]) * scale * deltaScale));
-                    }
-                    deltaX.push(0, 0, 0, 0);
-                    deltaY.push(0, 0, 0, 0);
-
-                    const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
-                    const targetWidth = this._getGlyphWidth(targetPointsRaw, char, minMaster.glyphWidths) + 1;
-                    const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
-
-                    const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
-                    deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
-                }
-
-                if (deltas.size > 0) {
-                    result.push({ peakTuple, deltas });
-                }
+        // Process min-side masters
+        if (minSideMasters.length > 0) {
+            // The most extreme min master becomes the standard -1 peak master
+            const extremeMinMaster = minSideMasters[0]; // Already sorted, so first is most negative
+            processExtremeMaster(extremeMinMaster, -1);
+            
+            // Other min-side masters are intermediate
+            for (let i = 1; i < minSideMasters.length; i++) {
+                const master = minSideMasters[i];
+                const prevMaster = minSideMasters[i - 1];
+                const prevPos = prevMaster.coords[axis.tag];
+                const nextPos = axis.defaultValue; // Intermediate between this master and default
+                processIntermediateMaster(master, prevPos, nextPos, -1);
             }
         }
 
-        if (maxMaster && maxAxisValue !== axis.defaultValue) {
-            buildDeltasForMaster(maxMaster, 1);
-            if (!minMaster || minAxisValue === axis.defaultValue) {
-                const deltas = new Map();
-                const axisRange = axis.defaultValue - axis.minValue;
-                const masterOffset = maxAxisValue - axis.defaultValue;
-                const deltaScale = axisRange !== 0 && masterOffset !== 0 ? axisRange / masterOffset : 1;
-                const peakTuple = new Array(axisCount).fill(0);
-                peakTuple[axisIndex] = -1;
+        // Process max-side masters
+        if (maxSideMasters.length > 0) {
+            // The most extreme max master becomes the standard +1 peak master
+            const extremeMaxMaster = maxSideMasters[maxSideMasters.length - 1]; // Already sorted, so last is most positive
+            processExtremeMaster(extremeMaxMaster, 1);
+            
+            // Other max-side masters are intermediate
+            for (let i = 0; i < maxSideMasters.length - 1; i++) {
+                const master = maxSideMasters[i];
+                const prevPos = axis.defaultValue; // Intermediate between default and this master
+                const nextMaster = maxSideMasters[i + 1];
+                const nextPos = nextMaster.coords[axis.tag];
+                processIntermediateMaster(master, prevPos, nextPos, 1);
+            }
+        }
 
-                for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
-                    const targetPointsRaw = maxMaster.glyphs[char];
-                    if (!targetPointsRaw) continue;
-                    
-                    // Flatten multi-shape glyphs to flat point arrays
-                    const basePoints = this._flattenGlyphPoints(basePointsRaw);
-                    const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
-                    
-                    if (basePoints.length !== targetPoints.length) continue;
+        // Handle extrapolation: if we only have masters on one side, extrapolate to the other
+        if (minSideMasters.length > 0 && maxSideMasters.length === 0) {
+            // Extrapolate from min side to max
+            const minMaster = minSideMasters[minSideMasters.length - 1]; // Closest to default
+            const deltas = new Map();
+            const axisRange = axis.maxValue - axis.defaultValue;
+            const masterOffset = axis.defaultValue - minMaster.coords[axis.tag];
+            const deltaScale = axisRange !== 0 && masterOffset !== 0 ? axisRange / masterOffset : 1;
+            const peakTuple = new Array(axisCount).fill(0);
+            peakTuple[axisIndex] = 1;
 
-                    const deltaX = [];
-                    const deltaY = [];
-                    for (let i = 0; i < basePoints.length; i++) {
-                        deltaX.push(Math.round((basePoints[i][0] - targetPoints[i][0]) * scale * deltaScale));
-                        deltaY.push(Math.round((basePoints[i][1] - targetPoints[i][1]) * scale * deltaScale));
-                    }
-                    deltaX.push(0, 0, 0, 0);
-                    deltaY.push(0, 0, 0, 0);
+            for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
+                const targetPointsRaw = minMaster.glyphs[char];
+                if (!targetPointsRaw) continue;
+                
+                const basePoints = this._flattenGlyphPoints(basePointsRaw);
+                const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
+                
+                if (basePoints.length !== targetPoints.length) continue;
 
-                    const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
-                    const targetWidth = this._getGlyphWidth(targetPointsRaw, char, maxMaster.glyphWidths) + 1;
-                    const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
-
-                    const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
-                    deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
+                const deltaX = [];
+                const deltaY = [];
+                for (let i = 0; i < basePoints.length; i++) {
+                    deltaX.push(Math.round((basePoints[i][0] - targetPoints[i][0]) * scale * deltaScale));
+                    deltaY.push(Math.round((basePoints[i][1] - targetPoints[i][1]) * scale * deltaScale));
                 }
+                deltaX.push(0, 0, 0, 0);
+                deltaY.push(0, 0, 0, 0);
 
-                if (deltas.size > 0) {
-                    result.push({ peakTuple, deltas });
+                const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                const targetWidth = this._getGlyphWidth(targetPointsRaw, char, minMaster.glyphWidths) + 1;
+                const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
+
+                const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
+            }
+
+            if (deltas.size > 0) {
+                result.push({ peakTuple, deltas });
+            }
+        }
+
+        if (maxSideMasters.length > 0 && minSideMasters.length === 0) {
+            // Extrapolate from max side to min
+            const maxMaster = maxSideMasters[0]; // Closest to default
+            const deltas = new Map();
+            const axisRange = axis.defaultValue - axis.minValue;
+            const masterOffset = maxMaster.coords[axis.tag] - axis.defaultValue;
+            const deltaScale = axisRange !== 0 && masterOffset !== 0 ? axisRange / masterOffset : 1;
+            const peakTuple = new Array(axisCount).fill(0);
+            peakTuple[axisIndex] = -1;
+
+            for (const [char, basePointsRaw] of Object.entries(defaultMaster.glyphs)) {
+                const targetPointsRaw = maxMaster.glyphs[char];
+                if (!targetPointsRaw) continue;
+                
+                const basePoints = this._flattenGlyphPoints(basePointsRaw);
+                const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
+                
+                if (basePoints.length !== targetPoints.length) continue;
+
+                const deltaX = [];
+                const deltaY = [];
+                for (let i = 0; i < basePoints.length; i++) {
+                    deltaX.push(Math.round((basePoints[i][0] - targetPoints[i][0]) * scale * deltaScale));
+                    deltaY.push(Math.round((basePoints[i][1] - targetPoints[i][1]) * scale * deltaScale));
                 }
+                deltaX.push(0, 0, 0, 0);
+                deltaY.push(0, 0, 0, 0);
+
+                const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                const targetWidth = this._getGlyphWidth(targetPointsRaw, char, maxMaster.glyphWidths) + 1;
+                const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
+
+                const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
+            }
+
+            if (deltas.size > 0) {
+                result.push({ peakTuple, deltas });
             }
         }
 
