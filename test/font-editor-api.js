@@ -10,7 +10,10 @@ import {
     getCubicBezierExtremaX,
     getQuadBezierExtremaX,
     getPathBounds,
-    extractPathPoints
+    extractPathPoints,
+    applyAvarMapping,
+    normalizeAxisValue,
+    applyAvarToCoords
 } from '../docs/examples/font-editor-api.js';
 import * as opentype from '../src/opentype.js';
 
@@ -113,6 +116,136 @@ describe('Font Editor API', () => {
                 };
                 const points = extractPathPoints(path, 1000, 10);
                 assert.ok(points[0][0] < 500, 'Points should be scaled down');
+            });
+        });
+        
+        describe('avar Mapping Utilities', () => {
+            describe('normalizeAxisValue', () => {
+                const axis = { minValue: 100, defaultValue: 400, maxValue: 900 };
+                
+                it('should return 0 for default value', () => {
+                    assert.strictEqual(normalizeAxisValue(400, axis), 0);
+                });
+                
+                it('should return -1 for min value', () => {
+                    assert.strictEqual(normalizeAxisValue(100, axis), -1);
+                });
+                
+                it('should return 1 for max value', () => {
+                    assert.strictEqual(normalizeAxisValue(900, axis), 1);
+                });
+                
+                it('should interpolate correctly between default and min', () => {
+                    const result = normalizeAxisValue(250, axis);
+                    assert.ok(result < 0 && result > -1);
+                    assert.ok(Math.abs(result - (-0.5)) < 0.001);
+                });
+                
+                it('should interpolate correctly between default and max', () => {
+                    const result = normalizeAxisValue(650, axis);
+                    assert.ok(result > 0 && result < 1);
+                    assert.ok(Math.abs(result - 0.5) < 0.001);
+                });
+            });
+            
+            describe('applyAvarMapping', () => {
+                it('should return identity for empty segment maps', () => {
+                    assert.strictEqual(applyAvarMapping(0.5, []), 0.5);
+                    assert.strictEqual(applyAvarMapping(-0.5, null), -0.5);
+                });
+                
+                it('should return identity for linear mapping', () => {
+                    const linearMaps = [
+                        { fromCoordinate: -1, toCoordinate: -1 },
+                        { fromCoordinate: 0, toCoordinate: 0 },
+                        { fromCoordinate: 1, toCoordinate: 1 }
+                    ];
+                    assert.strictEqual(applyAvarMapping(0.5, linearMaps), 0.5);
+                    assert.strictEqual(applyAvarMapping(-0.5, linearMaps), -0.5);
+                    assert.strictEqual(applyAvarMapping(0, linearMaps), 0);
+                });
+                
+                it('should apply non-linear mapping', () => {
+                    // This mapping compresses the range: 0.5 -> 0.25
+                    const nonLinearMaps = [
+                        { fromCoordinate: -1, toCoordinate: -1 },
+                        { fromCoordinate: 0, toCoordinate: 0 },
+                        { fromCoordinate: 0.5, toCoordinate: 0.25 },
+                        { fromCoordinate: 1, toCoordinate: 1 }
+                    ];
+                    const result = applyAvarMapping(0.5, nonLinearMaps);
+                    assert.ok(Math.abs(result - 0.25) < 0.001);
+                });
+                
+                it('should interpolate within segments', () => {
+                    const maps = [
+                        { fromCoordinate: -1, toCoordinate: -1 },
+                        { fromCoordinate: 0, toCoordinate: 0 },
+                        { fromCoordinate: 1, toCoordinate: 0.5 }
+                    ];
+                    // At 0.5 input, should be halfway between 0 and 0.5 output = 0.25
+                    const result = applyAvarMapping(0.5, maps);
+                    assert.ok(Math.abs(result - 0.25) < 0.001);
+                });
+                
+                it('should handle dead zone mapping', () => {
+                    // This creates a "dead zone" where -0.5 to 0.5 all map to 0
+                    const deadZoneMaps = [
+                        { fromCoordinate: -1, toCoordinate: -1 },
+                        { fromCoordinate: -0.5, toCoordinate: 0 },
+                        { fromCoordinate: 0, toCoordinate: 0 },
+                        { fromCoordinate: 0.5, toCoordinate: 0 },
+                        { fromCoordinate: 1, toCoordinate: 1 }
+                    ];
+                    assert.strictEqual(applyAvarMapping(0, deadZoneMaps), 0);
+                    assert.strictEqual(applyAvarMapping(0.25, deadZoneMaps), 0);
+                    assert.strictEqual(applyAvarMapping(-0.25, deadZoneMaps), 0);
+                });
+            });
+            
+            describe('applyAvarToCoords', () => {
+                const axes = [
+                    { tag: 'wght', minValue: 100, defaultValue: 400, maxValue: 900 },
+                    { tag: 'wdth', minValue: 75, defaultValue: 100, maxValue: 125 }
+                ];
+                
+                it('should normalize coordinates without avar', () => {
+                    const coords = { wght: 650, wdth: 112.5 };
+                    const result = applyAvarToCoords(coords, axes, null);
+                    assert.ok(Math.abs(result.wght - 0.5) < 0.001);
+                    assert.ok(Math.abs(result.wdth - 0.5) < 0.001);
+                });
+                
+                it('should apply avar mapping per axis', () => {
+                    const coords = { wght: 650, wdth: 100 };
+                    const avarTable = {
+                        axisSegmentMaps: [
+                            { axisValueMaps: [
+                                { fromCoordinate: -1, toCoordinate: -1 },
+                                { fromCoordinate: 0, toCoordinate: 0 },
+                                { fromCoordinate: 0.5, toCoordinate: 0.75 },
+                                { fromCoordinate: 1, toCoordinate: 1 }
+                            ]},
+                            { axisValueMaps: [
+                                { fromCoordinate: -1, toCoordinate: -1 },
+                                { fromCoordinate: 0, toCoordinate: 0 },
+                                { fromCoordinate: 1, toCoordinate: 1 }
+                            ]}
+                        ]
+                    };
+                    const result = applyAvarToCoords(coords, axes, avarTable);
+                    // wght at 650 -> normalized 0.5 -> avar maps to 0.75
+                    assert.ok(Math.abs(result.wght - 0.75) < 0.001);
+                    // wdth at 100 -> normalized 0 -> avar maps to 0 (linear)
+                    assert.strictEqual(result.wdth, 0);
+                });
+                
+                it('should use default value for missing coordinates', () => {
+                    const coords = { wght: 400 }; // wdth missing
+                    const result = applyAvarToCoords(coords, axes, null);
+                    assert.strictEqual(result.wght, 0);
+                    assert.strictEqual(result.wdth, 0);
+                });
             });
         });
     });

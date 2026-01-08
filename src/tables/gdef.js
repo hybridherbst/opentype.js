@@ -57,6 +57,12 @@ function parseGDEFTable(data, start) {
     if (tableVersion >= 1.2) {
         gdef.markGlyphSets = p.parsePointer(markGlyphSets);
     }
+    // GDEF version 1.3 includes ItemVariationStore for GPOS/GSUB variations
+    if (tableVersion >= 1.3) {
+        gdef.itemVariationStore = p.parsePointer32(function() {
+            return this.parseItemVariationStore();
+        });
+    }
     return gdef;
 }
 export default { parse: parseGDEFTable };

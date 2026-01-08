@@ -58,8 +58,22 @@ describe('tables/gpos.js', function() {
             value: {
                 xPlacement: 80,             // 0x50
                 yAdvance: 210,              // 0xd2
-                xPlaDevice: undefined,      // not supported yet
-                yAdvDevice: undefined       // not supported yet
+                xPlaDeviceOffset: 24,       // 0x18
+                xPlaDevice: {
+                    type: 'device',
+                    startSize: 11,          // 0x0B
+                    endSize: 15,            // 0x0F
+                    deltaFormat: 1,         // 0x0001 - PPEM sizes only
+                    deltaValues: [1, 1, 1, 1, 1]  // 5 values for sizes 11-15
+                },
+                yAdvDeviceOffset: 32,       // 0x20
+                yAdvDevice: {
+                    type: 'device',
+                    startSize: 11,          // 0x0B
+                    endSize: 15,            // 0x0F
+                    deltaFormat: 1,         // 0x0001 - PPEM sizes only
+                    deltaValues: [1, 1, 1, 1, 1]  // 5 values for sizes 11-15
+                }
             }
         });
     });

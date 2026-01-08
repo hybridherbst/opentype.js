@@ -123,6 +123,24 @@
             border-bottom: 1px solid var(--border);
             font-weight: 500;
             color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .sidebar-header .filter-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 14px;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        
+        .sidebar-header .filter-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--accent);
         }
 
         .glyph-grid {
@@ -672,7 +690,10 @@
 
         <div class="main">
             <div class="sidebar">
-                <div class="sidebar-header">Glyphs</div>
+                <div class="sidebar-header">
+                    <span>Glyphs</span>
+                    <button class="filter-btn" id="glyph-filter-btn" title="Filter glyphs">☰</button>
+                </div>
                 <div class="glyph-grid" id="glyph-grid"></div>
             </div>
 
@@ -859,9 +880,21 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="glyph-filter-modal">
+        <div class="modal">
+            <h3>Glyph Filter</h3>
+            <div class="form-row">
+                <label><input type="checkbox" id="filter-show-undrawn" checked> Show undrawn glyphs</label>
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-primary" id="filter-close">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         import * as opentype from "/dist/opentype.module.js";
-        import { FontEditorState, FontBuilder, FontImporter } from "./font-editor-api.js";
+        import { FontEditorState, FontBuilder, FontImporter, applyAvarToCoords, normalizeAxisValue } from "./font-editor-api.js";
 
         // Make opentype available globally for API
         window.opentype = opentype;
@@ -921,7 +954,12 @@
                 masters: [], // [{name, coords: {tag: value}, glyphs: {...}, glyphWidths: {...}}]
                 instances: [], // [{name, coords: {tag: value}}]
                 currentMaster: 0, // Index of active master being edited
-                previewCoords: {} // Current preview position in design space
+                previewCoords: {}, // Current preview position in design space
+                avarTable: null // {axisSegmentMaps: [...]} for non-linear axis mapping
+            },
+            // Glyph grid filter state
+            glyphFilter: {
+                showUndrawn: true // Whether to show undrawn glyphs in the grid
             }
         };
         
@@ -1063,6 +1101,18 @@
             // Instance modal
             document.getElementById('instance-cancel').addEventListener('click', () => hideModal('instance-modal'));
             document.getElementById('instance-save').addEventListener('click', saveInstance);
+            
+            // Glyph filter modal
+            document.getElementById('glyph-filter-btn').addEventListener('click', () => {
+                // Sync checkbox with current state
+                document.getElementById('filter-show-undrawn').checked = state.glyphFilter.showUndrawn;
+                showModal('glyph-filter-modal');
+            });
+            document.getElementById('filter-show-undrawn').addEventListener('change', (e) => {
+                state.glyphFilter.showUndrawn = e.target.checked;
+                renderGlyphGrid();
+            });
+            document.getElementById('filter-close').addEventListener('click', () => hideModal('glyph-filter-modal'));
             
             // Close modals on overlay click
             document.querySelectorAll('.modal-overlay').forEach(el => {
@@ -1816,17 +1866,24 @@
         function renderGlyphGrid() {
             glyphGrid.innerHTML = '';
             
-            // First, render existing glyphs
-            for (const [char, glyphData] of Object.entries(state.glyphs)) {
-                const item = createGlyphItem(char, glyphData, false);
+            // Iterate in Google Fonts Latin order (preserving charset order)
+            for (const char of GOOGLE_FONTS_LATIN) {
+                if (char === ' ') continue; // Skip space
+                
+                const glyphData = state.glyphs[char];
+                const isDrawn = !!glyphData;
+                
+                // Apply filter: skip undrawn glyphs if filter is set to hide them
+                if (!isDrawn && !state.glyphFilter.showUndrawn) continue;
+                
+                const item = createGlyphItem(char, glyphData, !isDrawn);
                 glyphGrid.appendChild(item);
             }
             
-            // Then, render fallback characters from Google Fonts Latin set
-            for (const char of GOOGLE_FONTS_LATIN) {
-                if (state.glyphs[char]) continue; // Skip if already exists
-                if (char === ' ') continue; // Skip space
-                const item = createGlyphItem(char, null, true);
+            // Also show any custom glyphs not in the Google Fonts Latin set
+            for (const char of Object.keys(state.glyphs)) {
+                if (GOOGLE_FONTS_LATIN.includes(char)) continue; // Already rendered
+                const item = createGlyphItem(char, state.glyphs[char], false);
                 glyphGrid.appendChild(item);
             }
             
@@ -2633,7 +2690,8 @@
                     masters: state.vf.masters,
                     instances: state.vf.instances,
                     currentMaster: state.vf.currentMaster,
-                    previewCoords: state.vf.previewCoords
+                    previewCoords: state.vf.previewCoords,
+                    avarTable: state.vf.avarTable
                 }
             };
             const json = JSON.stringify(data, null, 2);
@@ -2674,6 +2732,7 @@
                     state.vf.instances = data.vf.instances || [];
                     state.vf.currentMaster = data.vf.currentMaster || 0;
                     state.vf.previewCoords = data.vf.previewCoords || {};
+                    state.vf.avarTable = data.vf.avarTable || null;
                 }
                 
                 state.selectedShape = 0;
@@ -2721,6 +2780,7 @@
                 glyphWidths: m.glyphWidths ? { ...m.glyphWidths } : {}
             }));
             apiState.instances = state.vf.instances.map(i => ({ name: i.name, coords: { ...i.coords } }));
+            apiState.avarTable = state.vf.avarTable;
 
             try {
                 const builder = new FontBuilder(apiState, opentype);
@@ -3749,6 +3809,10 @@
                 return { glyphs: m?.glyphs || state.glyphs, widths: m?.glyphWidths || state.glyphWidths };
             }
             
+            // Apply avar mapping to get normalized coordinates
+            // This matches what the font renderer does when rendering the exported VF
+            const normalizedCoords = applyAvarToCoords(coords, axes, state.vf.avarTable);
+            
             // Find the default master (all coords at default values)
             let defaultMaster = masters[0];
             for (const master of masters) {
@@ -3789,7 +3853,11 @@
                     }
                 }
                 
-                axisMasters.push({ axis, minMaster, maxMaster, minVal, maxVal });
+                // Calculate the normalized position of the master (for delta scaling)
+                const minMasterNorm = minMaster ? normalizeAxisValue(minVal, axis) : -1;
+                const maxMasterNorm = maxMaster ? normalizeAxisValue(maxVal, axis) : 1;
+                
+                axisMasters.push({ axis, axisIdx, minMaster, maxMaster, minVal, maxVal, minMasterNorm, maxMasterNorm });
             }
             
             const resultGlyphs = {};
@@ -3817,72 +3885,34 @@
                 let widthDelta = 0;
                 const baseWidth = getGlyphWidth(baseGlyph, null, defaultMaster.glyphWidths?.[char]);
                 
-                // Apply deltas from each axis
-                for (const { axis, minMaster, maxMaster, minVal, maxVal } of axisMasters) {
-                    const targetVal = coords[axis.tag] ?? axis.defaultValue;
-                    
-                    // Calculate normalized position: -1 at min, 0 at default, +1 at max
-                    let normalizedPos = 0;
-                    if (targetVal < axis.defaultValue && minMaster) {
-                        // Moving toward min
-                        const range = axis.defaultValue - axis.minValue;
-                        const masterOffset = axis.defaultValue - minVal;
-                        if (range > 0 && masterOffset > 0) {
-                            // How far toward min are we (0 to 1 = default to minValue)
-                            const t = (axis.defaultValue - targetVal) / range;
-                            // Scale factor to adjust for master not being at axis min
-                            const scale = range / masterOffset;
-                            normalizedPos = -t * scale;
-                        }
-                    } else if (targetVal > axis.defaultValue && maxMaster) {
-                        // Moving toward max
-                        const range = axis.maxValue - axis.defaultValue;
-                        const masterOffset = maxVal - axis.defaultValue;
-                        if (range > 0 && masterOffset > 0) {
-                            const t = (targetVal - axis.defaultValue) / range;
-                            const scale = range / masterOffset;
-                            normalizedPos = t * scale;
-                        }
-                    } else if (targetVal < axis.defaultValue && !minMaster && maxMaster) {
-                        // No min master, but have max - mirror the max deltas
-                        const range = axis.defaultValue - axis.minValue;
-                        const masterOffset = maxVal - axis.defaultValue;
-                        if (range > 0 && masterOffset > 0) {
-                            const t = (axis.defaultValue - targetVal) / range;
-                            const scale = range / masterOffset;
-                            normalizedPos = -t * scale; // Negative = use negated max deltas
-                        }
-                    } else if (targetVal > axis.defaultValue && !maxMaster && minMaster) {
-                        // No max master, but have min - mirror the min deltas
-                        const range = axis.maxValue - axis.defaultValue;
-                        const masterOffset = axis.defaultValue - minVal;
-                        if (range > 0 && masterOffset > 0) {
-                            const t = (targetVal - axis.defaultValue) / range;
-                            const scale = range / masterOffset;
-                            normalizedPos = t * scale; // Positive = use negated min deltas
-                        }
-                    }
+                // Apply deltas from each axis using avar-normalized coordinates
+                for (const { axis, axisIdx, minMaster, maxMaster, minVal, maxVal, minMasterNorm, maxMasterNorm } of axisMasters) {
+                    // Use the avar-normalized position for this axis
+                    const normalizedPos = normalizedCoords[axis.tag] || 0;
                     
                     if (Math.abs(normalizedPos) < 0.0001) continue;
                     
-                    // Get the contributing master
+                    // Get the contributing master based on direction of interpolation
                     let deltaMaster = null;
                     let deltaSign = 1;
                     
                     if (normalizedPos < 0 && minMaster) {
+                        // Moving toward min - use min master
                         deltaMaster = minMaster;
-                        deltaSign = -normalizedPos; // Make positive
+                        // Scale by how far we've moved relative to master position
+                        deltaSign = Math.abs(normalizedPos / minMasterNorm);
                     } else if (normalizedPos > 0 && maxMaster) {
+                        // Moving toward max - use max master  
                         deltaMaster = maxMaster;
-                        deltaSign = normalizedPos;
+                        deltaSign = normalizedPos / maxMasterNorm;
                     } else if (normalizedPos < 0 && !minMaster && maxMaster) {
-                        // Mirror from max
+                        // No min master, but have max - mirror the max deltas
                         deltaMaster = maxMaster;
-                        deltaSign = normalizedPos; // Keep negative to invert deltas
+                        deltaSign = -Math.abs(normalizedPos / maxMasterNorm);
                     } else if (normalizedPos > 0 && !maxMaster && minMaster) {
-                        // Mirror from min
+                        // No max master, but have min - mirror the min deltas
                         deltaMaster = minMaster;
-                        deltaSign = -normalizedPos; // Negate to invert deltas
+                        deltaSign = -normalizedPos / Math.abs(minMasterNorm);
                     }
                     
                     if (!deltaMaster) continue;

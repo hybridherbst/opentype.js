@@ -30,6 +30,7 @@ import './tables/gasp.js';
 import './tables/gdef.js';
 import './tables/glyf.js';
 import './tables/gpos.js';
+import './gpos-variations.js';
 import './tables/gsub.js';
 import './tables/gvar.js';
 import './tables/hvar.js';

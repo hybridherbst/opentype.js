@@ -406,8 +406,9 @@ Parser.prototype.parseStruct = function(description) {
  * Parse a GPOS valueRecord
  * https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#value-record
  * valueFormat is optional, if omitted it is read from the stream.
+ * parentTableOffset is optional, used for resolving Device/VariationIndex table offsets
  */
-Parser.prototype.parseValueRecord = function(valueFormat) {
+Parser.prototype.parseValueRecord = function(valueFormat, parentTableOffset) {
     if (valueFormat === undefined) {
         valueFormat = this.parseUShort();
     }
@@ -423,14 +424,115 @@ Parser.prototype.parseValueRecord = function(valueFormat) {
     if (valueFormat & 0x0004) { valueRecord.xAdvance = this.parseShort(); }
     if (valueFormat & 0x0008) { valueRecord.yAdvance = this.parseShort(); }
 
-    // Device table (non-variable font) / VariationIndex table (variable font) not supported
-    // https://docs.microsoft.com/fr-fr/typography/opentype/spec/chapter2#devVarIdxTbls
-    if (valueFormat & 0x0010) { valueRecord.xPlaDevice = undefined; this.parseShort(); }
-    if (valueFormat & 0x0020) { valueRecord.yPlaDevice = undefined; this.parseShort(); }
-    if (valueFormat & 0x0040) { valueRecord.xAdvDevice = undefined; this.parseShort(); }
-    if (valueFormat & 0x0080) { valueRecord.yAdvDevice = undefined; this.parseShort(); }
+    // Device table (non-variable font) / VariationIndex table (variable font)
+    // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#devVarIdxTbls
+    // Offsets are relative to the immediate parent table
+    if (valueFormat & 0x0010) { 
+        const offset = this.parseShort();
+        if (offset !== 0 && parentTableOffset !== undefined) {
+            valueRecord.xPlaDeviceOffset = offset;
+            valueRecord.xPlaDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
+        }
+    }
+    if (valueFormat & 0x0020) { 
+        const offset = this.parseShort();
+        if (offset !== 0 && parentTableOffset !== undefined) {
+            valueRecord.yPlaDeviceOffset = offset;
+            valueRecord.yPlaDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
+        }
+    }
+    if (valueFormat & 0x0040) { 
+        const offset = this.parseShort();
+        if (offset !== 0 && parentTableOffset !== undefined) {
+            valueRecord.xAdvDeviceOffset = offset;
+            valueRecord.xAdvDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
+        }
+    }
+    if (valueFormat & 0x0080) { 
+        const offset = this.parseShort();
+        if (offset !== 0 && parentTableOffset !== undefined) {
+            valueRecord.yAdvDeviceOffset = offset;
+            valueRecord.yAdvDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
+        }
+    }
 
     return valueRecord;
+};
+
+/**
+ * Parse a Device table or VariationIndex table
+ * https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#device-and-variationindex-tables
+ * @param {number} absoluteOffset - Absolute offset from start of font data
+ * @returns {Object} - Device table or VariationIndex table data
+ */
+Parser.prototype.parseDeviceOrVariationIndex = function(absoluteOffset) {
+    const savedOffset = this.offset;
+    const savedRelativeOffset = this.relativeOffset;
+    
+    this.offset = absoluteOffset;
+    this.relativeOffset = 0;
+    
+    const field1 = this.parseUShort();
+    const field2 = this.parseUShort();
+    const deltaFormat = this.parseUShort();
+    
+    let result;
+    
+    if (deltaFormat === 0x8000) {
+        // VariationIndex table
+        result = {
+            type: 'variationIndex',
+            deltaSetOuterIndex: field1,
+            deltaSetInnerIndex: field2,
+            deltaFormat: deltaFormat
+        };
+    } else if (deltaFormat >= 0x0001 && deltaFormat <= 0x0003) {
+        // Device table - parse the delta values
+        const startSize = field1;
+        const endSize = field2;
+        const deltaCount = endSize - startSize + 1;
+        
+        // Calculate how many uint16 values we need
+        let bitsPerDelta;
+        switch(deltaFormat) {
+            case 0x0001: bitsPerDelta = 2; break;
+            case 0x0002: bitsPerDelta = 4; break;
+            case 0x0003: bitsPerDelta = 8; break;
+        }
+        
+        const deltasPerUint16 = 16 / bitsPerDelta;
+        const numUint16s = Math.ceil(deltaCount / deltasPerUint16);
+        const deltaValues = [];
+        
+        for (let i = 0; i < numUint16s; i++) {
+            const packed = this.parseUShort();
+            for (let j = 0; j < deltasPerUint16 && deltaValues.length < deltaCount; j++) {
+                const shift = 16 - bitsPerDelta * (j + 1);
+                const mask = (1 << bitsPerDelta) - 1;
+                let delta = (packed >> shift) & mask;
+                // Sign extend
+                if (delta >= (1 << (bitsPerDelta - 1))) {
+                    delta -= (1 << bitsPerDelta);
+                }
+                deltaValues.push(delta);
+            }
+        }
+        
+        result = {
+            type: 'device',
+            startSize: startSize,
+            endSize: endSize,
+            deltaFormat: deltaFormat,
+            deltaValues: deltaValues
+        };
+    } else {
+        result = null;
+    }
+    
+    this.offset = savedOffset;
+    this.relativeOffset = savedRelativeOffset;
+    
+    return result;
 };
 
 /**

@@ -221,6 +221,95 @@ export function extractPathPoints(path, unitsPerEm, editorScale = 10) {
     return points;
 }
 
+/**
+ * Apply avar mapping to a normalized coordinate.
+ * The avar table defines piecewise linear mappings from user coordinates to internal coordinates.
+ * 
+ * @param {number} normalized - Normalized coordinate (-1 to 1)
+ * @param {Object[]} segmentMaps - Array of {fromCoordinate, toCoordinate} pairs
+ * @returns {number} Mapped coordinate
+ */
+export function applyAvarMapping(normalized, segmentMaps) {
+    if (!segmentMaps || segmentMaps.length === 0) {
+        return normalized; // No mapping, return identity
+    }
+    
+    // Find the segment containing the normalized value
+    for (let i = 0; i < segmentMaps.length - 1; i++) {
+        const current = segmentMaps[i];
+        const next = segmentMaps[i + 1];
+        
+        if (normalized >= current.fromCoordinate && normalized <= next.fromCoordinate) {
+            // Interpolate between the two points
+            const range = next.fromCoordinate - current.fromCoordinate;
+            if (Math.abs(range) < 0.0001) {
+                return current.toCoordinate;
+            }
+            const t = (normalized - current.fromCoordinate) / range;
+            return current.toCoordinate + t * (next.toCoordinate - current.toCoordinate);
+        }
+    }
+    
+    // Handle values outside the segment map range
+    if (normalized <= segmentMaps[0].fromCoordinate) {
+        return segmentMaps[0].toCoordinate;
+    }
+    if (normalized >= segmentMaps[segmentMaps.length - 1].fromCoordinate) {
+        return segmentMaps[segmentMaps.length - 1].toCoordinate;
+    }
+    
+    return normalized;
+}
+
+/**
+ * Normalize a user coordinate to the -1 to 1 range based on axis definition.
+ * 
+ * @param {number} userValue - User-space axis value
+ * @param {Object} axis - Axis definition with minValue, defaultValue, maxValue
+ * @returns {number} Normalized coordinate (-1 to 1)
+ */
+export function normalizeAxisValue(userValue, axis) {
+    if (userValue === axis.defaultValue) {
+        return 0;
+    } else if (userValue < axis.defaultValue) {
+        const range = axis.defaultValue - axis.minValue;
+        return range > 0 ? (userValue - axis.defaultValue) / range : 0;
+    } else {
+        const range = axis.maxValue - axis.defaultValue;
+        return range > 0 ? (userValue - axis.defaultValue) / range : 0;
+    }
+}
+
+/**
+ * Apply avar table to normalize coordinates for all axes.
+ * 
+ * @param {Object} coords - User-space coordinates {tag: value}
+ * @param {Object[]} axes - Axis definitions
+ * @param {Object} avarTable - avar table with axisSegmentMaps
+ * @returns {Object} Mapped normalized coordinates {tag: normalizedValue}
+ */
+export function applyAvarToCoords(coords, axes, avarTable) {
+    const result = {};
+    
+    for (let axisIndex = 0; axisIndex < axes.length; axisIndex++) {
+        const axis = axes[axisIndex];
+        const userValue = coords[axis.tag] ?? axis.defaultValue;
+        
+        // First, normalize to -1 to 1 range
+        let normalized = normalizeAxisValue(userValue, axis);
+        
+        // Then apply avar mapping if present
+        if (avarTable && avarTable.axisSegmentMaps && avarTable.axisSegmentMaps[axisIndex]) {
+            const segmentMaps = avarTable.axisSegmentMaps[axisIndex].axisValueMaps;
+            normalized = applyAvarMapping(normalized, segmentMaps);
+        }
+        
+        result[axis.tag] = normalized;
+    }
+    
+    return result;
+}
+
 // ============================================================================
 // Font Editor State
 // ============================================================================
@@ -242,6 +331,9 @@ export class FontEditorState {
         this.instances = [];
         this.currentMaster = 0;
         this.previewCoords = {};
+        // avar table for non-linear axis mapping: {axisSegmentMaps: [[{fromCoordinate, toCoordinate}...]...]}
+        // Each axis has an array of segment maps defining the piecewise linear mapping
+        this.avarTable = null;
     }
 
     addGlyph(char, points = [], width = undefined) {
@@ -390,7 +482,8 @@ export class FontEditorState {
             vfEnabled: this.vfEnabled,
             axes: this.axes,
             masters: this.masters,
-            instances: this.instances
+            instances: this.instances,
+            avarTable: this.avarTable
         };
     }
 
@@ -406,6 +499,7 @@ export class FontEditorState {
         this.axes = json.axes || [];
         this.masters = json.masters || [];
         this.instances = json.instances || [];
+        this.avarTable = json.avarTable || null;
         this.currentGlyph = Object.keys(this.glyphs)[0] || null;
         this.previewCoords = {};
         for (const axis of this.axes) {
@@ -637,6 +731,9 @@ export class FontBuilder {
         
         // Create STAT table for variable fonts (required by spec)
         this._createSTATTable(font, state);
+        
+        // Create avar table for non-linear axis mapping
+        this._createAvarTable(font, state);
     }
     
     /**
@@ -681,6 +778,101 @@ export class FontBuilder {
             axes: statAxes,
             values: statValues,
             elidedFallbackNameID: elidedFallbackNameID
+        };
+    }
+    
+    /**
+     * Create or copy avar table for non-linear axis mapping.
+     * 
+     * The avar table contains segment maps for each axis that define piecewise
+     * linear transformations from user-space to normalized coordinates.
+     * 
+     * For fonts with masters not at axis extremes, avar can be used to adjust
+     * the interpolation so that the master positions are correctly mapped.
+     * 
+     * @private
+     */
+    _createAvarTable(font, state) {
+        if (!state.axes || state.axes.length === 0) return;
+        
+        // If state already has an avar table (from import), use it
+        if (state.avarTable && state.avarTable.axisSegmentMaps) {
+            font.tables.avar = {
+                version: state.avarTable.version || [1, 0],
+                axisSegmentMaps: state.avarTable.axisSegmentMaps
+            };
+            return;
+        }
+        
+        // Generate avar from master positions
+        // For each axis, create segment maps that account for non-extremal master positions
+        const axisSegmentMaps = [];
+        
+        for (const axis of state.axes) {
+            const segmentMaps = [];
+            
+            // Required endpoints: -1 -> -1 and 1 -> 1
+            // Required origin: 0 -> 0
+            segmentMaps.push({ fromCoordinate: -1.0, toCoordinate: -1.0 });
+            
+            // Find master positions on this axis (excluding default)
+            const masterPositions = [];
+            for (const master of state.masters) {
+                const coord = master.coords[axis.tag];
+                if (coord !== undefined && coord !== axis.defaultValue) {
+                    masterPositions.push(coord);
+                }
+            }
+            
+            // If masters exist at non-extreme positions, add intermediate mappings
+            // This creates a piecewise linear avar that maps:
+            //   user coordinate at master -> normalized coordinate representing master's effect
+            
+            // Sort positions into negative (< default) and positive (> default)
+            const negPositions = masterPositions.filter(p => p < axis.defaultValue).sort((a, b) => a - b);
+            const posPositions = masterPositions.filter(p => p > axis.defaultValue).sort((a, b) => a - b);
+            
+            // For negative range: map master position to its normalized position
+            for (const pos of negPositions) {
+                // User-space normalized position (relative to axis range)
+                const userNorm = (pos - axis.defaultValue) / (axis.defaultValue - axis.minValue);
+                // For now, use identity mapping (linear) - masters at correct positions
+                // Future: could add non-linear mapping here for "easing"
+                segmentMaps.push({ 
+                    fromCoordinate: userNorm, 
+                    toCoordinate: userNorm 
+                });
+            }
+            
+            // Default position (0 -> 0)
+            segmentMaps.push({ fromCoordinate: 0.0, toCoordinate: 0.0 });
+            
+            // For positive range: map master position to its normalized position
+            for (const pos of posPositions) {
+                const userNorm = (pos - axis.defaultValue) / (axis.maxValue - axis.defaultValue);
+                segmentMaps.push({ 
+                    fromCoordinate: userNorm, 
+                    toCoordinate: userNorm 
+                });
+            }
+            
+            segmentMaps.push({ fromCoordinate: 1.0, toCoordinate: 1.0 });
+            
+            // Sort by fromCoordinate and remove duplicates
+            segmentMaps.sort((a, b) => a.fromCoordinate - b.fromCoordinate);
+            const dedupedMaps = [];
+            for (let i = 0; i < segmentMaps.length; i++) {
+                if (i === 0 || Math.abs(segmentMaps[i].fromCoordinate - segmentMaps[i-1].fromCoordinate) > 0.0001) {
+                    dedupedMaps.push(segmentMaps[i]);
+                }
+            }
+            
+            axisSegmentMaps.push({ axisValueMaps: dedupedMaps });
+        }
+        
+        font.tables.avar = {
+            version: [1, 0],
+            axisSegmentMaps: axisSegmentMaps
         };
     }
     
@@ -1049,6 +1241,19 @@ export class FontImporter {
             name: inst.name?.en || Object.values(inst.name)[0] || 'Instance',
             coords: inst.coordinates
         }));
+
+        // Import avar table if present (for non-linear axis mapping)
+        if (font.tables.avar && font.tables.avar.axisSegmentMaps) {
+            state.avarTable = {
+                version: font.tables.avar.version || [1, 0],
+                axisSegmentMaps: font.tables.avar.axisSegmentMaps.map(sm => ({
+                    axisValueMaps: (sm.axisValueMaps || []).map(m => ({
+                        fromCoordinate: m.fromCoordinate,
+                        toCoordinate: m.toCoordinate
+                    }))
+                }))
+            };
+        }
 
         for (const axis of state.axes) {
             state.previewCoords[axis.tag] = axis.defaultValue;

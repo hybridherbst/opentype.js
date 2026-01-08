@@ -10,54 +10,97 @@ const subtableParsers = new Array(10);         // subtableParsers[0] is unused
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-1-single-adjustment-positioning-subtable
 // this = Parser instance
 subtableParsers[1] = function parseLookup1() {
-    const start = this.offset + this.relativeOffset;
+    const subtableStart = this.offset + this.relativeOffset;
     const posformat = this.parseUShort();
     if (posformat === 1) {
+        const coverageOffset = this.parseOffset16();
+        const valueFormat = this.parseUShort();
         return {
             posFormat: 1,
-            coverage: this.parsePointer(Parser.coverage),
-            value: this.parseValueRecord()
+            coverage: coverageOffset > 0 ? new Parser(this.data, subtableStart + coverageOffset).parseStruct(Parser.coverage) : undefined,
+            value: this.parseValueRecord(valueFormat, subtableStart)
         };
     } else if (posformat === 2) {
+        const coverageOffset = this.parseOffset16();
+        const valueFormat = this.parseUShort();
+        const valueCount = this.parseUShort();
+        const values = new Array(valueCount);
+        for (let i = 0; i < valueCount; i++) {
+            values[i] = this.parseValueRecord(valueFormat, subtableStart);
+        }
         return {
             posFormat: 2,
-            coverage: this.parsePointer(Parser.coverage),
-            values: this.parseValueRecordList()
+            coverage: coverageOffset > 0 ? new Parser(this.data, subtableStart + coverageOffset).parseStruct(Parser.coverage) : undefined,
+            values: values
         };
     }
-    check.assert(false, '0x' + start.toString(16) + ': GPOS lookup type 1 format must be 1 or 2.');
+    check.assert(false, '0x' + subtableStart.toString(16) + ': GPOS lookup type 1 format must be 1 or 2.');
 };
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-2-pair-adjustment-positioning-subtable
 subtableParsers[2] = function parseLookup2() {
-    const start = this.offset + this.relativeOffset;
+    const subtableStart = this.offset + this.relativeOffset;
     const posFormat = this.parseUShort();
-    check.assert(posFormat === 1 || posFormat === 2, '0x' + start.toString(16) + ': GPOS lookup type 2 format must be 1 or 2.');
-    const coverage = this.parsePointer(Parser.coverage);
+    check.assert(posFormat === 1 || posFormat === 2, '0x' + subtableStart.toString(16) + ': GPOS lookup type 2 format must be 1 or 2.');
+    const coverageOffset = this.parseOffset16();
+    const coverage = coverageOffset > 0 ? new Parser(this.data, subtableStart + coverageOffset).parseStruct(Parser.coverage) : undefined;
     const valueFormat1 = this.parseUShort();
     const valueFormat2 = this.parseUShort();
     if (posFormat === 1) {
-        // Adjustments for Glyph Pairs
+        // Adjustments for Glyph Pairs - PairPosFormat1
+        // For Format 1, Device/VariationIndex offsets are relative to PairSet table
+        const pairSetCount = this.parseUShort();
+        const pairSetOffsets = [];
+        for (let i = 0; i < pairSetCount; i++) {
+            pairSetOffsets.push(this.parseOffset16());
+        }
+        const pairSets = [];
+        for (let i = 0; i < pairSetCount; i++) {
+            if (pairSetOffsets[i] === 0) {
+                pairSets.push(null);
+                continue;
+            }
+            const pairSetStart = subtableStart + pairSetOffsets[i];
+            const pairSetParser = new Parser(this.data, pairSetStart);
+            const pairValueCount = pairSetParser.parseUShort();
+            const pairValues = [];
+            for (let j = 0; j < pairValueCount; j++) {
+                pairValues.push({
+                    secondGlyph: pairSetParser.parseUShort(),
+                    value1: pairSetParser.parseValueRecord(valueFormat1, pairSetStart),
+                    value2: pairSetParser.parseValueRecord(valueFormat2, pairSetStart)
+                });
+            }
+            pairSets.push(pairValues);
+        }
         return {
             posFormat: posFormat,
             coverage: coverage,
             valueFormat1: valueFormat1,
             valueFormat2: valueFormat2,
-            pairSets: this.parseList(Parser.pointer(Parser.list(function() {
-                return {        // pairValueRecord
-                    secondGlyph: this.parseUShort(),
-                    value1: this.parseValueRecord(valueFormat1),
-                    value2: this.parseValueRecord(valueFormat2)
-                };
-            })))
+            pairSets: pairSets
         };
     } else if (posFormat === 2) {
-        const classDef1 = this.parsePointer(Parser.classDef);
-        const classDef2 = this.parsePointer(Parser.classDef);
+        // Class Pair Adjustment - PairPosFormat2
+        // For Format 2, Device/VariationIndex offsets are relative to the subtable
+        const classDef1Offset = this.parseOffset16();
+        const classDef2Offset = this.parseOffset16();
+        const classDef1 = classDef1Offset > 0 ? new Parser(this.data, subtableStart + classDef1Offset).parseStruct(Parser.classDef) : undefined;
+        const classDef2 = classDef2Offset > 0 ? new Parser(this.data, subtableStart + classDef2Offset).parseStruct(Parser.classDef) : undefined;
         const class1Count = this.parseUShort();
         const class2Count = this.parseUShort();
+        const classRecords = [];
+        for (let i = 0; i < class1Count; i++) {
+            const class2Records = [];
+            for (let j = 0; j < class2Count; j++) {
+                class2Records.push({
+                    value1: this.parseValueRecord(valueFormat1, subtableStart),
+                    value2: this.parseValueRecord(valueFormat2, subtableStart)
+                });
+            }
+            classRecords.push(class2Records);
+        }
         return {
-            // Class Pair Adjustment
             posFormat: posFormat,
             coverage: coverage,
             valueFormat1: valueFormat1,
@@ -66,12 +109,7 @@ subtableParsers[2] = function parseLookup2() {
             classDef2: classDef2,
             class1Count: class1Count,
             class2Count: class2Count,
-            classRecords: this.parseList(class1Count, Parser.list(class2Count, function() {
-                return {
-                    value1: this.parseValueRecord(valueFormat1),
-                    value2: this.parseValueRecord(valueFormat2)
-                };
-            }))
+            classRecords: classRecords
         };
     }
 };
