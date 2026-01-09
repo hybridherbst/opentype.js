@@ -16,6 +16,7 @@ import {
     applyAvarToCoords
 } from '../docs/examples/font-editor-api.js';
 import * as opentype from '../src/opentype.js';
+import { readFileSync } from 'fs';
 
 describe('Font Editor API', () => {
     
@@ -514,6 +515,400 @@ describe('Font Editor API', () => {
             assert.ok(font.tables.fvar.instances.length >= 1);
             const instanceNames = font.tables.fvar.instances.map(i => i.name?.en || Object.values(i.name)[0]);
             assert.ok(instanceNames.includes('Regular'), 'Should have Regular instance');
+        });
+    });
+    
+    describe('FontBuilder with Composite Glyphs', () => {
+        it('should create actual composite glyphs (not flattened)', () => {
+            const state = new FontEditorState({
+                familyName: 'Composite Test',
+                styleName: 'Regular'
+            });
+            
+            // Create a component glyph
+            state.addGlyph('_stem', [[0, 0], [2, 0], [2, 10], [0, 10]]);
+            
+            // Create a glyph that only references the component (no own shapes)
+            state.addGlyph('I', []);  // Empty - no own shapes
+            // Add reference directly to state (no addGlyphReference method yet)
+            state.glyphReferences['I'] = [{
+                name: '_stem',
+                dx: 1,
+                dy: 0,
+                scaleX: 1,
+                scaleY: 1,
+                rotation: 0,
+                skewX: 0,
+                skewY: 0
+            }];
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ useComposites: true });
+            
+            // Find the 'I' glyph
+            let iGlyph = null;
+            for (let i = 0; i < font.glyphs.length; i++) {
+                if (font.glyphs.get(i).name === 'I') {
+                    iGlyph = font.glyphs.get(i);
+                    break;
+                }
+            }
+            
+            assert.ok(iGlyph, 'Should have I glyph');
+            assert.strictEqual(iGlyph.isComposite, true, 'I glyph should be composite');
+            assert.ok(iGlyph.components && iGlyph.components.length > 0, 'I glyph should have components');
+        });
+        
+        it('should preserve composite glyphs after export/import round-trip', () => {
+            const state = new FontEditorState({
+                familyName: 'Composite Test',
+                styleName: 'Regular'
+            });
+            
+            // Create a component glyph
+            state.addGlyph('_stem', [[0, 0], [2, 0], [2, 10], [0, 10]]);
+            
+            // Create a glyph that only references the component
+            state.addGlyph('I', []);
+            // Add reference directly to state
+            state.glyphReferences['I'] = [{
+                name: '_stem',
+                dx: 0,
+                dy: 0,
+                scaleX: 1,
+                scaleY: 1
+            }];
+            
+            const builder = new FontBuilder(state, opentype);
+            const buffer = builder.toArrayBuffer();
+            
+            // Re-parse the font
+            const parsedFont = opentype.parse(buffer);
+            
+            // Find the 'I' glyph in the parsed font and force loading
+            let iGlyph = null;
+            for (let i = 0; i < parsedFont.glyphs.length; i++) {
+                const g = parsedFont.glyphs.get(i);
+                try { g.getPath(); } catch (e) { /* ignore */ }
+                if (g.unicode === 'I'.charCodeAt(0)) {
+                    iGlyph = g;
+                    break;
+                }
+            }
+            
+            assert.ok(iGlyph, 'Should have I glyph in parsed font');
+            assert.strictEqual(iGlyph.isComposite, true, 'I glyph should be composite after round-trip');
+            assert.strictEqual(iGlyph.numberOfContours, -1, 'Composite glyph should have numberOfContours = -1');
+            assert.ok(iGlyph.components && iGlyph.components.length > 0, 'Should have components after round-trip');
+        });
+        
+        it('should set outlinesFormat to truetype for TrueType export', () => {
+            const state = new FontEditorState({
+                familyName: 'Test Font',
+                styleName: 'Regular'
+            });
+            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build();
+            
+            assert.strictEqual(font.outlinesFormat, 'truetype', 'Font should have truetype outlinesFormat');
+        });
+    });
+    
+    describe('FontBuilder with VF Composite Glyphs', () => {
+        it('should include component glyphs in VF export', () => {
+            const state = new FontEditorState({
+                familyName: 'VF Composite Test',
+                styleName: 'Variable'
+            });
+            
+            // Create a component glyph
+            state.addGlyph('_stem', [[0, 0], [2, 0], [2, 10], [0, 10]]);
+            
+            // Create a glyph that only references the component
+            state.addGlyph('I', []);
+            state.glyphReferences['I'] = [{
+                name: '_stem',
+                dx: 1,
+                dy: 0,
+                scaleX: 1,
+                scaleY: 1
+            }];
+            
+            // Add variation axis and masters
+            state.addAxis({
+                tag: 'wght',
+                name: 'Weight',
+                minValue: 100,
+                defaultValue: 400,
+                maxValue: 900
+            });
+            state.setVariableFontEnabled(true);
+            
+            // Add bold master with thicker component
+            state.addMaster('Bold', { wght: 900 }, {
+                '_stem': [[0, 0], [4, 0], [4, 10], [0, 10]],
+                'I': []
+            });
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ useComposites: true });
+            
+            // Check that both component and composite glyph exist
+            let hasComponent = false;
+            let hasComposite = false;
+            for (let i = 0; i < font.glyphs.length; i++) {
+                const g = font.glyphs.get(i);
+                if (g.name === '_stem') hasComponent = true;
+                if (g.name === 'I') {
+                    hasComposite = true;
+                    // Check it's actually a composite
+                    assert.strictEqual(g.isComposite, true, 'I should be composite');
+                }
+            }
+            
+            assert.ok(hasComponent, 'Should have _stem component glyph');
+            assert.ok(hasComposite, 'Should have I composite glyph');
+        });
+        
+        it('should export VF with component and correctly structure variation data', () => {
+            const state = new FontEditorState({
+                familyName: 'VF Composite Test',
+                styleName: 'Variable'
+            });
+            
+            // Create component and glyph with reference
+            state.addGlyph('_stem', [[0, 0], [2, 0], [2, 10], [0, 10]]);
+            state.addGlyph('I', []);
+            state.glyphReferences['I'] = [{
+                name: '_stem',
+                dx: 0,
+                dy: 0,
+                scaleX: 1,
+                scaleY: 1
+            }];
+            
+            state.addAxis({
+                tag: 'wght',
+                name: 'Weight',
+                minValue: 100,
+                defaultValue: 400,
+                maxValue: 900
+            });
+            state.setVariableFontEnabled(true);
+            state.addMaster('Bold', { wght: 900 }, {
+                '_stem': [[0, 0], [4, 0], [4, 10], [0, 10]],
+                'I': []
+            });
+            
+            const builder = new FontBuilder(state, opentype);
+            const buffer = builder.toArrayBuffer();
+            
+            // Re-parse and verify structure
+            const font = opentype.parse(buffer);
+            
+            assert.ok(font.tables.fvar, 'Should have fvar table');
+            assert.ok(font.tables.gvar, 'Should have gvar table for variation');
+            
+            // The component glyph should have variation data in gvar
+            // (the composite glyph uses the component, so variation is in component)
+        });
+    });
+    
+    describe('FontBuilder with Shapes AND References', () => {
+        it('should create synthetic component when glyph has both shapes and references', () => {
+            const state = new FontEditorState({
+                familyName: 'Mixed Glyph Test',
+                styleName: 'Regular'
+            });
+            
+            // Create a component glyph (e.g., a dot/diacritic)
+            state.addGlyph('_dot', [[4, 8], [5, 8], [5, 9], [4, 9]]);
+            
+            // Create 'i' with its own shapes (stem) AND a reference to the dot
+            state.addGlyph('i', [[2, 0], [4, 0], [4, 6], [2, 6]]); // stem shape
+            state.glyphReferences['i'] = [{
+                name: '_dot',
+                dx: 0,
+                dy: 0,
+                scaleX: 1,
+                scaleY: 1
+            }];
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ useComposites: true });
+            
+            // Find the glyphs
+            let iGlyph = null;
+            let dotGlyph = null;
+            let stemGlyph = null;
+            
+            for (let j = 0; j < font.glyphs.length; j++) {
+                const g = font.glyphs.get(j);
+                if (g.name === 'i') iGlyph = g;
+                if (g.name === '_dot') dotGlyph = g;
+                if (g.name === '_i_shape') stemGlyph = g;
+            }
+            
+            assert.ok(dotGlyph, 'Should have _dot component glyph');
+            assert.ok(stemGlyph, 'Should have synthetic _i_shape component for i\'s own shapes');
+            assert.ok(iGlyph, 'Should have i glyph');
+            
+            // i should be a composite glyph
+            assert.strictEqual(iGlyph.isComposite, true, 'i should be composite');
+            
+            // i should have 2 components: _i_shape (own shapes) + _dot (reference)
+            assert.strictEqual(iGlyph.components.length, 2, 'i should have 2 components');
+            
+            // First component should be the synthetic shape component (no offset)
+            assert.strictEqual(iGlyph.components[0].dx, 0, 'Synthetic component should have dx=0');
+            assert.strictEqual(iGlyph.components[0].dy, 0, 'Synthetic component should have dy=0');
+        });
+        
+        it('should preserve shapes+references through export/import round-trip', () => {
+            const state = new FontEditorState({
+                familyName: 'Mixed Glyph Roundtrip Test',
+                styleName: 'Regular'
+            });
+            
+            // Create components
+            state.addGlyph('_accent', [[3, 9], [5, 9], [4, 10]]);
+            
+            // Create 'e' with own shape and accent reference
+            state.addGlyph('e', [[1, 0], [6, 0], [6, 3], [1, 3], [1, 5], [6, 5], [6, 8], [1, 8]]); // e shape
+            state.glyphReferences['e'] = [{
+                name: '_accent',
+                dx: 0,
+                dy: 1,
+                scaleX: 1,
+                scaleY: 1
+            }];
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ useComposites: true });
+            
+            // Verify the pre-export structure has proper composite with synthetic component
+            let preExportE = null;
+            let preExportEShape = null;
+            for (let j = 0; j < font.glyphs.length; j++) {
+                const g = font.glyphs.get(j);
+                if (g.name === 'e') preExportE = g;
+                if (g.name === '_e_shape') preExportEShape = g;
+            }
+            
+            assert.ok(preExportE, 'Should have e glyph');
+            assert.ok(preExportEShape, 'Should have _e_shape synthetic component');
+            assert.strictEqual(preExportE.isComposite, true, 'e should be composite');
+            assert.strictEqual(preExportE.components.length, 2, 'e should have 2 components: _e_shape + _accent');
+            
+            // The synthetic component should have the e's original shapes
+            assert.ok(preExportEShape.path, '_e_shape should have a path');
+            assert.ok(preExportEShape.path.commands.length > 0, '_e_shape path should have commands');
+            
+            // Export should succeed
+            const buffer = builder.toArrayBuffer();
+            assert.ok(buffer.byteLength > 0, 'Should produce valid export buffer');
+        });
+        
+        it('should not create synthetic component when glyph has only shapes (no references)', () => {
+            const state = new FontEditorState({
+                familyName: 'Simple Glyph Test',
+                styleName: 'Regular'
+            });
+            
+            // Create a simple glyph with only shapes
+            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ useComposites: true });
+            
+            // Check that no synthetic component was created
+            let hasASynthetic = false;
+            for (let j = 0; j < font.glyphs.length; j++) {
+                const g = font.glyphs.get(j);
+                if (g.name === '_A_shape') hasASynthetic = true;
+            }
+            
+            assert.ok(!hasASynthetic, 'Should NOT have _A_shape synthetic component for glyph with only shapes');
+        });
+        
+        it('should not create synthetic component when glyph has only references (no shapes)', () => {
+            const state = new FontEditorState({
+                familyName: 'Pure Composite Test',
+                styleName: 'Regular'
+            });
+            
+            // Create a component
+            state.addGlyph('_stem', [[0, 0], [2, 10]]);
+            
+            // Create a glyph with ONLY references, no own shapes
+            state.addGlyph('I', []);
+            state.glyphReferences['I'] = [{
+                name: '_stem',
+                dx: 1,
+                dy: 0,
+                scaleX: 1,
+                scaleY: 1
+            }];
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ useComposites: true });
+            
+            // Check that no synthetic component was created
+            let hasISynthetic = false;
+            for (let j = 0; j < font.glyphs.length; j++) {
+                const g = font.glyphs.get(j);
+                if (g.name === '_I_shape') hasISynthetic = true;
+            }
+            
+            assert.ok(!hasISynthetic, 'Should NOT have _I_shape synthetic component for glyph with only references');
+        });
+        
+        it('should export VF with shapes+references from JSON state and have gvar entries for all glyphs', () => {
+            // Regression test: Load the vf-shapes-and-references-state.json test file
+            // This has glyph "O" with both shapes AND a reference to "_Test"
+            const stateJson = readFileSync('./test/fonts/vf-shapes-and-references-state.json', 'utf8');
+            const stateData = JSON.parse(stateJson);
+            
+            const state = new FontEditorState({});
+            state.glyphs = stateData.glyphs || {};
+            state.glyphWidths = stateData.glyphWidths || {};
+            state.glyphReferences = stateData.glyphReferences || {};
+            
+            if (stateData.vf) {
+                state.vfEnabled = stateData.vf.enabled;
+                state.axes = stateData.vf.axes || [];
+                state.masters = stateData.vf.masters || [];
+                state.instances = stateData.vf.instances || [];
+            }
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ useComposites: true });
+            
+            // Verify all glyphs have gvar entries (critical for OTS validation)
+            assert.ok(font.tables.gvar, 'Font should have gvar table');
+            assert.ok(font.tables.gvar.glyphVariations, 'gvar should have glyphVariations');
+            
+            // All glyphs from 0 to numGlyphs-1 must have entries
+            for (let i = 0; i < font.glyphs.length; i++) {
+                assert.ok(
+                    font.tables.gvar.glyphVariations[i] !== undefined, 
+                    `Glyph ${i} should have gvar entry`
+                );
+            }
+            
+            // Export should succeed
+            const buffer = builder.toArrayBuffer();
+            assert.ok(buffer.byteLength > 0, 'Should produce valid export buffer');
+            
+            // Verify we have the synthetic component for the glyph with shapes+references
+            let hasOShapeSynthetic = false;
+            for (let j = 0; j < font.glyphs.length; j++) {
+                const g = font.glyphs.get(j);
+                if (g.name === '_O_shape') hasOShapeSynthetic = true;
+            }
+            assert.ok(hasOShapeSynthetic, 'Should have _O_shape synthetic component for glyph O which has shapes+references');
         });
     });
     

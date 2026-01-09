@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Composite Reference Visual Test</title>
+    <style>
+        body { font-family: system-ui; padding: 20px; background: #f5f5f5; }
+        h1 { margin-bottom: 10px; }
+        .section { margin-bottom: 30px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 15px; }
+        .panel { border: 1px solid #ccc; padding: 15px; background: white; border-radius: 8px; }
+        canvas { border: 1px solid #333; display: block; margin: 10px 0; background: white; }
+        h2 { margin: 0 0 10px 0; font-size: 14px; color: #333; }
+        h3 { margin: 20px 0 10px 0; border-bottom: 2px solid #007acc; padding-bottom: 5px; color: #007acc; }
+        pre { font-size: 10px; background: #f0f0f0; padding: 8px; overflow: auto; max-height: 200px; margin: 0; white-space: pre-wrap; }
+        .font-render { 
+            font-size: 150px; 
+            line-height: 1; 
+            border: 1px solid #333; 
+            background: white;
+            height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .expected { background: #e8f5e9; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .expected ul { margin: 10px 0; }
+        .file-input { margin-bottom: 10px; }
+        .label { font-weight: bold; margin-bottom: 5px; display: block; font-size: 12px; color: #666; }
+        .compare-row { display: flex; gap: 10px; align-items: flex-start; }
+        .compare-item { text-align: center; }
+        .compare-item span { font-size: 11px; color: #666; }
+    </style>
+</head>
+<body>
+    <h1>Composite Reference Visual Test</h1>
+    
+    <div class="expected">
+        <strong>Expected Layout for "O" glyph:</strong>
+        <ul>
+            <li>Base shape: rectangle from (0,0) to (6,10) in editor units</li>
+            <li>_Test (rectangle 0,0→3,5) at dx=7, dy=6 → appears at (7,6) to (10,11)</li>
+            <li>_Test2 (rectangle 3,5→6,10) at dx=4, dy=-5 → should appear at <strong>(7,0) to (10,5)</strong></li>
+        </ul>
+        <p><strong>Key test:</strong> _Test2's first point is at (3,5), so with offset (4,-5), it should end up at (3+4, 5-5) = <strong>(7, 0)</strong></p>
+    </div>
+    
+    <h3>User's Exported Font</h3>
+    <div class="file-input">
+        <input type="file" id="userFontFile" accept=".ttf,.otf">
+        <span id="userFileName"></span>
+    </div>
+    <div class="grid">
+        <div class="panel">
+            <h2>🌐 Browser Native Rendering</h2>
+            <div class="label">@font-face + CSS</div>
+            <div id="userBrowserRender" class="font-render" style="font-family: monospace;">O</div>
+        </div>
+        <div class="panel">
+            <h2>📐 opentype.js glyph.draw()</h2>
+            <div class="label">Canvas rendering via library</div>
+            <canvas id="userOpentypeCanvas" width="240" height="180"></canvas>
+        </div>
+        <div class="panel">
+            <h2>📋 Glyph Data</h2>
+            <pre id="userInfo">Load a font file...</pre>
+        </div>
+    </div>
+    
+    <h3>Regenerated Font (with fix) - regenerated-font2.ttf</h3>
+    <div class="grid">
+        <div class="panel">
+            <h2>🌐 Browser Native Rendering</h2>
+            <div class="label">@font-face + CSS</div>
+            <div id="regenBrowserRender" class="font-render" style="font-family: monospace;">O</div>
+        </div>
+        <div class="panel">
+            <h2>📐 opentype.js glyph.draw()</h2>
+            <div class="label">Canvas rendering via library</div>
+            <canvas id="regenOpentypeCanvas" width="240" height="180"></canvas>
+        </div>
+        <div class="panel">
+            <h2>📋 Glyph Data</h2>
+            <pre id="regenInfo">Loading...</pre>
+        </div>
+    </div>
+
+    <h3>API Test Font (test-composite-offset.ttf)</h3>
+    <div class="grid">
+        <div class="panel">
+            <h2>🌐 Browser Native Rendering</h2>
+            <div class="label">@font-face + CSS</div>
+            <div id="testBrowserRender" class="font-render" style="font-family: monospace;">O</div>
+        </div>
+        <div class="panel">
+            <h2>📐 opentype.js glyph.draw()</h2>
+            <div class="label">Canvas rendering via library</div>
+            <canvas id="testOpentypeCanvas" width="240" height="180"></canvas>
+        </div>
+        <div class="panel">
+            <h2>📋 Glyph Data</h2>
+            <pre id="testInfo">Loading...</pre>
+        </div>
+    </div>
+    
+    <script type="module">
+        import * as opentype from '../../src/opentype.js';
+        
+        let userFontBuffer = null;
+        let testFontBuffer = null;
+        
+        // Register a font with the browser's Font API
+        async function registerFontFace(familyName, arrayBuffer) {
+            // Remove existing font face with same name
+            document.fonts.forEach(f => {
+                if (f.family === familyName) {
+                    document.fonts.delete(f);
+                }
+            });
+            
+            const fontFace = new FontFace(familyName, arrayBuffer);
+            await fontFace.load();
+            document.fonts.add(fontFace);
+            return fontFace;
+        }
+        
+        // Draw glyph using opentype.js glyph.draw() method
+        function drawWithOpentype(font, glyphChar, canvas, infoEl) {
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            ctx.clearRect(0, 0, width, height);
+            
+            // Get glyph
+            const glyphIndex = font.charToGlyphIndex(glyphChar);
+            const glyph = font.glyphs.glyphs[glyphIndex];
+            
+            if (!glyph) {
+                infoEl.textContent = `Glyph "${glyphChar}" not found`;
+                return;
+            }
+            
+            // Calculate size and position
+            const fontSize = 140;
+            const x = 20;
+            const baseline = 150;
+            
+            // Draw light grid
+            ctx.strokeStyle = '#eee';
+            ctx.lineWidth = 1;
+            for (let gx = 0; gx <= width; gx += 20) {
+                ctx.beginPath();
+                ctx.moveTo(gx, 0);
+                ctx.lineTo(gx, height);
+                ctx.stroke();
+            }
+            for (let gy = 0; gy <= height; gy += 20) {
+                ctx.beginPath();
+                ctx.moveTo(0, gy);
+                ctx.lineTo(width, gy);
+                ctx.stroke();
+            }
+            
+            // Draw baseline
+            ctx.strokeStyle = '#ccc';
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(0, baseline);
+            ctx.lineTo(width, baseline);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Use opentype.js glyph.draw() - this is the actual library method
+            glyph.draw(ctx, x, baseline, fontSize, {}, font);
+            
+            // Also draw the points to show structure
+            const scale = fontSize / font.unitsPerEm;
+            glyph.getPath(0, 0, font.unitsPerEm); // Force path generation
+            
+            if (glyph.points) {
+                glyph.points.forEach((p, i) => {
+                    const px = x + p.x * scale;
+                    const py = baseline - p.y * scale;
+                    ctx.fillStyle = p.lastPointOfContour ? '#ff6600' : '#0066ff';
+                    ctx.beginPath();
+                    ctx.arc(px, py, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            }
+            
+            // Build info
+            let info = `Glyph: ${glyph.name || glyphChar} (idx ${glyphIndex})\n`;
+            info += `Width: ${glyph.advanceWidth}\n`;
+            info += `UPM: ${font.unitsPerEm}\n\n`;
+            
+            if (glyph.numberOfContours === -1 || glyph.isComposite) {
+                info += `COMPOSITE (${glyph.components?.length || 0} parts)\n`;
+                if (glyph.components) {
+                    glyph.components.forEach((c, i) => {
+                        const refGlyph = font.glyphs.glyphs[c.glyphIndex];
+                        info += `${i}: "${refGlyph?.name}" dx=${c.dx} dy=${c.dy}\n`;
+                        info += `   (editor: dx=${c.dx/80}, dy=${c.dy/80})\n`;
+                    });
+                }
+            } else {
+                info += `SIMPLE (${glyph.numberOfContours} contours)\n`;
+            }
+            
+            info += `\nResolved Points:\n`;
+            if (glyph.points) {
+                glyph.points.forEach((p, i) => {
+                    const edX = (p.x / 80).toFixed(1);
+                    const edY = (p.y / 80).toFixed(1);
+                    const marker = p.lastPointOfContour ? ' [end]' : '';
+                    info += `${i}: (${p.x},${p.y}) → ed(${edX},${edY})${marker}\n`;
+                });
+            }
+            
+            infoEl.textContent = info;
+        }
+        
+        // Load and display regenerated font (with fix)
+        async function loadRegenFont() {
+            try {
+                const response = await fetch('./regenerated-font2.ttf');
+                if (!response.ok) {
+                    throw new Error('regenerated-font.ttf not found');
+                }
+                const regenFontBuffer = await response.arrayBuffer();
+                
+                // Register for browser rendering
+                await registerFontFace('RegenFont', regenFontBuffer.slice(0));
+                document.getElementById('regenBrowserRender').style.fontFamily = "'RegenFont', monospace";
+                
+                // Draw with opentype.js
+                const font = opentype.parse(regenFontBuffer.slice(0));
+                drawWithOpentype(font, 'O', document.getElementById('regenOpentypeCanvas'), document.getElementById('regenInfo'));
+            } catch (e) {
+                document.getElementById('regenInfo').textContent = 'Error: ' + e.message;
+                console.error('Regen font error:', e);
+            }
+        }
+
+        // Load and display test font
+        async function loadTestFont() {
+            try {
+                const response = await fetch('./test-composite-offset.ttf');
+                if (!response.ok) {
+                    throw new Error('test-composite-offset.ttf not found');
+                }
+                testFontBuffer = await response.arrayBuffer();
+                
+                // Register for browser rendering
+                await registerFontFace('TestFont', testFontBuffer.slice(0));
+                document.getElementById('testBrowserRender').style.fontFamily = "'TestFont', monospace";
+                
+                // Draw with opentype.js
+                const font = opentype.parse(testFontBuffer.slice(0));
+                drawWithOpentype(font, 'O', document.getElementById('testOpentypeCanvas'), document.getElementById('testInfo'));
+            } catch (e) {
+                document.getElementById('testInfo').textContent = 'Error: ' + e.message;
+                console.error('Test font error:', e);
+            }
+        }
+        
+        // Load and display user font
+        async function loadUserFont(source) {
+            try {
+                if (source instanceof File) {
+                    userFontBuffer = await source.arrayBuffer();
+                    document.getElementById('userFileName').textContent = source.name;
+                } else if (typeof source === 'string') {
+                    const response = await fetch(source);
+                    if (!response.ok) throw new Error('user-font.ttf not found');
+                    userFontBuffer = await response.arrayBuffer();
+                    document.getElementById('userFileName').textContent = source.split('/').pop();
+                }
+                
+                // Register for browser rendering
+                await registerFontFace('UserFont', userFontBuffer.slice(0));
+                document.getElementById('userBrowserRender').style.fontFamily = "'UserFont', monospace";
+                
+                // Draw with opentype.js
+                const font = opentype.parse(userFontBuffer.slice(0));
+                drawWithOpentype(font, 'O', document.getElementById('userOpentypeCanvas'), document.getElementById('userInfo'));
+            } catch (e) {
+                document.getElementById('userInfo').textContent = 'Error: ' + e.message + '\n\nUse the file picker above to load your font.';
+                console.error('User font error:', e);
+            }
+        }
+        
+        // File upload handler
+        document.getElementById('userFontFile').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                await loadUserFont(file);
+            }
+        });
+        
+        // Initialize
+        loadTestFont();
+        loadRegenFont();
+        loadUserFont('./user-font.ttf');
+    </script>
+</body>
+</html>

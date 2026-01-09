@@ -351,6 +351,176 @@ describe('variation.js', function() {
             assert.equal(result.deltas[0], 10);
             assert.equal(result.deltasY[0], 10);
         });
+
+        it('should include gvar entries for all glyphs including composite glyphs', function() {
+            // Regression test for gvar glyph count mismatch
+            // Composite glyphs (with no path commands) must still have gvar entries
+            const basePath = new Path();
+            basePath.moveTo(0, 0);
+            basePath.lineTo(100, 0);
+            basePath.lineTo(100, 100);
+            basePath.closePath();
+
+            const emptyPath = new Path(); // For composite glyph
+
+            const font = new Font({
+                familyName: 'TestVF',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200,
+                glyphs: [
+                    new Glyph({ name: '.notdef', unicode: 0, advanceWidth: 500, path: new Path() }),
+                    new Glyph({ name: 'A', unicode: 65, advanceWidth: 500, path: basePath }),
+                    new Glyph({ name: 'B', unicode: 66, advanceWidth: 500, path: emptyPath }) // Simulates composite
+                ]
+            });
+
+            font.variation = new VariationManager(font);
+            font.variation.addAxis({
+                tag: 'wght',
+                name: 'Weight',
+                minValue: 100,
+                defaultValue: 400,
+                maxValue: 900,
+                deltaGenerator: (glyph) => {
+                    if (!glyph.path || !glyph.path.commands || glyph.path.commands.length === 0) {
+                        return null;
+                    }
+                    const deltas = [];
+                    const deltasY = [];
+                    for (const cmd of glyph.path.commands) {
+                        if (cmd.x !== undefined) {
+                            deltas.push(10);
+                            deltasY.push(0);
+                        }
+                    }
+                    deltas.push(0, 0, 0, 0);
+                    deltasY.push(0, 0, 0, 0);
+                    return { deltas, deltasY };
+                }
+            });
+
+            // All 3 glyphs must have gvar entries
+            assert.ok(font.tables.gvar);
+            assert.ok(font.tables.gvar.glyphVariations[0] !== undefined, 'Glyph 0 should have gvar entry');
+            assert.ok(font.tables.gvar.glyphVariations[1] !== undefined, 'Glyph 1 should have gvar entry');
+            assert.ok(font.tables.gvar.glyphVariations[2] !== undefined, 'Glyph 2 (composite) should have gvar entry');
+            
+            // Verify the font can export and re-import successfully
+            const buffer = font.toArrayBuffer();
+            const font2 = parse(buffer);
+            assert.ok(font2.tables.fvar);
+            assert.ok(font2.tables.gvar);
+        });
+
+        it('should roundtrip addAxis with delta on specific glyph', function() {
+            // Regression test from test-check-variation.mjs
+            const buf = readFileSync('./docs/fonts/FiraSansMedium.woff');
+            const font = parse(buf.buffer);
+
+            // Convert to TTF first
+            const ttfBuf = font.toArrayBuffer();
+            const ttfFont = parse(ttfBuf);
+
+            // Create VF from TTF
+            const vfFont = parse(ttfFont.toArrayBuffer());
+            vfFont.variation = new VariationManager(vfFont);
+            vfFont.variation.addAxis({
+                tag: 'TEST',
+                name: 'Test',
+                minValue: 0,
+                defaultValue: 0,
+                maxValue: 100,
+                deltaGenerator: (glyph) => {
+                    if (glyph.index === 37) {
+                        return { 
+                            deltas: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 0, 0, 0, 0], 
+                            deltasY: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] 
+                        };
+                    }
+                    return null;
+                }
+            });
+
+            const exported = vfFont.toArrayBuffer();
+            const reimported = parse(exported);
+
+            assert.ok(reimported.variation, 'Reimported font should have variation');
+            assert.ok(reimported.tables.fvar, 'Reimported font should have fvar');
+            assert.ok(reimported.tables.gvar, 'Reimported font should have gvar');
+        });
+    });
+
+    describe('composite glyph variation', function() {
+        it('should apply variation to composite glyph components even without explicit gvar entry', async function() {
+            // This tests the fix for composite glyphs that reference other glyphs with variation
+            // Uses the vf-shapes-and-references-state.json test file which has:
+            // - Glyph "O" with shapes AND a reference to "_Test"  
+            // - The "_Test" glyph has variation data
+            // - The "O" composite should show the interpolated _Test at different axis values
+            
+            const fontEditorApi = await import('../docs/examples/font-editor-api.js');
+            const { FontEditorState, FontBuilder } = fontEditorApi;
+            
+            const stateJson = readFileSync('./test/fonts/vf-shapes-and-references-state.json', 'utf8');
+            const stateData = JSON.parse(stateJson);
+            
+            const state = new FontEditorState({});
+            state.glyphs = stateData.glyphs || {};
+            state.glyphWidths = stateData.glyphWidths || {};
+            state.glyphReferences = stateData.glyphReferences || {};
+            
+            if (stateData.vf) {
+                state.vfEnabled = stateData.vf.enabled;
+                state.axes = stateData.vf.axes || [];
+                state.masters = stateData.vf.masters || [];
+                state.instances = stateData.vf.instances || [];
+            }
+            
+            // We need to pass opentype module to FontBuilder
+            const opentype = await import('../src/opentype.js');
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ useComposites: true });
+            
+            // Export and reimport
+            const buffer = builder.toArrayBuffer();
+            const data = Buffer.from(buffer);
+            const arrayBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+            const reimported = parse(arrayBuffer);
+            
+            // Glyph 3 is _Test (simple glyph with variation)
+            // Glyph 5 is O (composite referencing _Test)
+            
+            // Get transformed glyphs at different TEST axis values
+            const test400 = reimported.variation.getTransform(3, { TEST: 400 });
+            const test100 = reimported.variation.getTransform(3, { TEST: 100 });
+            
+            const composite400 = reimported.variation.getTransform(5, { TEST: 400 });
+            const composite100 = reimported.variation.getTransform(5, { TEST: 100 });
+            
+            // Verify _Test actually changes with variation
+            assert.notDeepStrictEqual(
+                test400.points.slice(0, 4).map(p => ({ x: p.x, y: p.y })),
+                test100.points.slice(0, 4).map(p => ({ x: p.x, y: p.y })),
+                '_Test points should change with variation'
+            );
+            
+            // The composite's _Test component (points 4-7) should match _Test standalone
+            // At default (400)
+            assert.deepStrictEqual(
+                test400.points.slice(0, 4).map(p => ({ x: p.x, y: p.y })),
+                composite400.points.slice(4, 8).map(p => ({ x: p.x, y: p.y })),
+                'At default, composite _Test component should match _Test standalone'
+            );
+            
+            // At min (100) - THIS IS THE KEY TEST - composite components should get variation applied
+            assert.deepStrictEqual(
+                test100.points.slice(0, 4).map(p => ({ x: p.x, y: p.y })),
+                composite100.points.slice(4, 8).map(p => ({ x: p.x, y: p.y })),
+                'At min, composite _Test component should match interpolated _Test'
+            );
+        });
     });
 
 });
