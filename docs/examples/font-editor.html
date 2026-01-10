@@ -1661,6 +1661,13 @@
                         <div class="kerning-workspace">
                             <h3>Click a pair to adjust kerning, or drag letters in the preview below</h3>
                             
+                            <div class="kern-input-row" style="margin-bottom: 12px;">
+                                <input type="text" id="kern-pair-input" placeholder="Type letters (e.g., AV, To)" 
+                                    value="AV" style="width: 180px; padding: 6px 10px; 
+                                    background: var(--bg-tertiary); border: 1px solid var(--border-color);
+                                    color: var(--text-primary); border-radius: 4px;">
+                            </div>
+                            
                             <div class="kern-active-pair" id="kern-active-pair">
                                 <!-- SVG glyph preview will be rendered here -->
                             </div>
@@ -2561,8 +2568,13 @@
                 const resultPreview = document.createElement('div');
                 resultPreview.className = 'lig-preview lig-result-preview' + (resultExists ? '' : ' empty');
                 if (resultExists) {
-                    const svg = createGlyphSVG(lig.result, previewHeight, {}, { color: '#4a9eff' });
-                    resultPreview.appendChild(svg);
+                    // Use createSingleGlyphSVG for result glyph (treats it as a single glyph name, not chars)
+                    const svg = createSingleGlyphSVG(lig.result, previewHeight, '#4a9eff');
+                    if (svg) {
+                        resultPreview.appendChild(svg);
+                    } else {
+                        resultPreview.textContent = 'Glyph not found';
+                    }
                 } else {
                     resultPreview.textContent = lig.result ? 'Glyph not found' : 'No glyph';
                 }
@@ -2582,11 +2594,19 @@
                 checkbox.addEventListener('change', e => {
                     state.ligatures[index].enabled = e.target.checked;
                 });
+                // Use input event to update state without re-render to avoid focus loss
                 seqInput.addEventListener('input', e => {
-                    updateLigature(index, 'sequence', e.target.value);
+                    state.ligatures[index].sequence = e.target.value;
+                });
+                // Use blur event to update previews
+                seqInput.addEventListener('blur', () => {
+                    renderLigatureList();
                 });
                 resultInput.addEventListener('input', e => {
-                    updateLigature(index, 'result', e.target.value);
+                    state.ligatures[index].result = e.target.value;
+                });
+                resultInput.addEventListener('blur', () => {
+                    renderLigatureList();
                 });
                 createBtn.addEventListener('click', () => createLigatureGlyph(index));
                 deleteBtn.addEventListener('click', () => removeLigature(index));
@@ -2630,10 +2650,30 @@
             // Setup drag on active pair
             setupActivePairDrag();
             
+            // Setup the pair input field
+            const pairInput = document.getElementById('kern-pair-input');
+            pairInput.addEventListener('input', onKernPairInputChange);
+            pairInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    onKernPairInputChange();
+                }
+            });
+            
             // Initial render
             renderActivePair();
             refreshKerningPairs();
             refreshKerningWords();
+        }
+        
+        // Handle changes to the kern pair input field
+        function onKernPairInputChange() {
+            const input = document.getElementById('kern-pair-input').value;
+            if (input.length >= 2) {
+                // Take the first two characters
+                const left = input[0];
+                const right = input[1];
+                selectKernPair(left, right);
+            }
         }
         
         // Kerning drag state
@@ -2801,6 +2841,56 @@
             return createGlyphSVG(text, height, {}, { color });
         }
         
+        // Create an SVG rendering a single glyph by its NAME (not treating as character sequence)
+        // This is used for ligature result previews where the glyph name might be multi-char like "A_B"
+        function createSingleGlyphSVG(glyphName, height, color = '#4a9eff') {
+            // Use VF interpolated glyphs if enabled
+            let glyphs, widths, refs;
+            if (state.vf.enabled && state.vf.axes.length > 0) {
+                const interp = interpolateGlyphs(state.vf.previewCoords);
+                glyphs = interp.glyphs;
+                widths = interp.widths;
+                refs = interp.references;
+            } else {
+                glyphs = state.glyphs;
+                widths = state.glyphWidths;
+                refs = state.glyphReferences;
+            }
+            
+            // Check if glyph exists
+            if (!glyphs[glyphName]) {
+                return null;
+            }
+            
+            const designHeight = 10;
+            const scale = height / designHeight;
+            
+            // Get shapes for this glyph
+            const shapes = getGlyphShapesForRender(glyphName, glyphs, refs);
+            const pathData = glyphShapesToPath(shapes, 0, scale);
+            const glyphWidth = getGlyphWidthForRender(glyphName, glyphs, widths);
+            const totalWidth = (glyphWidth + 1) * scale;
+            
+            // Create SVG
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('width', Math.max(totalWidth, 10));
+            svg.setAttribute('height', height);
+            svg.setAttribute('viewBox', `0 0 ${Math.max(totalWidth, 10)} ${height}`);
+            
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            group.setAttribute('transform', `translate(0, ${height}) scale(1, -1)`);
+            
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', pathData);
+            path.setAttribute('fill', color);
+            path.setAttribute('fill-rule', 'nonzero');
+            
+            group.appendChild(path);
+            svg.appendChild(group);
+            
+            return svg;
+        }
+        
         function setupActivePairDrag() {
             const container = document.querySelector('.kern-active-pair');
             
@@ -2838,10 +2928,20 @@
             const deltaKern = pixelsToKern(deltaX, kernDragState.displayFontSize);
             const newValue = kernDragState.startValue + deltaKern;
             
-            // Update display
+            // Update display value
             document.getElementById('kern-value-input').value = newValue;
-            document.getElementById('kern-right-char').style.marginLeft = 
-                kernToPixels(newValue, 64) + 'px';
+            
+            // Re-render the active pair with updated kern
+            const { left, right } = state.activeKernPair;
+            const kerning = { [left + right]: newValue };
+            const container = document.getElementById('kern-active-pair');
+            container.innerHTML = '';
+            const svg = createGlyphSVG(left + right, 64, kerning, {
+                color: '#e0e0e0',
+                interactive: true,
+                charClass: 'kern-active-char'
+            });
+            container.appendChild(svg);
         }
         
         function onKernDragEnd(e) {
@@ -2857,6 +2957,46 @@
             
             // Apply the kerning
             applyKerning();
+        }
+        
+        // Drag handlers for random pairs grid
+        function onPairKernDrag(e) {
+            if (!kernDragState.isDragging) return;
+            
+            const deltaX = e.clientX - kernDragState.startX;
+            const deltaKern = pixelsToKern(deltaX, kernDragState.displayFontSize);
+            const newValue = kernDragState.startValue + deltaKern;
+            
+            // Update the active pair display value
+            document.getElementById('kern-value-input').value = newValue;
+            
+            // Re-render the active pair with updated kern
+            const { left, right } = state.activeKernPair;
+            const kerning = { [left + right]: newValue };
+            const container = document.getElementById('kern-active-pair');
+            container.innerHTML = '';
+            const svg = createGlyphSVG(left + right, 64, kerning, {
+                color: '#e0e0e0',
+                interactive: true,
+                charClass: 'kern-active-char'
+            });
+            container.appendChild(svg);
+        }
+        
+        function onPairKernDragEnd(e) {
+            if (!kernDragState.isDragging) return;
+            
+            kernDragState.isDragging = false;
+            
+            document.removeEventListener('mousemove', onPairKernDrag);
+            document.removeEventListener('mouseup', onPairKernDragEnd);
+            
+            // Apply the kerning
+            applyKerning();
+            
+            // Update the random pairs display
+            refreshKerningPairs();
+            updateSampleWordsKerning();
         }
         
         function refreshKerningPairs() {
@@ -2902,11 +3042,41 @@
                 const kernValue = state.kerning[pair.left + pair.right] || 0;
                 const pairFontSize = 24;
                 
-                // Use SVG rendering for the pair
+                // Use SVG rendering for the pair with interactive drag
                 const kerning = { [pair.left + pair.right]: kernValue };
                 const svg = createGlyphSVG(pair.left + pair.right, pairFontSize, kerning, {
-                    color: '#e0e0e0'
+                    color: '#e0e0e0',
+                    interactive: true,
+                    charClass: 'kern-pair-char'
                 });
+                
+                // Add drag handlers to interactive characters (the right char)
+                svg.querySelectorAll('.interactive-char').forEach(group => {
+                    const charIndex = parseInt(group.dataset.index);
+                    if (charIndex > 0) {
+                        group.addEventListener('mousedown', (e) => {
+                            e.preventDefault();
+                            e.stopPropagation(); // Prevent click event
+                            const currentValue = state.kerning[pair.left + pair.right] || 0;
+                            
+                            kernDragState.isDragging = true;
+                            kernDragState.startX = e.clientX;
+                            kernDragState.startValue = currentValue;
+                            kernDragState.leftChar = pair.left;
+                            kernDragState.rightChar = pair.right;
+                            kernDragState.displayFontSize = pairFontSize;
+                            
+                            group.classList.add('dragging');
+                            
+                            // Select this pair in the active display
+                            selectKernPair(pair.left, pair.right);
+                            
+                            document.addEventListener('mousemove', onPairKernDrag);
+                            document.addEventListener('mouseup', onPairKernDragEnd);
+                        });
+                    }
+                });
+                
                 item.appendChild(svg);
                 
                 item.addEventListener('click', () => selectKernPair(pair.left, pair.right));
@@ -2999,6 +3169,76 @@
                 charClass: 'kern-active-char'
             });
             container.appendChild(svg);
+            
+            // Also update the dragged word in Sample Words display
+            if (kernDragState.targetWord) {
+                const word = kernDragState.targetWord.dataset.word;
+                if (word) {
+                    // Create temporary kerning object merging current kerning with dragged pair
+                    const tempKerning = { ...state.kerning, [left + right]: newValue };
+                    const wordFontSize = kernDragState.displayFontSize;
+                    
+                    // Re-render just this word
+                    kernDragState.targetWord.innerHTML = '';
+                    const wordSvg = createGlyphSVG(word, wordFontSize, tempKerning, {
+                        color: '#e0e0e0',
+                        interactive: true,
+                        charClass: 'kern-word-char'
+                    });
+                    kernDragState.targetWord.appendChild(wordSvg);
+                }
+            }
+        }
+        
+        // Update kerning display in sample words without regenerating the word list
+        function updateSampleWordsKerning() {
+            const container = document.getElementById('kern-words-display');
+            const wordFontSize = 32;
+            
+            container.querySelectorAll('.kerning-word').forEach(wordEl => {
+                const word = wordEl.dataset.word;
+                if (!word) return;
+                
+                // Re-render the word with current kerning
+                wordEl.innerHTML = '';
+                const svg = createGlyphSVG(word, wordFontSize, state.kerning, {
+                    color: '#e0e0e0',
+                    interactive: true,
+                    charClass: 'kern-word-char'
+                });
+                
+                // Add drag handlers to interactive characters
+                svg.querySelectorAll('.interactive-char').forEach(group => {
+                    const charIndex = parseInt(group.dataset.index);
+                    const char = group.dataset.char;
+                    if (charIndex > 0) {
+                        const prevChar = word[charIndex - 1];
+                        
+                        group.addEventListener('mousedown', (e) => {
+                            e.preventDefault();
+                            const currentValue = state.kerning[prevChar + char] || 0;
+                            
+                            kernDragState.isDragging = true;
+                            kernDragState.startX = e.clientX;
+                            kernDragState.startValue = currentValue;
+                            kernDragState.leftChar = prevChar;
+                            kernDragState.rightChar = char;
+                            kernDragState.targetWord = wordEl;
+                            kernDragState.displayFontSize = wordFontSize;
+                            
+                            group.classList.add('dragging');
+                            
+                            // Select this pair in the active display
+                            selectKernPair(prevChar, char);
+                            
+                            document.addEventListener('mousemove', onWordKernDrag);
+                            document.addEventListener('mouseup', onWordKernDragEnd);
+                        });
+                    }
+                });
+                
+                wordEl.appendChild(svg);
+            });
         }
         
         function onWordKernDragEnd(e) {
@@ -3012,9 +3252,10 @@
             // Apply the kerning
             applyKerning();
             
-            // Refresh all displays to update all instances of this pair
+            // Only refresh random pairs display, NOT the sample words
+            // (sample words should only refresh when clicking the Refresh button)
             refreshKerningPairs();
-            refreshKerningWords();
+            updateSampleWordsKerning();
         }
         
         function selectKernPair(left, right) {
@@ -3022,6 +3263,9 @@
             
             const kernValue = state.kerning[left + right] || 0;
             document.getElementById('kern-value-input').value = kernValue;
+            
+            // Update the pair input field
+            document.getElementById('kern-pair-input').value = left + right;
             
             // Re-render the active pair with SVG
             renderActivePair();
@@ -3032,12 +3276,15 @@
             const { left, right } = state.activeKernPair;
             const kernValue = state.kerning[left + right] || 0;
             
+            // Get the full text to display from the input
+            const inputText = document.getElementById('kern-pair-input')?.value || (left + right);
+            const displayText = inputText.length > 0 ? inputText : (left + right);
+            
             // Clear existing
             container.innerHTML = '';
             
-            // Create SVG with kerning applied
-            const kerning = { [left + right]: kernValue };
-            const svg = createGlyphSVG(left + right, 64, kerning, {
+            // Create SVG with current kerning values applied
+            const svg = createGlyphSVG(displayText, 64, state.kerning, {
                 color: '#e0e0e0',
                 interactive: true,
                 charClass: 'kern-active-char'
@@ -3050,11 +3297,17 @@
             const value = parseInt(document.getElementById('kern-value-input').value) || 0;
             // Re-render with new value
             const { left, right } = state.activeKernPair;
-            const kerning = { [left + right]: value };
+            
+            // Get the full text to display from the input
+            const inputText = document.getElementById('kern-pair-input')?.value || (left + right);
+            const displayText = inputText.length > 0 ? inputText : (left + right);
+            
+            // Create temporary kerning with the new value
+            const tempKerning = { ...state.kerning, [left + right]: value };
             
             const container = document.getElementById('kern-active-pair');
             container.innerHTML = '';
-            const svg = createGlyphSVG(left + right, 64, kerning, {
+            const svg = createGlyphSVG(displayText, 64, tempKerning, {
                 color: '#e0e0e0',
                 interactive: true,
                 charClass: 'kern-active-char'
@@ -3075,7 +3328,7 @@
             
             // Refresh displays
             refreshKerningPairs();
-            refreshKerningWords();
+            updateSampleWordsKerning();
             updateKerningTable();
         }
         
@@ -3087,7 +3340,7 @@
             renderActivePair();
             
             refreshKerningPairs();
-            refreshKerningWords();
+            updateSampleWordsKerning();
             updateKerningTable();
         }
         
@@ -3097,7 +3350,7 @@
             }
             state.kerning = {};
             refreshKerningPairs();
-            refreshKerningWords();
+            updateSampleWordsKerning();
             updateKerningTable();
         }
         
@@ -3157,7 +3410,7 @@
                     delete state.kerning[pairKey];
                     updateKerningTable();
                     refreshKerningPairs();
-                    refreshKerningWords();
+                    updateSampleWordsKerning();
                 });
                 
                 row.addEventListener('click', e => {

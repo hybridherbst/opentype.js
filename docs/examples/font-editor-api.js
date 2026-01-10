@@ -512,6 +512,35 @@ export class FontEditorState {
         return true;
     }
 
+    /**
+     * Add a ligature substitution rule
+     * @param {string} sequence - The input character sequence (e.g., 'fi')
+     * @param {string} result - The glyph name for the ligature result (e.g., 'fi' or 'f_i')
+     * @param {boolean} enabled - Whether the ligature is active
+     */
+    addLigature(sequence, result, enabled = true) {
+        this.ligatures.push({ sequence, result, enabled });
+    }
+
+    /**
+     * Remove a ligature by index
+     * @param {number} index - Index in the ligatures array
+     * @returns {boolean} Whether removal was successful
+     */
+    removeLigature(index) {
+        if (index < 0 || index >= this.ligatures.length) return false;
+        this.ligatures.splice(index, 1);
+        return true;
+    }
+
+    /**
+     * Set whether ligatures feature is enabled
+     * @param {boolean} enabled
+     */
+    setLigaturesEnabled(enabled) {
+        this.features.liga = enabled;
+    }
+
     toJSON() {
         return {
             familyName: this.familyName,
@@ -525,7 +554,10 @@ export class FontEditorState {
             axes: this.axes,
             masters: this.masters,
             instances: this.instances,
-            avarTable: this.avarTable
+            avarTable: this.avarTable,
+            ligatures: this.ligatures,
+            features: this.features,
+            kerning: this.kerning
         };
     }
 
@@ -542,6 +574,9 @@ export class FontEditorState {
         this.masters = json.masters || [];
         this.instances = json.instances || [];
         this.avarTable = json.avarTable || null;
+        this.ligatures = json.ligatures || [];
+        this.features = json.features || { liga: true, kern: true, dlig: false, smcp: false };
+        this.kerning = json.kerning || {};
         this.currentGlyph = Object.keys(this.glyphs)[0] || null;
         this.previewCoords = {};
         for (const axis of this.axes) {
@@ -929,9 +964,12 @@ export class FontBuilder {
                     }
                 }
                 
-                // Component glyphs have no unicode (not directly accessible)
+                // Determine if this is a regular character glyph (single char, not starting with _)
+                // Regular character glyphs need their unicode even when used as components
+                const isRegularChar = refName.length === 1 && !refName.startsWith('_');
                 const compGlyph = new ot.Glyph({
-                    name: refName,
+                    name: isRegularChar ? this._charToGlyphName(refName) : refName,
+                    unicode: isRegularChar ? refName.charCodeAt(0) : undefined,
                     path,
                     advanceWidth: Math.round(compWidth * scale)
                 });
@@ -1000,7 +1038,7 @@ export class FontBuilder {
                 
                 const compositeGlyph = new ot.Glyph({
                     name: glyphName,
-                    unicode: char.charCodeAt(0),
+                    unicode: char.length === 1 ? char.charCodeAt(0) : undefined,
                     path: new ot.Path(), // Empty path - composite uses components
                     advanceWidth: Math.round((width + 1) * scale)
                 });
@@ -1034,7 +1072,7 @@ export class FontBuilder {
                 
                 otGlyphs.push(new ot.Glyph({
                     name: glyphName,
-                    unicode: char.charCodeAt(0),
+                    unicode: char.length === 1 ? char.charCodeAt(0) : undefined,
                     path,
                     advanceWidth: Math.round((width + 1) * scale)
                 }));
@@ -1067,6 +1105,11 @@ export class FontBuilder {
 
         if (state.vfEnabled && state.axes.length > 0 && state.masters.length > 0) {
             this._addVariationData(font, glyphIndexMap, scale, syntheticShapeComponents);
+        }
+
+        // Add ligature substitution table if there are enabled ligatures
+        if (state.ligatures && state.ligatures.length > 0 && state.features?.liga !== false) {
+            this._addLigatureTable(font, glyphIndexMap);
         }
 
         // Add kerning table if there are kerning pairs defined
@@ -1702,6 +1745,79 @@ export class FontBuilder {
             throw new Error('Roundtrip parsed font has no glyph paths');
         }
         return parsed;
+    }
+
+    /**
+     * Add GSUB table with ligature substitutions
+     * @param {Object} font - The opentype.js Font object
+     * @param {Map} glyphIndexMap - Map of glyph names to indices
+     */
+    _addLigatureTable(font, glyphIndexMap) {
+        const state = this.state;
+        const ligatures = state.ligatures || [];
+        
+        // Filter to only enabled ligatures with valid data
+        const enabledLigatures = ligatures.filter(lig => 
+            lig.enabled && lig.sequence && lig.result && lig.sequence.length >= 2
+        );
+        
+        if (enabledLigatures.length === 0) {
+            return;
+        }
+
+        // First, validate all ligatures and collect valid ones
+        const validLigatures = [];
+        
+        for (const lig of enabledLigatures) {
+            // Get glyph indices for the sequence characters
+            const subGlyphIndices = [];
+            let valid = true;
+            
+            for (const char of lig.sequence) {
+                const glyphName = this._charToGlyphName(char);
+                const idx = glyphIndexMap.get(glyphName);
+                if (idx === undefined) {
+                    console.warn(`Ligature sequence character '${char}' not found in font`);
+                    valid = false;
+                    break;
+                }
+                subGlyphIndices.push(idx);
+            }
+            
+            if (!valid) continue;
+            
+            // Get the result glyph index
+            // The result glyph name is stored directly (e.g., "A_B" or "fi_lig")
+            let resultGlyphIdx = glyphIndexMap.get(lig.result);
+            if (resultGlyphIdx === undefined) {
+                // Try looking it up as a character
+                const resultGlyphName = this._charToGlyphName(lig.result);
+                resultGlyphIdx = glyphIndexMap.get(resultGlyphName);
+            }
+            
+            if (resultGlyphIdx === undefined) {
+                console.warn(`Ligature result glyph '${lig.result}' not found in font`);
+                continue;
+            }
+            
+            // This ligature is valid, save it
+            validLigatures.push({ sub: subGlyphIndices, by: resultGlyphIdx });
+        }
+        
+        // Only create GSUB table if we have valid ligatures
+        if (validLigatures.length === 0) {
+            return;
+        }
+
+        // Create GSUB table if not present
+        if (!font.tables.gsub) {
+            font.tables.gsub = font.substitution.createDefaultTable();
+        }
+
+        // Add each valid ligature to the 'liga' feature
+        for (const ligData of validLigatures) {
+            font.substitution.addLigature('liga', ligData);
+        }
     }
 
     /**

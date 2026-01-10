@@ -1871,4 +1871,218 @@ describe('Font Editor API', () => {
             assert.ok(gvarB?.headers?.length > 0, 'Glyph B should have gvar data');
         });
     });
+    
+    describe('Ligature and GSUB Table Export', () => {
+        it('should export GSUB table with ligature substitution', () => {
+            const state = new FontEditorState({
+                familyName: 'Ligature Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add base glyphs
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('B', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            // Add ligature glyph (named A_B following standard convention)
+            state.addGlyph('A_B', [[0, 0], [20, 0], [20, 10], [0, 10]]);
+            
+            // Add ligature substitution: A + B -> A_B
+            state.addLigature('AB', 'A_B', true);
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+            
+            // Verify GSUB table exists
+            assert.ok(parsed.tables.gsub, 'Font should have GSUB table');
+            
+            // Verify ligature feature
+            const gsub = parsed.tables.gsub;
+            assert.ok(gsub.features, 'GSUB should have features');
+            const ligaFeature = gsub.features.find(f => f.tag === 'liga');
+            assert.ok(ligaFeature, 'GSUB should have liga feature');
+            
+            // Verify lookup type 4 (ligature substitution)
+            assert.ok(gsub.lookups?.length > 0, 'GSUB should have lookups');
+            const lookup = gsub.lookups[0];
+            assert.equal(lookup.lookupType, 4, 'Lookup should be type 4 (ligature)');
+            
+            // Verify ligature data
+            const subtable = lookup.subtables[0];
+            assert.ok(subtable.ligatureSets, 'Subtable should have ligatureSets');
+        });
+        
+        it('should handle multiple ligatures', () => {
+            const state = new FontEditorState({
+                familyName: 'Multi Ligature Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add base glyphs
+            state.addGlyph('f', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('i', [[0, 0], [5, 0], [5, 10], [0, 10]]);
+            state.addGlyph('l', [[0, 0], [5, 0], [5, 10], [0, 10]]);
+            // Add ligature glyphs
+            state.addGlyph('fi', [[0, 0], [15, 0], [15, 10], [0, 10]]);
+            state.addGlyph('fl', [[0, 0], [15, 0], [15, 10], [0, 10]]);
+            
+            // Add ligature substitutions
+            state.addLigature('fi', 'fi', true);
+            state.addLigature('fl', 'fl', true);
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+            
+            // Verify GSUB table exists with multiple ligatures
+            assert.ok(parsed.tables.gsub, 'Font should have GSUB table');
+            const lookup = parsed.tables.gsub.lookups[0];
+            assert.equal(lookup.lookupType, 4, 'Lookup should be type 4');
+            
+            // The subtable should have multiple ligature sets
+            const subtable = lookup.subtables[0];
+            assert.ok(subtable.ligatureSets.length >= 1, 'Should have ligature sets');
+        });
+        
+        it('should not create GSUB when ligatures are disabled', () => {
+            const state = new FontEditorState({
+                familyName: 'No Ligature Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add base glyphs
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('B', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('A_B', [[0, 0], [20, 0], [20, 10], [0, 10]]);
+            
+            // Add ligature but disabled
+            state.addLigature('AB', 'A_B', false);
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+            
+            // GSUB should not exist since the only ligature is disabled
+            assert.ok(!parsed.tables.gsub, 'Font should NOT have GSUB table when all ligatures are disabled');
+        });
+        
+        it('should skip ligatures with missing source or result glyphs', () => {
+            const state = new FontEditorState({
+                familyName: 'Missing Glyph Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add only 'A' glyph, not 'B'
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            // Add ligature glyph
+            state.addGlyph('A_B', [[0, 0], [20, 0], [20, 10], [0, 10]]);
+            
+            // Add ligature that references missing glyph 'B'
+            state.addLigature('AB', 'A_B', true);
+            
+            const builder = new FontBuilder(state, opentype);
+            // Should not throw - just skip invalid ligatures
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+            
+            // GSUB should not exist since the ligature has a missing component
+            assert.ok(!parsed.tables.gsub, 'Font should NOT have GSUB when ligature components are missing');
+        });
+        
+        it('should not assign unicode to multi-character glyph names (cmap deduplication)', () => {
+            const state = new FontEditorState({
+                familyName: 'Cmap Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add regular glyphs
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('B', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            // Add ligature glyph with multi-char name - should NOT get unicode
+            state.addGlyph('A_B', [[0, 0], [20, 0], [20, 10], [0, 10]]);
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+            
+            // Find the A_B glyph and verify it has no unicode
+            let foundA_B = false;
+            for (let i = 0; i < parsed.glyphs.length; i++) {
+                const g = parsed.glyphs.get(i);
+                if (g.unicode === 65) {
+                    // This is the 'A' glyph - check there's only one
+                    let countA = 0;
+                    for (let j = 0; j < parsed.glyphs.length; j++) {
+                        if (parsed.glyphs.get(j).unicode === 65) countA++;
+                    }
+                    assert.equal(countA, 1, 'Only one glyph should have unicode 65 (A)');
+                }
+            }
+            
+            // Verify font is valid with OTS (if available)
+            // The key test is that no cmap error occurs for duplicate unicode values
+        });
+        
+        it('should pass OTS validation with ligatures', async () => {
+            const state = new FontEditorState({
+                familyName: 'OTS Ligature Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add base glyphs
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('B', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('A_B', [[0, 0], [20, 0], [20, 10], [0, 10]]);
+            
+            // Add ligature
+            state.addLigature('AB', 'A_B', true);
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            
+            // Write to temp file and run OTS
+            const fs = await import('fs');
+            const path = await import('path');
+            const { execSync } = await import('child_process');
+            const os = await import('os');
+            
+            const tempFile = path.join(os.tmpdir(), `test-ligature-${Date.now()}.ttf`);
+            fs.writeFileSync(tempFile, Buffer.from(buffer));
+            
+            try {
+                const otsPath = path.join(process.cwd(), 'test/ots-9.2.0-macOS/ots-sanitize');
+                const result = execSync(`"${otsPath}" "${tempFile}"`, { encoding: 'utf8' });
+                assert.ok(result.includes('sanitized successfully'), 'OTS should pass');
+            } catch (e) {
+                // OTS failed
+                assert.fail(`OTS validation failed: ${e.stderr || e.message}`);
+            } finally {
+                // Clean up
+                try { fs.unlinkSync(tempFile); } catch(e) {}
+            }
+        });
+    });
 });
