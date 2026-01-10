@@ -2669,11 +2669,54 @@
         function onKernPairInputChange() {
             const input = document.getElementById('kern-pair-input').value;
             if (input.length >= 2) {
-                // Take the first two characters
-                const left = input[0];
-                const right = input[1];
-                selectKernPair(left, right);
+                // Process ligatures to get actual glyph sequence
+                const glyphs = processLigatures(input);
+                
+                if (glyphs.length >= 2) {
+                    // Use the first two glyphs (which may be ligatures or single chars)
+                    const left = glyphs[0];
+                    const right = glyphs[1];
+                    // Don't update the input field since user is typing custom text
+                    selectKernPair(left, right, false);
+                }
             }
+            // Always re-render with the full text
+            renderActivePair();
+        }
+        
+        // Process ligatures in text and return array of glyph names/chars
+        function processLigatures(text) {
+            const result = [];
+            let i = 0;
+            
+            // Get enabled ligatures sorted by length (longest first)
+            const enabledLigatures = (state.ligatures || [])
+                .filter(lig => lig.enabled !== false && lig.sequence && lig.result)
+                .sort((a, b) => b.sequence.length - a.sequence.length);
+            
+            while (i < text.length) {
+                let matched = false;
+                
+                // Try to match ligatures (longest first)
+                for (const lig of enabledLigatures) {
+                    if (text.substring(i, i + lig.sequence.length) === lig.sequence) {
+                        // Check if the result glyph exists
+                        if (state.glyphs.some(g => g.char === lig.result || g.name === lig.result)) {
+                            result.push(lig.result);
+                            i += lig.sequence.length;
+                            matched = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!matched) {
+                    result.push(text[i]);
+                    i++;
+                }
+            }
+            
+            return result;
         }
         
         // Kerning drag state
@@ -3258,14 +3301,16 @@
             updateSampleWordsKerning();
         }
         
-        function selectKernPair(left, right) {
+        function selectKernPair(left, right, updateInput = true) {
             state.activeKernPair = { left, right };
             
             const kernValue = state.kerning[left + right] || 0;
             document.getElementById('kern-value-input').value = kernValue;
             
-            // Update the pair input field
-            document.getElementById('kern-pair-input').value = left + right;
+            // Only update the pair input field if requested (not when user is typing custom text)
+            if (updateInput) {
+                document.getElementById('kern-pair-input').value = left + right;
+            }
             
             // Re-render the active pair with SVG
             renderActivePair();
@@ -5722,6 +5767,8 @@
             
             try {
                 const builder = new FontBuilder(apiState, opentype);
+                console.log('[KERN DEBUG] apiState.kerning:', apiState.kerning);
+                console.log('[KERN DEBUG] apiState.features:', apiState.features);
                 // Build font - always creates TrueType outlines (glyf table)
                 // For OTF we would need CFF conversion (not yet implemented)
                 const font = builder.build({ 
@@ -5729,6 +5776,7 @@
                     validateRoundTrip: true,
                     format: exportFormat // Pass format to builder
                 });
+                console.log('[KERN DEBUG] font.tables.kern after build:', font.tables.kern);
                 
                 // For OTF format, convert to CFF if the font has glyf table
                 let outputFont = font;

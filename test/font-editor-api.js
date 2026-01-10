@@ -2085,4 +2085,178 @@ describe('Font Editor API', () => {
             }
         });
     });
+
+    describe('Kerning and kern Table Export', () => {
+        it('should export kern table with kerning pairs', () => {
+            const state = new FontEditorState({
+                familyName: 'Kern Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+
+            // Add glyphs
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('V', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('T', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('o', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+
+            // Add kerning pairs (in editor units)
+            state.kerning = {
+                'AV': -50,
+                'To': -30
+            };
+
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+
+            // Verify kern table exists
+            assert.ok(parsed.kerningPairs, 'Font should have kerningPairs');
+            assert.ok(Object.keys(parsed.kerningPairs).length > 0, 'Should have kerning pairs');
+
+            // Check kerning values (scaled from editor units to font units)
+            // A is glyph index 1, V is glyph index 2 (after .notdef at 0)
+            // The value should be negative (tighter kerning)
+            const pairCount = Object.keys(parsed.kerningPairs).length;
+            assert.equal(pairCount, 2, 'Should have 2 kerning pairs');
+        });
+
+        it('should not create kern table when no kerning defined', () => {
+            const state = new FontEditorState({
+                familyName: 'No Kern Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('V', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            // No kerning
+
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+
+            // kerningPairs should be empty
+            assert.equal(Object.keys(parsed.kerningPairs).length, 0, 'Should have no kerning pairs');
+        });
+
+        it('should not create kern table when kern feature is disabled', () => {
+            const state = new FontEditorState({
+                familyName: 'Kern Disabled Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('V', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.kerning = { 'AV': -50 };
+            state.features = { kern: false };
+
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+
+            // kerningPairs should be empty since kern feature is disabled
+            assert.equal(Object.keys(parsed.kerningPairs).length, 0, 'Should have no kerning pairs when kern disabled');
+        });
+
+        it('should skip kerning pairs with missing glyphs', () => {
+            const state = new FontEditorState({
+                familyName: 'Kern Missing Glyph Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            // V is NOT added
+            state.kerning = { 'AV': -50 };
+
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+
+            // kerningPairs should be empty since V doesn't exist
+            assert.equal(Object.keys(parsed.kerningPairs).length, 0, 'Should have no kerning pairs when glyph missing');
+        });
+
+        it('should correctly scale kerning values from editor units', () => {
+            const state = new FontEditorState({
+                familyName: 'Kern Scale Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('V', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.kerning = { 'AV': -100 }; // Large negative value
+
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+
+            // Find the kerning value
+            const keys = Object.keys(parsed.kerningPairs);
+            assert.equal(keys.length, 1, 'Should have 1 kerning pair');
+            const value = parsed.kerningPairs[keys[0]];
+            assert.ok(value < 0, 'Kerning value should be negative');
+        });
+
+        it('should pass OTS validation with kerning', async () => {
+            const state = new FontEditorState({
+                familyName: 'OTS Kern Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+
+            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('V', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('T', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('o', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.kerning = {
+                'AV': -50,
+                'To': -30,
+                'VA': -40
+            };
+
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+
+            // Write to temp file and run OTS
+            const fs = await import('fs');
+            const path = await import('path');
+            const { execSync } = await import('child_process');
+            const os = await import('os');
+
+            const tempFile = path.join(os.tmpdir(), `test-kern-${Date.now()}.ttf`);
+            fs.writeFileSync(tempFile, Buffer.from(buffer));
+
+            try {
+                const otsPath = path.join(process.cwd(), 'test/ots-9.2.0-macOS/ots-sanitize');
+                const result = execSync(`"${otsPath}" "${tempFile}"`, { encoding: 'utf8' });
+                assert.ok(result.includes('sanitized successfully'), 'OTS should pass');
+            } catch (e) {
+                assert.fail(`OTS validation failed: ${e.stderr || e.message}`);
+            } finally {
+                try { fs.unlinkSync(tempFile); } catch(e) {}
+            }
+        });
+    });
 });

@@ -1821,7 +1821,8 @@ export class FontBuilder {
     }
 
     /**
-     * Add kerning table to the font using opentype.js's position API
+     * Add kerning table to the font
+     * Populates font.tables.kern with kerning pairs for export
      * @param {Object} font - The opentype.js Font object
      * @param {Map} glyphIndexMap - Map of glyph names to indices
      * @param {number} scale - Scale factor from editor coords to font units
@@ -1834,14 +1835,9 @@ export class FontBuilder {
             return;
         }
 
-        // Initialize kern table if not present
-        // opentype.js stores kerning as font.kerningPairs = {'A/V': -50, ...}
-        // or uses the position object with getKerningValue
-        
-        // Method 1: Using font.kerningPairs (simple, works for basic kerning)
-        if (!font.kerningPairs) {
-            font.kerningPairs = {};
-        }
+        // Build kern table data structure
+        // The kern table expects pairs in format 'leftIndex,rightIndex': value
+        const kernPairs = {};
         
         for (const [pairKey, value] of Object.entries(kerningPairs)) {
             // pairKey is like "AV" - first char is left, rest is right
@@ -1857,26 +1853,26 @@ export class FontBuilder {
             
             if (leftIdx !== undefined && rightIdx !== undefined) {
                 // Scale the kerning value from editor units to font units
-                const scaledValue = Math.round(value * scale / 10); // value is already in "units", scale appropriately
-                font.kerningPairs[`${leftIdx}/${rightIdx}`] = scaledValue;
+                const scaledValue = Math.round(value * scale / 10);
+                if (scaledValue !== 0) {
+                    // kern table format: 'leftIndex,rightIndex' (comma-separated)
+                    kernPairs[`${leftIdx},${rightIdx}`] = scaledValue;
+                }
             }
         }
         
-        // Also set up the position.getKerningValue if available
-        if (font.position) {
-            const originalGetKerning = font.position.getKerningValue?.bind(font.position);
-            font.position.getKerningValue = function(leftGlyph, rightGlyph) {
-                // Try our custom kerning first
-                const pairKey = `${leftGlyph.index}/${rightGlyph.index}`;
-                if (font.kerningPairs && font.kerningPairs[pairKey] !== undefined) {
-                    return font.kerningPairs[pairKey];
-                }
-                // Fall back to original
-                if (originalGetKerning) {
-                    return originalGetKerning(leftGlyph, rightGlyph);
-                }
-                return 0;
-            };
+        // Only add kern table if there are valid pairs
+        if (Object.keys(kernPairs).length > 0) {
+            // Store in font.tables.kern for sfnt.js to write
+            font.tables.kern = kernPairs;
+            
+            // Also set font.kerningPairs for runtime use (slash format)
+            font.kerningPairs = {};
+            for (const [key, value] of Object.entries(kernPairs)) {
+                // Convert 'left,right' to 'left/right' for font.kerningPairs
+                const [left, right] = key.split(',');
+                font.kerningPairs[`${left}/${right}`] = value;
+            }
         }
     }
 }

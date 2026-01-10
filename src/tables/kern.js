@@ -4,6 +4,11 @@
 
 import check from '../check.js';
 import parse from '../parse.js';
+import table from '../table.js';
+
+function log2(v) {
+    return Math.log(v) / Math.log(2) | 0;
+}
 
 function parseWindowsKernTable(p) {
     const pairs = {};
@@ -66,4 +71,80 @@ function parseKernTable(data, start) {
     }
 }
 
-export default { parse: parseKernTable };
+/**
+ * Make a kern table from kerning pairs.
+ * Creates a Windows format (version 0) kern table with format 0 subtable.
+ * @param {Object} kerningPairs - Object with keys 'leftIndex,rightIndex' and values as kerning amounts
+ * @returns {Table|null} The kern table, or null if no pairs
+ */
+function makeKernTable(kerningPairs) {
+    if (!kerningPairs || typeof kerningPairs !== 'object') {
+        return null;
+    }
+    
+    // Convert kerning pairs object to sorted array
+    const pairs = [];
+    for (const key in kerningPairs) {
+        const parts = key.split(',');
+        if (parts.length === 2) {
+            const leftIndex = parseInt(parts[0], 10);
+            const rightIndex = parseInt(parts[1], 10);
+            const value = kerningPairs[key];
+            if (!isNaN(leftIndex) && !isNaN(rightIndex) && value !== 0) {
+                pairs.push({ left: leftIndex, right: rightIndex, value: value });
+            }
+        }
+    }
+    
+    if (pairs.length === 0) {
+        return null;
+    }
+    
+    // Sort pairs by left index, then right index (required for binary search)
+    pairs.sort((a, b) => {
+        if (a.left !== b.left) return a.left - b.left;
+        return a.right - b.right;
+    });
+    
+    const nPairs = pairs.length;
+    
+    // Compute searchRange, entrySelector, rangeShift for binary search
+    const highestPowerOf2 = Math.pow(2, log2(nPairs));
+    const searchRange = highestPowerOf2 * 6; // 6 bytes per entry
+    const entrySelector = log2(highestPowerOf2);
+    const rangeShift = nPairs * 6 - searchRange;
+    
+    // Subtable size: header (14 bytes) + pairs (6 bytes each)
+    const subtableLength = 14 + nPairs * 6;
+    
+    // Build the table fields
+    const fields = [
+        // Table header (Windows format, version 0)
+        { name: 'version', type: 'USHORT', value: 0 },
+        { name: 'nTables', type: 'USHORT', value: 1 },
+        
+        // Subtable header (format 0)
+        { name: 'subtableVersion', type: 'USHORT', value: 0 },
+        { name: 'subtableLength', type: 'USHORT', value: subtableLength },
+        // Coverage: horizontal (bit 0), cross-stream=0 (bit 2), override=0 (bit 3), format=0 (bits 8-15)
+        { name: 'subtableCoverage', type: 'USHORT', value: 0x0001 },
+        
+        // Format 0 header
+        { name: 'nPairs', type: 'USHORT', value: nPairs },
+        { name: 'searchRange', type: 'USHORT', value: searchRange },
+        { name: 'entrySelector', type: 'USHORT', value: entrySelector },
+        { name: 'rangeShift', type: 'USHORT', value: rangeShift },
+    ];
+    
+    // Add each kerning pair
+    for (let i = 0; i < pairs.length; i++) {
+        const pair = pairs[i];
+        fields.push({ name: `left_${i}`, type: 'USHORT', value: pair.left });
+        fields.push({ name: `right_${i}`, type: 'USHORT', value: pair.right });
+        fields.push({ name: `value_${i}`, type: 'SHORT', value: pair.value });
+    }
+    
+    return new table.Table('kern', fields);
+}
+
+export default { parse: parseKernTable, make: makeKernTable };

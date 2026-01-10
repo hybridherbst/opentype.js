@@ -1,4 +1,3 @@
-// ESM test aggregator to avoid require<->import race on Node 22
 import './types.js';
 import './util.js';
 import './opentypeSpec.js';
@@ -34,6 +33,7 @@ import './gpos-variations.js';
 import './tables/gsub.js';
 import './tables/gvar.js';
 import './tables/hvar.js';
+import './tables/kern.js';
 import './tables/loca.js';
 import './tables/ltag.js';
 import './tables/meta.js';

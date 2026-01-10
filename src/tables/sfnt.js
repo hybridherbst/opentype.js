@@ -31,6 +31,7 @@ import cvar from './cvar.js';
 import gvar from './gvar.js';
 import hvar from './hvar.js';
 import gasp from './gasp.js';
+import kern from './kern.js';
 import svg from './svg.js';
 import glyf, { pathToPoints } from './glyf.js';
 import loca from './loca.js';
@@ -626,6 +627,7 @@ function fontToSfntTable(font) {
     // Optional tables
     const optionalTables = {
         gsub,
+        kern,
         cpal,
         colr,
         stat,
