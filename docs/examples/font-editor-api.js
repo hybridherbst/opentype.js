@@ -339,6 +339,17 @@ export class FontEditorState {
         // avar table for non-linear axis mapping: {axisSegmentMaps: [[{fromCoordinate, toCoordinate}...]...]}
         // Each axis has an array of segment maps defining the piecewise linear mapping
         this.avarTable = null;
+        // Kerning pairs: { 'AV': -50, 'To': -30, ... } in font units
+        this.kerning = {};
+        // Ligatures: [{sequence: 'fi', result: 'fi_lig', enabled: true}, ...]
+        this.ligatures = [];
+        // OpenType features toggles
+        this.features = {
+            liga: true,
+            kern: true,
+            dlig: false,
+            smcp: false
+        };
     }
 
     addGlyph(char, points = [], width = undefined) {
@@ -1058,6 +1069,11 @@ export class FontBuilder {
             this._addVariationData(font, glyphIndexMap, scale, syntheticShapeComponents);
         }
 
+        // Add kerning table if there are kerning pairs defined
+        if (state.kerning && Object.keys(state.kerning).length > 0 && state.features?.kern !== false) {
+            this._addKerningTable(font, glyphIndexMap, scale);
+        }
+
         if (validate) {
             this._validateGlyphPaths(font);
             if (validateRoundTrip) {
@@ -1686,6 +1702,66 @@ export class FontBuilder {
             throw new Error('Roundtrip parsed font has no glyph paths');
         }
         return parsed;
+    }
+
+    /**
+     * Add kerning table to the font using opentype.js's position API
+     * @param {Object} font - The opentype.js Font object
+     * @param {Map} glyphIndexMap - Map of glyph names to indices
+     * @param {number} scale - Scale factor from editor coords to font units
+     */
+    _addKerningTable(font, glyphIndexMap, scale) {
+        const state = this.state;
+        const kerningPairs = state.kerning || {};
+        
+        if (Object.keys(kerningPairs).length === 0) {
+            return;
+        }
+
+        // Initialize kern table if not present
+        // opentype.js stores kerning as font.kerningPairs = {'A/V': -50, ...}
+        // or uses the position object with getKerningValue
+        
+        // Method 1: Using font.kerningPairs (simple, works for basic kerning)
+        if (!font.kerningPairs) {
+            font.kerningPairs = {};
+        }
+        
+        for (const [pairKey, value] of Object.entries(kerningPairs)) {
+            // pairKey is like "AV" - first char is left, rest is right
+            const left = pairKey[0];
+            const right = pairKey.slice(1);
+            
+            // Get glyph indices
+            const leftGlyphName = this._charToGlyphName(left);
+            const rightGlyphName = this._charToGlyphName(right);
+            
+            const leftIdx = glyphIndexMap.get(leftGlyphName);
+            const rightIdx = glyphIndexMap.get(rightGlyphName);
+            
+            if (leftIdx !== undefined && rightIdx !== undefined) {
+                // Scale the kerning value from editor units to font units
+                const scaledValue = Math.round(value * scale / 10); // value is already in "units", scale appropriately
+                font.kerningPairs[`${leftIdx}/${rightIdx}`] = scaledValue;
+            }
+        }
+        
+        // Also set up the position.getKerningValue if available
+        if (font.position) {
+            const originalGetKerning = font.position.getKerningValue?.bind(font.position);
+            font.position.getKerningValue = function(leftGlyph, rightGlyph) {
+                // Try our custom kerning first
+                const pairKey = `${leftGlyph.index}/${rightGlyph.index}`;
+                if (font.kerningPairs && font.kerningPairs[pairKey] !== undefined) {
+                    return font.kerningPairs[pairKey];
+                }
+                // Fall back to original
+                if (originalGetKerning) {
+                    return originalGetKerning(leftGlyph, rightGlyph);
+                }
+                return 0;
+            };
+        }
     }
 }
 
