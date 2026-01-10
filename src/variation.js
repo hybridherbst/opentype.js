@@ -525,6 +525,17 @@ export class VariationManager {
             }
         }
         
+        // Ensure all glyph indices have entries in glyphVariations
+        // gvar table requires entries for ALL glyphs from 0 to numGlyphs-1
+        for (let i = 0; i < font.glyphs.length; i++) {
+            if (!gvar.glyphVariations[i]) {
+                gvar.glyphVariations[i] = {
+                    headers: [],
+                    sharedPoints: []
+                };
+            }
+        }
+        
         // Add default max tuple to shared tuples
         gvar.sharedTuples.push([...defaultPeakTuple]);
         

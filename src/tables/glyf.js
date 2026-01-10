@@ -518,6 +518,12 @@ function pathToPoints(path, tolerance = 1) {
  * @returns {Uint8Array} The encoded glyph data
  */
 function encodeSimpleGlyph(glyph) {
+    // If the glyph has original TrueType points, use them directly for better fidelity
+    if (glyph.points && glyph.points.length > 0 && glyph.numberOfContours > 0) {
+        return encodeSimpleGlyphFromPoints(glyph);
+    }
+    
+    // Otherwise, convert from path
     const path = glyph.path;
     if (!path || !path.commands || path.commands.length === 0) {
         // Empty glyph
@@ -526,6 +532,53 @@ function encodeSimpleGlyph(glyph) {
     
     const { points, contourEnds } = pathToPoints(path);
     
+    if (points.length === 0 || contourEnds.length === 0) {
+        return new Uint8Array(0);
+    }
+    
+    return encodePointsToGlyf(points, contourEnds);
+}
+
+/**
+ * Encode a glyph from its original TrueType points.
+ * @param {Glyph} glyph - The glyph with original points data
+ * @returns {Uint8Array} The encoded glyph data
+ */
+function encodeSimpleGlyphFromPoints(glyph) {
+    const points = glyph.points;
+    
+    // Get contour ends - either from the glyph or build from point flags
+    let contourEnds;
+    if (glyph.contourEnds && glyph.contourEnds.length > 0) {
+        // Use stored contour ends (from CFF conversion or similar)
+        contourEnds = glyph.contourEnds;
+    } else {
+        // Build contour ends from the points' lastPointOfContour flags
+        contourEnds = [];
+        for (let i = 0; i < points.length; i++) {
+            if (points[i].lastPointOfContour) {
+                contourEnds.push(i);
+            }
+        }
+    }
+    
+    // Convert points to the format expected by encodePointsToGlyf
+    const encodingPoints = points.map(pt => ({
+        x: pt.x,
+        y: pt.y,
+        onCurve: pt.onCurve
+    }));
+    
+    return encodePointsToGlyf(encodingPoints, contourEnds);
+}
+
+/**
+ * Encode points and contour ends to TrueType glyf format.
+ * @param {Array} points - Array of {x, y, onCurve} objects
+ * @param {Array} contourEnds - Array of contour end indices
+ * @returns {Uint8Array} The encoded glyph data
+ */
+function encodePointsToGlyf(points, contourEnds) {
     if (points.length === 0 || contourEnds.length === 0) {
         return new Uint8Array(0);
     }
@@ -629,6 +682,126 @@ function encodeSimpleGlyph(glyph) {
 }
 
 /**
+ * Encode a composite glyph
+ * @param {Glyph} glyph - The composite glyph to encode
+ * @returns {Uint8Array} The encoded glyph data
+ */
+function encodeCompositeGlyph(glyph) {
+    if (!glyph.components || glyph.components.length === 0) {
+        return new Uint8Array(0);
+    }
+    
+    // Calculate bounding box from components (use stored bounds if available)
+    let xMin = glyph._xMin !== undefined ? glyph._xMin : 0;
+    let yMin = glyph._yMin !== undefined ? glyph._yMin : 0;
+    let xMax = glyph._xMax !== undefined ? glyph._xMax : 0;
+    let yMax = glyph._yMax !== undefined ? glyph._yMax : 0;
+    
+    // Calculate the size needed
+    // Header: 10 bytes (numberOfContours=-1, xMin, yMin, xMax, yMax)
+    let componentDataSize = 0;
+    
+    for (let i = 0; i < glyph.components.length; i++) {
+        const component = glyph.components[i];
+        
+        // flags (2 bytes) + glyphIndex (2 bytes) = 4 bytes minimum
+        componentDataSize += 4;
+        
+        // Determine argument size (dx, dy)
+        const dx = component.dx || 0;
+        const dy = component.dy || 0;
+        const needsWordArgs = dx < -128 || dx > 127 || dy < -128 || dy > 127;
+        componentDataSize += needsWordArgs ? 4 : 2;
+        
+        // Determine scale format
+        const xScale = component.xScale !== undefined ? component.xScale : 1;
+        const yScale = component.yScale !== undefined ? component.yScale : 1;
+        const scale01 = component.scale01 || 0;
+        const scale10 = component.scale10 || 0;
+        
+        const hasMatrix = scale01 !== 0 || scale10 !== 0;
+        const hasXYScale = !hasMatrix && (xScale !== 1 || yScale !== 1) && xScale !== yScale;
+        const hasSimpleScale = !hasMatrix && !hasXYScale && xScale !== 1;
+        
+        if (hasMatrix) {
+            componentDataSize += 8; // 4 x F2Dot14
+        } else if (hasXYScale) {
+            componentDataSize += 4; // 2 x F2Dot14
+        } else if (hasSimpleScale) {
+            componentDataSize += 2; // 1 x F2Dot14
+        }
+    }
+    
+    const totalSize = 10 + componentDataSize;
+    const data = new Uint8Array(totalSize);
+    const view = new DataView(data.buffer);
+    let offset = 0;
+    
+    // Header
+    view.setInt16(offset, -1); offset += 2; // numberOfContours = -1 for composite
+    view.setInt16(offset, xMin); offset += 2;
+    view.setInt16(offset, yMin); offset += 2;
+    view.setInt16(offset, xMax); offset += 2;
+    view.setInt16(offset, yMax); offset += 2;
+    
+    // Components
+    for (let i = 0; i < glyph.components.length; i++) {
+        const component = glyph.components[i];
+        const isLast = i === glyph.components.length - 1;
+        
+        const dx = component.dx || 0;
+        const dy = component.dy || 0;
+        const needsWordArgs = dx < -128 || dx > 127 || dy < -128 || dy > 127;
+        
+        const xScale = component.xScale !== undefined ? component.xScale : 1;
+        const yScale = component.yScale !== undefined ? component.yScale : 1;
+        const scale01 = component.scale01 || 0;
+        const scale10 = component.scale10 || 0;
+        
+        const hasMatrix = scale01 !== 0 || scale10 !== 0;
+        const hasXYScale = !hasMatrix && (xScale !== 1 || yScale !== 1) && xScale !== yScale;
+        const hasSimpleScale = !hasMatrix && !hasXYScale && xScale !== 1;
+        
+        // Build flags
+        let flags = 0;
+        if (needsWordArgs) flags |= 0x0001; // ARG_1_AND_2_ARE_WORDS
+        flags |= 0x0002; // ARGS_ARE_XY_VALUES (always use offsets, not matched points)
+        if (!isLast) flags |= 0x0020; // MORE_COMPONENTS
+        if (hasSimpleScale) flags |= 0x0008; // WE_HAVE_A_SCALE
+        if (hasXYScale) flags |= 0x0040; // WE_HAVE_AN_X_AND_Y_SCALE
+        if (hasMatrix) flags |= 0x0080; // WE_HAVE_A_TWO_BY_TWO
+        
+        view.setUint16(offset, flags); offset += 2;
+        view.setUint16(offset, component.glyphIndex); offset += 2;
+        
+        // Write dx, dy
+        if (needsWordArgs) {
+            view.setInt16(offset, dx); offset += 2;
+            view.setInt16(offset, dy); offset += 2;
+        } else {
+            view.setInt8(offset, dx); offset += 1;
+            view.setInt8(offset, dy); offset += 1;
+        }
+        
+        // Write scale values
+        if (hasMatrix) {
+            // F2Dot14: multiply by 16384 (2^14)
+            view.setInt16(offset, Math.round(xScale * 16384)); offset += 2;
+            view.setInt16(offset, Math.round(scale01 * 16384)); offset += 2;
+            view.setInt16(offset, Math.round(scale10 * 16384)); offset += 2;
+            view.setInt16(offset, Math.round(yScale * 16384)); offset += 2;
+        } else if (hasXYScale) {
+            view.setInt16(offset, Math.round(xScale * 16384)); offset += 2;
+            view.setInt16(offset, Math.round(yScale * 16384)); offset += 2;
+        } else if (hasSimpleScale) {
+            view.setInt16(offset, Math.round(xScale * 16384)); offset += 2;
+        }
+    }
+    
+    return data;
+}
+
+/**
  * Make a glyf table from a GlyphSet.
  * @param {GlyphSet} glyphs - The glyphs to encode
  * @returns {Object} { glyfTable: Table, locaTable: Array }
@@ -640,7 +813,18 @@ function makeGlyfTable(glyphs) {
     
     for (let i = 0; i < glyphs.length; i++) {
         const glyph = glyphs.get(i);
-        const glyphData = encodeSimpleGlyph(glyph);
+        // Force glyph loading to ensure isComposite is set (for lazy-loaded glyphs)
+        if (glyph.path === undefined && typeof glyph.getPath === 'function') {
+            try {
+                glyph.getPath();
+            } catch (e) {
+                // Glyph may fail to load, but that's ok - we'll use simple encoding
+            }
+        }
+        // Use composite encoder for composite glyphs, simple encoder otherwise
+        const glyphData = glyph.isComposite 
+            ? encodeCompositeGlyph(glyph) 
+            : encodeSimpleGlyph(glyph);
         glyphDataList.push(glyphData);
         currentOffset += glyphData.length;
         // Pad to word boundary (2 bytes)

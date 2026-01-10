@@ -235,6 +235,27 @@ export class VariationProcessor {
         }
     }
 
+    /**
+     * Transforms composite glyph components without gvar deltas.
+     * Used for composite glyphs that are not explicitly targeted in gvar
+     * but still need their components to get variation applied.
+     * @param {Glyph} glyph - The composite glyph to transform.
+     * @param {Array<Object>} transformedPoints - Points to be transformed in place.
+     * @param {Object} coords - Variation coordinates.
+     */
+    transformComponentsSimple(glyph, transformedPoints, coords) {
+        let pointsIndex = 0;
+        for(let c = 0; c < glyph.components.length; c++) {
+            const component = glyph.components[c];
+            const componentGlyph = this.font.glyphs.get(component.glyphIndex);
+            const componentTransform = copyComponent(component);
+            // No gvar deltas to apply - just use the base component transform (dx, dy)
+            const transformedComponentPoints = transformPoints(this.getTransform(componentGlyph, coords).points, componentTransform);
+            transformedPoints.splice(pointsIndex, transformedComponentPoints.length, ...transformedComponentPoints);
+            pointsIndex += componentGlyph.points.length;
+        }
+    }
+
     applyTupleVariationStore(variationData, points, coords, flavor = 'gvar', args = {}) {
         if(!coords) {
             coords = this.font.variation.get();
@@ -388,6 +409,16 @@ export class VariationProcessor {
                     let transformedPoints = this.applyTupleVariationStore(variationData, glyphPoints, coords, 'gvar', { glyph });
                     const transformedPath = getPath(transformedPoints);
                     // Preserve unitsPerEm from the original glyph's path for correct scaling
+                    transformedPath.unitsPerEm = glyph.path && glyph.path.unitsPerEm ? glyph.path.unitsPerEm : this.font.unitsPerEm;
+                    transformedGlyph = new Glyph(Object.assign({}, glyph, {points: transformedPoints, path: transformedPath}));
+                }
+                
+                // Handle composite glyphs that are not explicitly in gvar but have components that need transforming
+                // This ensures component glyphs get their variation applied even when the composite itself has no gvar deltas
+                if (glyph.isComposite && (!variationData || !variationData.headers || !variationData.headers.length)) {
+                    const transformedPoints = glyph.points.map(copyPoint);
+                    this.transformComponentsSimple(glyph, transformedPoints, coords);
+                    const transformedPath = getPath(transformedPoints);
                     transformedPath.unitsPerEm = glyph.path && glyph.path.unitsPerEm ? glyph.path.unitsPerEm : this.font.unitsPerEm;
                     transformedGlyph = new Glyph(Object.assign({}, glyph, {points: transformedPoints, path: transformedPath}));
                 }

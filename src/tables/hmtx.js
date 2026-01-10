@@ -55,7 +55,9 @@ function makeHmtxTable(glyphs) {
     for (let i = 0; i < glyphs.length; i += 1) {
         const glyph = glyphs.get(i);
         const advanceWidth = glyph.advanceWidth || 0;
-        const leftSideBearing = glyph.leftSideBearing || 0;
+        // Use getMetrics() to get correct leftSideBearing (defaults to xMin if not set)
+        const metrics = glyph.getMetrics();
+        const leftSideBearing = metrics.leftSideBearing || 0;
         t.fields.push({name: 'advanceWidth_' + i, type: 'USHORT', value: advanceWidth});
         t.fields.push({name: 'leftSideBearing_' + i, type: 'SHORT', value: leftSideBearing});
     }

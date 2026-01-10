@@ -323,6 +323,11 @@ export class FontEditorState {
         this.descender = options.descender || 0;
         this.glyphs = {};
         this.glyphWidths = {};
+        // Components are just glyphs with names starting with underscore (e.g. '_stem')
+        // They are stored in this.glyphs but not exported as regular unicode glyphs
+        // Reference layers: glyphs can reference any other glyph with transforms
+        // { 'A': [{name: 'B', dx, dy, scaleX, scaleY, rotation, skewX, skewY}, ...] }
+        this.glyphReferences = {};
         this.currentGlyph = null;
         this.selectedPoint = -1;
         this.vfEnabled = false;
@@ -547,6 +552,246 @@ export class FontBuilder {
         }
     }
 
+    /**
+     * Convert a character/glyph key to a consistent glyph name.
+     * - Single characters (e.g., 'A', 'O') use the character as the name
+     * - Component glyphs starting with underscore (e.g., '_stem', '_O_shape') use their full name
+     * - Multi-character strings that aren't components use 'glyph' + charcode
+     */
+    _charToGlyphName(char) {
+        if (char.length === 1) {
+            return char;
+        }
+        if (char.startsWith('_')) {
+            return char; // Component names are used as-is
+        }
+        return 'glyph' + char.charCodeAt(0);
+    }
+
+    /**
+     * Transform a point by reference transform (dx, dy, scaleX, scaleY, rotation, skewX, skewY)
+     * Matches the UI transformation logic
+     */
+    _transformPoint(x, y, ref) {
+        // Apply transforms in order: scale -> skew -> rotate -> translate
+        let px = x * (ref.scaleX || 1);
+        let py = y * (ref.scaleY || 1);
+        
+        // Skew
+        if (ref.skewX) {
+            px += py * Math.tan((ref.skewX || 0) * Math.PI / 180);
+        }
+        if (ref.skewY) {
+            py += px * Math.tan((ref.skewY || 0) * Math.PI / 180);
+        }
+        
+        // Rotate
+        if (ref.rotation) {
+            const angle = (ref.rotation || 0) * Math.PI / 180;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const rx = px * cos - py * sin;
+            const ry = px * sin + py * cos;
+            px = rx;
+            py = ry;
+        }
+        
+        // Translate
+        px += ref.dx || 0;
+        py += ref.dy || 0;
+        
+        return [px, py];
+    }
+
+    /**
+     * Compute the 2x2 transformation matrix for a reference transform
+     * Returns { a, b, c, d } where the matrix is [[a, b], [c, d]]
+     * This matches the transform order: scale -> skew -> rotate
+     */
+    _computeTransformMatrix(ref) {
+        const scaleX = ref.scaleX !== undefined ? ref.scaleX : 1;
+        const scaleY = ref.scaleY !== undefined ? ref.scaleY : 1;
+        const rotation = (ref.rotation || 0) * Math.PI / 180;
+        const skewX = (ref.skewX || 0) * Math.PI / 180;
+        const skewY = (ref.skewY || 0) * Math.PI / 180;
+        
+        const cos = Math.cos(rotation);
+        const sin = Math.sin(rotation);
+        const tanKx = Math.tan(skewX);
+        const tanKy = Math.tan(skewY);
+        
+        // Compute matrix by tracking what happens to basis vectors
+        // For (1,0): scale -> (sx, 0), skewX -> (sx, 0), skewY -> (sx, sx*tanKy), rotate
+        // For (0,1): scale -> (0, sy), skewX -> (sy*tanKx, sy), skewY -> (sy*tanKx, sy + sy*tanKx*tanKy), rotate
+        
+        // Column 1: transform of (1, 0)
+        // After scale: (sx, 0)
+        // After skewX: (sx, 0) (y=0, no change)
+        // After skewY: (sx, sx*tanKy)
+        // After rotate: (sx*cos - sx*tanKy*sin, sx*sin + sx*tanKy*cos)
+        const a = scaleX * (cos - tanKy * sin);
+        const c = scaleX * (sin + tanKy * cos);
+        
+        // Column 2: transform of (0, 1)
+        // After scale: (0, sy)
+        // After skewX: (sy*tanKx, sy)
+        // After skewY: (sy*tanKx, sy + sy*tanKx*tanKy)
+        // After rotate: (sy*tanKx*cos - (sy + sy*tanKx*tanKy)*sin, sy*tanKx*sin + (sy + sy*tanKx*tanKy)*cos)
+        const b = scaleY * (tanKx * cos - (1 + tanKx * tanKy) * sin);
+        const d = scaleY * (tanKx * sin + (1 + tanKx * tanKy) * cos);
+        
+        return { a, b, c, d };
+    }
+
+    /**
+     * Get shapes for a referenced glyph, normalizing to nested format
+     * (components and glyphs are now the same - both stored in glyphs)
+     */
+    _getComponentShapes(glyphName) {
+        const state = this.state;
+        // Look in glyphs - components are just glyphs with underscore prefix
+        if (!state.glyphs || !state.glyphs[glyphName]) return [];
+        
+        const data = state.glyphs[glyphName];
+        if (!data || data.length === 0) return [];
+        
+        // Check if already nested
+        if (data[0] && Array.isArray(data[0]) && Array.isArray(data[0][0])) {
+            return data;
+        }
+        return [data];
+    }
+
+    /**
+     * Get transformed shapes from a reference layer
+     */
+    _getTransformedReferenceShapes(ref) {
+        const sourceShapes = this._getComponentShapes(ref.name);
+        if (!sourceShapes || sourceShapes.length === 0) return [];
+        
+        return sourceShapes.map(shape => 
+            shape.map(point => this._transformPoint(point[0], point[1], ref))
+        );
+    }
+
+    /**
+     * Get all shapes for a glyph including reference layers (flattened/baked)
+     * Components are transformed and merged into the glyph's shapes
+     */
+    _getGlyphShapesWithReferences(char, pointsOrShapes) {
+        const state = this.state;
+        const allShapes = [];
+        
+        // First add the glyph's own shapes
+        if (pointsOrShapes && pointsOrShapes.length > 0) {
+            const isNested = Array.isArray(pointsOrShapes[0]) && 
+                             Array.isArray(pointsOrShapes[0][0]);
+            if (isNested) {
+                for (const shape of pointsOrShapes) {
+                    if (shape && shape.length > 0) {
+                        allShapes.push(shape);
+                    }
+                }
+            } else if (pointsOrShapes.length > 0) {
+                allShapes.push(pointsOrShapes);
+            }
+        }
+        
+        // Then add any reference layers (transformed component shapes)
+        if (state.glyphReferences && state.glyphReferences[char]) {
+            for (const ref of state.glyphReferences[char]) {
+                const transformedShapes = this._getTransformedReferenceShapes(ref);
+                for (const shape of transformedShapes) {
+                    if (shape && shape.length > 0) {
+                        allShapes.push(shape);
+                    }
+                }
+            }
+        }
+        
+        return allShapes;
+    }
+
+    /**
+     * Normalize shapes to always be in nested format [[shape1], [shape2], ...]
+     */
+    _normalizeShapes(pointsOrShapes) {
+        if (!pointsOrShapes || pointsOrShapes.length === 0) return [];
+        
+        const isNested = Array.isArray(pointsOrShapes[0]) && 
+                         Array.isArray(pointsOrShapes[0][0]);
+        if (isNested) {
+            return pointsOrShapes.filter(s => s && s.length > 0);
+        } else if (pointsOrShapes.length > 0) {
+            return [pointsOrShapes];
+        }
+        return [];
+    }
+
+    /**
+     * Check if the glyph has its own shapes (not just references)
+     */
+    _hasOwnShapes(pointsOrShapes) {
+        if (!pointsOrShapes || pointsOrShapes.length === 0) return false;
+        
+        const isNested = Array.isArray(pointsOrShapes[0]) && 
+                         Array.isArray(pointsOrShapes[0][0]);
+        if (isNested) {
+            return pointsOrShapes.some(s => s && s.length > 0);
+        }
+        return pointsOrShapes.length > 0;
+    }
+
+    /**
+     * Calculate bounding box for a composite glyph from its references
+     * @param {Array} refs - Array of reference objects
+     * @param {number} scale - Scale factor
+     * @param {Map} syntheticShapeComponents - Map of char -> synthetic component name (optional)
+     * @param {Object} baseGlyphs - Base glyphs object for looking up synthetic component shapes (optional)
+     */
+    _calculateCompositeBounds(refs, scale, syntheticShapeComponents = null, baseGlyphs = null) {
+        let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+        
+        for (const ref of refs) {
+            let sourceShapes;
+            
+            // Check if this is a synthetic shape component
+            if (syntheticShapeComponents && baseGlyphs && 
+                ref.name.endsWith('_shape') && ref.name.startsWith('_')) {
+                const originalChar = ref.name.slice(1, -6); // Remove leading _ and trailing _shape
+                if (syntheticShapeComponents.has(originalChar)) {
+                    // Get shapes from the original glyph
+                    sourceShapes = this._normalizeShapes(baseGlyphs[originalChar]);
+                } else {
+                    sourceShapes = this._getComponentShapes(ref.name);
+                }
+            } else {
+                sourceShapes = this._getComponentShapes(ref.name);
+            }
+            
+            if (!sourceShapes || sourceShapes.length === 0) continue;
+            
+            // Transform each point and track bounds
+            for (const shape of sourceShapes) {
+                for (const point of shape) {
+                    const transformed = this._transformPoint(point[0], point[1], ref);
+                    const x = Math.round(transformed[0] * scale);
+                    const y = Math.round(transformed[1] * scale);
+                    xMin = Math.min(xMin, x);
+                    yMin = Math.min(yMin, y);
+                    xMax = Math.max(xMax, x);
+                    yMax = Math.max(yMax, y);
+                }
+            }
+        }
+        
+        if (!isFinite(xMin)) {
+            xMin = yMin = xMax = yMax = 0;
+        }
+        
+        return { xMin, yMin, xMax, yMax };
+    }
+
     build(options = {}) {
         // The editor uses a coordinate space of roughly 0-10.
         // We scale this to match unitsPerEm (default 800).
@@ -554,6 +799,7 @@ export class FontBuilder {
         const editorScale = options.editorScale || 10; // editor coordinate max
         const validate = options.validate !== false;
         const validateRoundTrip = options.validateRoundTrip !== false;
+        const useComposites = options.useComposites !== false; // Default: true for TTF composites
         const ot = this.opentype;
         const state = this.state;
         
@@ -562,6 +808,7 @@ export class FontBuilder {
 
         const otGlyphs = [];
         const glyphIndexMap = new Map();
+        const componentGlyphIndexMap = new Map(); // Maps component names to glyph indices
 
         // Create .notdef glyph with a visible rectangle (required by font validators)
         const notdefPath = new ot.Path();
@@ -587,23 +834,81 @@ export class FontBuilder {
         otGlyphs.push(new ot.Glyph({ name: 'uni00A0', unicode: 0x00A0, path: new ot.Path(), advanceWidth: Math.round(5 * scale) }));
         glyphIndexMap.set('uni00A0', 2);
 
+        let glyphIndex = 3;
+
+        // Determine base glyphs and widths (from first master for VF, or state.glyphs for static)
         const baseGlyphs = state.vfEnabled && state.masters.length > 0 ? state.masters[0].glyphs : state.glyphs;
         const baseWidths = state.vfEnabled && state.masters.length > 0 && state.masters[0].glyphWidths
             ? state.masters[0].glyphWidths
             : state.glyphWidths;
 
-        let glyphIndex = 3;
-        for (const [char, pointsOrShapes] of Object.entries(baseGlyphs)) {
-            const path = new ot.Path();
+        // Step 1: Create component glyphs (underscore-prefixed, no unicode) if we're using composites
+        // Components are now just glyphs with names starting with underscore
+        
+        // Track synthetic shape components created for glyphs that have both shapes AND references
+        const syntheticShapeComponents = new Map(); // Maps char -> synthetic component name
+        
+        if (useComposites) {
+            // Find all glyphs that are referenced and start with underscore (components)
+            const referencedGlyphs = new Set();
+            if (state.glyphReferences) {
+                for (const refs of Object.values(state.glyphReferences)) {
+                    for (const ref of refs) {
+                        referencedGlyphs.add(ref.name);
+                    }
+                }
+            }
             
-            // Detect if this is a nested (multi-shape) format: [[[x,y]...], [[x,y]...]]
-            const isNested = pointsOrShapes.length > 0 && 
-                             Array.isArray(pointsOrShapes[0]) && 
-                             Array.isArray(pointsOrShapes[0][0]);
+            // Detect glyphs that have BOTH own shapes AND references
+            // For these, we need to create a synthetic component for their shapes
+            // because TrueType glyphs can be EITHER simple OR composite, not both
+            for (const [char, pointsOrShapes] of Object.entries(baseGlyphs)) {
+                if (char.startsWith('_')) continue; // Skip existing components
+                
+                const refs = state.glyphReferences ? state.glyphReferences[char] : null;
+                const hasReferences = refs && refs.length > 0;
+                const hasOwnShapes = this._hasOwnShapes(pointsOrShapes);
+                
+                // If glyph has both shapes and references, we need a synthetic component
+                if (hasReferences && hasOwnShapes) {
+                    const syntheticName = `_${char}_shape`;
+                    syntheticShapeComponents.set(char, syntheticName);
+                    referencedGlyphs.add(syntheticName);
+                }
+            }
             
-            if (isNested) {
-                // Multi-shape glyph - each shape is a separate contour
-                for (const shape of pointsOrShapes) {
+            // Create glyphs for referenced items (both underscore components and regular glyphs used as references)
+            for (const refName of referencedGlyphs) {
+                // Check if this is a synthetic shape component
+                let compShapes;
+                let compWidth;
+                
+                if (refName.endsWith('_shape') && refName.startsWith('_')) {
+                    // This might be a synthetic component - find the original glyph
+                    const originalChar = refName.slice(1, -6); // Remove leading _ and trailing _shape
+                    if (syntheticShapeComponents.has(originalChar)) {
+                        // This is a synthetic component - use the original glyph's shapes
+                        compShapes = baseGlyphs[originalChar];
+                        compWidth = baseWidths && baseWidths[originalChar] !== undefined 
+                            ? baseWidths[originalChar] 
+                            : (state.glyphWidths[originalChar] || 8);
+                    } else if (!state.glyphs[refName]) {
+                        continue; // Not a synthetic and doesn't exist
+                    } else {
+                        compShapes = state.glyphs[refName];
+                        compWidth = state.glyphWidths[refName] || 8;
+                    }
+                } else {
+                    if (!state.glyphs[refName]) continue;
+                    compShapes = state.glyphs[refName];
+                    compWidth = state.glyphWidths[refName] || 8;
+                }
+                
+                const path = new ot.Path();
+                
+                // Draw all shapes in the component
+                const shapes = this._normalizeShapes(compShapes);
+                for (const shape of shapes) {
                     if (shape && shape.length > 0) {
                         path.moveTo(Math.round(shape[0][0] * scale), Math.round(shape[0][1] * scale));
                         for (let i = 1; i < shape.length; i++) {
@@ -612,26 +917,117 @@ export class FontBuilder {
                         path.closePath();
                     }
                 }
-            } else {
-                // Single-shape glyph (flat format)
-                if (pointsOrShapes.length > 0) {
-                    path.moveTo(Math.round(pointsOrShapes[0][0] * scale), Math.round(pointsOrShapes[0][1] * scale));
-                    for (let i = 1; i < pointsOrShapes.length; i++) {
-                        path.lineTo(Math.round(pointsOrShapes[i][0] * scale), Math.round(pointsOrShapes[i][1] * scale));
-                    }
-                    path.closePath();
-                }
+                
+                // Component glyphs have no unicode (not directly accessible)
+                const compGlyph = new ot.Glyph({
+                    name: refName,
+                    path,
+                    advanceWidth: Math.round(compWidth * scale)
+                });
+                
+                otGlyphs.push(compGlyph);
+                componentGlyphIndexMap.set(refName, glyphIndex);
+                glyphIndexMap.set(refName, glyphIndex++);
             }
+        }
 
-            const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
-            const width = this._getGlyphWidth(pointsOrShapes, char, baseWidths);
-
-            otGlyphs.push(new ot.Glyph({
-                name: glyphName,
-                unicode: char.charCodeAt(0),
-                path,
-                advanceWidth: Math.round((width + 1) * scale)
-            }));
+        // Step 2: Create character glyphs (skip underscore-prefixed components)
+        for (const [char, pointsOrShapes] of Object.entries(baseGlyphs)) {
+            // Skip component glyphs (underscore-prefixed) - they're handled in Step 1
+            if (char.startsWith('_')) continue;
+            // Skip glyphs already created as referenced components
+            if (componentGlyphIndexMap.has(char)) continue;
+            
+            const glyphName = this._charToGlyphName(char);
+            const width = this._getGlyphWidth(pointsOrShapes, char, baseWidths, baseGlyphs);
+            const refs = state.glyphReferences ? state.glyphReferences[char] : null;
+            const hasReferences = refs && refs.length > 0;
+            
+            // Check if this glyph has a synthetic shape component (has both shapes AND references)
+            const hasSyntheticComponent = syntheticShapeComponents.has(char);
+            
+            // Check if we can use composites (all referenced components exist)
+            // If we have a synthetic component, we can always use composites
+            const canUseComposites = useComposites && hasReferences && 
+                refs.every(ref => componentGlyphIndexMap.has(ref.name));
+            
+            if (canUseComposites && (!this._hasOwnShapes(pointsOrShapes) || hasSyntheticComponent)) {
+                // Create a composite glyph (no path, uses components)
+                // Build component list - if we have a synthetic shape component, add it first
+                let allRefs = refs;
+                if (hasSyntheticComponent) {
+                    const syntheticName = syntheticShapeComponents.get(char);
+                    // Prepend synthetic component with no offset/scale
+                    allRefs = [
+                        { name: syntheticName, dx: 0, dy: 0, scaleX: 1, scaleY: 1 },
+                        ...refs
+                    ];
+                }
+                
+                const components = allRefs.map(ref => {
+                    const compIdx = componentGlyphIndexMap.get(ref.name);
+                    // Compute the full 2x2 transformation matrix from scale, rotation, skew
+                    // Matrix format: [[a, b], [c, d]] where:
+                    //   x' = a*x + b*y + dx
+                    //   y' = c*x + d*y + dy
+                    // TrueType uses: xScale=a, yScale=d, scale01=c (for y from x), scale10=b (for x from y)
+                    const matrix = this._computeTransformMatrix(ref);
+                    return {
+                        glyphIndex: compIdx,
+                        dx: Math.round((ref.dx || 0) * scale),
+                        dy: Math.round((ref.dy || 0) * scale),
+                        xScale: matrix.a,
+                        yScale: matrix.d,
+                        scale01: matrix.c,  // Coefficient for x in Y equation
+                        scale10: matrix.b   // Coefficient for y in X equation
+                    };
+                });
+                
+                // Calculate composite bounding box for glyf table header
+                // Pass syntheticShapeComponents so it can resolve synthetic component names
+                const bbox = this._calculateCompositeBounds(allRefs, scale, syntheticShapeComponents, baseGlyphs);
+                
+                const compositeGlyph = new ot.Glyph({
+                    name: glyphName,
+                    unicode: char.charCodeAt(0),
+                    path: new ot.Path(), // Empty path - composite uses components
+                    advanceWidth: Math.round((width + 1) * scale)
+                });
+                
+                // Set composite glyph properties
+                compositeGlyph.isComposite = true;
+                compositeGlyph.components = components;
+                compositeGlyph._xMin = bbox.xMin;
+                compositeGlyph._yMin = bbox.yMin;
+                compositeGlyph._xMax = bbox.xMax;
+                compositeGlyph._yMax = bbox.yMax;
+                
+                otGlyphs.push(compositeGlyph);
+            } else {
+                // Create a simple glyph with baked paths
+                const path = new ot.Path();
+                
+                // Get all shapes including reference layers (baked/flattened)
+                const allShapes = this._getGlyphShapesWithReferences(char, pointsOrShapes);
+                
+                // Draw all shapes as contours
+                for (const shape of allShapes) {
+                    if (shape && shape.length > 0) {
+                        path.moveTo(Math.round(shape[0][0] * scale), Math.round(shape[0][1] * scale));
+                        for (let i = 1; i < shape.length; i++) {
+                            path.lineTo(Math.round(shape[i][0] * scale), Math.round(shape[i][1] * scale));
+                        }
+                        path.closePath();
+                    }
+                }
+                
+                otGlyphs.push(new ot.Glyph({
+                    name: glyphName,
+                    unicode: char.charCodeAt(0),
+                    path,
+                    advanceWidth: Math.round((width + 1) * scale)
+                }));
+            }
             glyphIndexMap.set(glyphName, glyphIndex++);
         }
 
@@ -644,6 +1040,10 @@ export class FontBuilder {
             glyphs: otGlyphs
         });
         
+        // IMPORTANT: Set outlinesFormat to 'truetype' for TrueType outlines (glyf+loca)
+        // This is required for composite glyphs and variable fonts
+        font.outlinesFormat = 'truetype';
+        
         // Set consistent version (head fontRevision defaults to 1.0, so name table should match)
         // nameID 5 is the version string
         if (!font.names.windows) font.names.windows = {};
@@ -655,7 +1055,7 @@ export class FontBuilder {
         delete font.names.macintosh;
 
         if (state.vfEnabled && state.axes.length > 0 && state.masters.length > 0) {
-            this._addVariationData(font, glyphIndexMap, scale);
+            this._addVariationData(font, glyphIndexMap, scale, syntheticShapeComponents);
         }
 
         if (validate) {
@@ -678,10 +1078,42 @@ export class FontBuilder {
         return new Blob([buffer], { type: 'font/otf' });
     }
 
-    _getGlyphWidth(pointsOrShapes, char, widthsObj) {
+    /**
+     * Get auto-calculated width for a glyph including reference shapes
+     * @param {string} char - The character/glyph name
+     * @param {Object} baseGlyphs - The glyphs object to use for lookup
+     * @returns {number} The calculated width
+     */
+    _getAutoWidth(char, baseGlyphs) {
+        const pointsOrShapes = baseGlyphs[char];
+        const allShapes = this._getGlyphShapesWithReferences(char, pointsOrShapes);
+        
+        if (!allShapes || allShapes.length === 0) return 5;
+        
+        const allPoints = allShapes.flat();
+        if (!allPoints || allPoints.length === 0) return 5;
+        
+        const xCoords = allPoints.map(p => p[0]);
+        const minX = Math.min(...xCoords);
+        const maxX = Math.max(...xCoords);
+        return minX >= 0 ? maxX : maxX - minX;
+    }
+
+    /**
+     * Get glyph width - uses explicit override if available, otherwise calculates from shapes including references
+     */
+    _getGlyphWidth(pointsOrShapes, char, widthsObj, baseGlyphs = null) {
+        // First check for explicit width override
         if (widthsObj && widthsObj[char] !== undefined) {
             return widthsObj[char];
         }
+        
+        // No override - use auto-calculated width including references
+        if (baseGlyphs && char) {
+            return this._getAutoWidth(char, baseGlyphs);
+        }
+        
+        // Fallback to simple calculation from provided shapes (for compatibility)
         if (!pointsOrShapes || pointsOrShapes.length === 0) return 5;
         
         // Detect if this is a nested (multi-shape) format
@@ -697,7 +1129,7 @@ export class FontBuilder {
         return minX >= 0 ? maxX : maxX - minX;
     }
 
-    _addVariationData(font, glyphIndexMap, scale) {
+    _addVariationData(font, glyphIndexMap, scale, syntheticShapeComponents = new Map()) {
         const state = this.state;
         const ot = this.opentype;
 
@@ -717,7 +1149,7 @@ export class FontBuilder {
         const allDeltas = new Map();
 
         state.axes.forEach((axis, axisIndex) => {
-            const axisDeltas = this._buildMasterDeltas(axis, scale, axisIndex, axisCount);
+            const axisDeltas = this._buildMasterDeltas(axis, scale, axisIndex, axisCount, syntheticShapeComponents);
             allDeltas.set(axis.tag, axisDeltas);
         });
 
@@ -930,7 +1362,7 @@ export class FontBuilder {
         return pointsOrShapes;
     }
 
-    _buildMasterDeltas(axis, scale, axisIndex, axisCount) {
+    _buildMasterDeltas(axis, scale, axisIndex, axisCount, syntheticShapeComponents = new Map()) {
         const result = [];
         const masters = this.state.masters;
         if (!masters || masters.length === 0) return result;
@@ -1024,8 +1456,15 @@ export class FontBuilder {
                 const targetWidth = this._getGlyphWidth(targetPointsRaw, char, master.glyphWidths) + 1;
                 const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale);
 
-                const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                const glyphName = this._charToGlyphName(char);
                 deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
+                
+                // If this glyph has a synthetic shape component, add deltas for it too
+                // The synthetic component's shapes are the same as the original glyph's shapes
+                if (syntheticShapeComponents.has(char)) {
+                    const syntheticName = syntheticShapeComponents.get(char);
+                    deltas.set(syntheticName, { deltas: [...deltaX], deltasY: [...deltaY], advanceWidthDelta });
+                }
             }
 
             if (deltas.size > 0) {
@@ -1073,8 +1512,15 @@ export class FontBuilder {
                 const targetWidth = this._getGlyphWidth(targetPointsRaw, char, master.glyphWidths) + 1;
                 const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
 
-                const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                const glyphName = this._charToGlyphName(char);
                 deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
+                
+                // If this glyph has a synthetic shape component, add deltas for it too
+                // The synthetic component's shapes are the same as the original glyph's shapes
+                if (syntheticShapeComponents.has(char)) {
+                    const syntheticName = syntheticShapeComponents.get(char);
+                    deltas.set(syntheticName, { deltas: [...deltaX], deltasY: [...deltaY], advanceWidthDelta });
+                }
             }
 
             if (deltas.size > 0) {
@@ -1147,7 +1593,7 @@ export class FontBuilder {
                 const targetWidth = this._getGlyphWidth(targetPointsRaw, char, minMaster.glyphWidths) + 1;
                 const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
 
-                const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                const glyphName = this._charToGlyphName(char);
                 deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
             }
 
@@ -1188,7 +1634,7 @@ export class FontBuilder {
                 const targetWidth = this._getGlyphWidth(targetPointsRaw, char, maxMaster.glyphWidths) + 1;
                 const advanceWidthDelta = Math.round((baseWidth - targetWidth) * scale * deltaScale);
 
-                const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
+                const glyphName = this._charToGlyphName(char);
                 deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
             }
 

@@ -348,6 +348,12 @@ Glyph.prototype.getMetrics = function() {
         metrics.yMax = 0;
     }
 
+    // If leftSideBearing is not explicitly set, default to xMin
+    // This is the correct behavior per the OpenType spec
+    if (metrics.leftSideBearing === undefined || metrics.leftSideBearing === null) {
+        metrics.leftSideBearing = metrics.xMin;
+    }
+
     metrics.rightSideBearing = this.advanceWidth - metrics.leftSideBearing - (metrics.xMax - metrics.xMin);
     return metrics;
 };

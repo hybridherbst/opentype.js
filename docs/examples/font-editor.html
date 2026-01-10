@@ -101,6 +101,22 @@
             font-size: 10px;
             margin-left: 4px;
         }
+        
+        /* Export format dropdown */
+        select.btn {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            padding-right: 24px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ccc' d='M2 4l4 4 4-4z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+        }
+        
+        select.btn option {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
 
         /* Main content */
         .main {
@@ -224,6 +240,267 @@
             font-size: 11px;
             color: var(--text-secondary);
             margin-top: 4px;
+        }
+
+        /* Components section (underscore-prefixed glyphs) */
+        .components-section {
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            max-height: 40%;
+        }
+        
+        .components-section.collapsed .components-grid {
+            display: none;
+        }
+        
+        .components-header {
+            padding: 8px 12px;
+            font-weight: 500;
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .components-header:hover {
+            background: var(--bg-tertiary);
+        }
+        
+        .components-header .toggle-icon {
+            transition: transform 0.2s;
+        }
+        
+        .components-section.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+        
+        .components-grid {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            align-content: start;
+        }
+        
+        .component-item {
+            width: 100%;
+            height: 0;
+            padding-bottom: 100%;
+            position: relative;
+            background: var(--bg-tertiary);
+            border: 2px dashed var(--border);
+            border-radius: 4px;
+            cursor: grab;
+            box-sizing: border-box;
+        }
+        
+        .component-item:hover {
+            border-color: #ff9800;
+            background: rgba(255, 152, 0, 0.1);
+        }
+        
+        .component-item.active {
+            border-color: #ff9800;
+            border-style: solid;
+            background: rgba(255, 152, 0, 0.15);
+        }
+        
+        .component-item.dragging {
+            opacity: 0.5;
+        }
+        
+        .component-item-content {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .component-item svg {
+            width: 30px;
+            height: 30px;
+        }
+        
+        .component-item span {
+            font-size: 9px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding: 0 2px;
+        }
+        
+        .add-component-btn {
+            width: 100%;
+            height: 0;
+            padding-bottom: 100%;
+            position: relative;
+            background: transparent;
+            border: 2px dashed var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 18px;
+            box-sizing: border-box;
+        }
+        
+        .add-component-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        
+        .add-component-btn-content {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Reference layers styling */
+        .reference-list {
+            margin-top: 8px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        .reference-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            margin-bottom: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .reference-item:hover {
+            background: rgba(255, 152, 0, 0.1);
+        }
+        
+        .reference-item.selected {
+            background: rgba(255, 152, 0, 0.2);
+            border: 1px solid #ff9800;
+        }
+        
+        .reference-item .ref-name {
+            flex: 1;
+        }
+        
+        .reference-item .ref-delete {
+            opacity: 0.5;
+            cursor: pointer;
+        }
+        
+        .reference-item .ref-delete:hover {
+            opacity: 1;
+            color: #f44336;
+        }
+        
+        /* Reference transform settings panel */
+        .ref-settings {
+            padding: 8px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            margin-top: 8px;
+        }
+        
+        .ref-settings-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .ref-settings-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        
+        .ref-settings-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .ref-settings-row label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            width: 50px;
+        }
+        
+        .ref-settings-row input {
+            flex: 1;
+            min-width: 0;
+            padding: 4px 6px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            color: var(--text-primary);
+            font-size: 11px;
+        }
+        
+        .ref-settings-row input:focus {
+            border-color: #4a9eff;
+            outline: none;
+        }
+
+        /* Floating transform menu */
+        .transform-menu {
+            position: absolute;
+            display: none;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 100;
+            gap: 4px;
+        }
+        
+        .transform-menu.visible {
+            display: flex;
+        }
+        
+        .transform-menu button {
+            padding: 4px 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 11px;
+        }
+        
+        .transform-menu button:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        
+        .transform-menu button.active {
+            background: var(--accent);
+            border-color: var(--accent);
         }
 
         /* Editor area */
@@ -684,7 +961,11 @@
                 <button id="import-font" class="btn">Import Font</button>
                 <button id="add-glyph" class="btn">+ Add Glyph</button>
                 <button id="delete-glyph" class="btn">− Delete Glyph</button>
-                <button id="download-font" class="btn btn-primary">Download .OTF</button>
+                <select id="export-format" class="btn" title="Export format">
+                    <option value="ttf" selected>TTF (TrueType)</option>
+                    <option value="otf">OTF (CFF)</option>
+                </select>
+                <button id="download-font" class="btn btn-primary">Download Font</button>
             </div>
         </header>
 
@@ -695,6 +976,16 @@
                     <button class="filter-btn" id="glyph-filter-btn" title="Filter glyphs">☰</button>
                 </div>
                 <div class="glyph-grid" id="glyph-grid"></div>
+                
+                <div class="components-section" id="components-section">
+                    <div class="components-header" id="components-header">
+                        <span>Components <span id="component-count">(0)</span></span>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="components-grid" id="components-grid">
+                        <!-- Components will be rendered here -->
+                    </div>
+                </div>
             </div>
 
             <div class="editor">
@@ -715,6 +1006,12 @@
 
                 <div class="canvas-container">
                     <canvas id="editor-canvas"></canvas>
+                    <div class="transform-menu" id="transform-menu">
+                        <button id="ref-move" title="Move">⬌</button>
+                        <button id="ref-scale" title="Scale">⤢</button>
+                        <button id="ref-rotate" title="Rotate">↻</button>
+                        <button id="ref-skew" title="Skew">◇</button>
+                    </div>
                 </div>
 
                 <div class="help-text">
@@ -762,6 +1059,15 @@
                             <button id="mode-preview" class="btn btn-small" style="border-radius: 0 4px 4px 0;">Preview</button>
                         </div>
                         <div class="shape-list" id="shape-list"></div>
+                    </div>
+
+                    <div class="property-group">
+                        <h4>References <button id="delete-ref-btn" class="btn btn-small" title="Delete selected reference">−</button></h4>
+                        <div class="reference-list" id="reference-list">
+                            <div style="color: var(--text-secondary); font-size: 11px; padding: 8px;">
+                                Drag components here to add references
+                            </div>
+                        </div>
                     </div>
 
                     <div class="vf-panel">
@@ -828,6 +1134,18 @@
                 <input type="text" id="master-name" placeholder="Light">
             </div>
             <div id="master-coords"></div>
+            <div class="form-row">
+                <label>
+                    <input type="checkbox" id="master-interim">
+                    Interim master (sparse - only selected glyphs participate)
+                </label>
+            </div>
+            <div id="master-glyph-selection" style="display: none; max-height: 150px; overflow-y: auto; border: 1px solid #555; border-radius: 4px; padding: 8px; margin-top: 8px;">
+                <div class="form-row" style="margin-bottom: 4px;">
+                    <small>Select glyphs to include in this interim master:</small>
+                </div>
+                <div id="master-glyph-checkboxes" style="display: flex; flex-wrap: wrap; gap: 4px;"></div>
+            </div>
             <div class="btn-row">
                 <button class="btn" id="master-cancel">Cancel</button>
                 <button class="btn btn-primary" id="master-save">Add Master</button>
@@ -846,6 +1164,21 @@
             <div class="btn-row">
                 <button class="btn" id="instance-cancel">Cancel</button>
                 <button class="btn btn-primary" id="instance-save">Add Instance</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Component Modal -->
+    <div class="modal-overlay" id="component-modal">
+        <div class="modal">
+            <h3 id="component-modal-title">Add Component</h3>
+            <div class="form-row">
+                <label>Name (starts with _)</label>
+                <input type="text" id="component-name" placeholder="_serif">
+            </div>
+            <div class="btn-row">
+                <button class="btn" id="component-cancel">Cancel</button>
+                <button class="btn btn-primary" id="component-save">Add</button>
             </div>
         </div>
     </div>
@@ -951,21 +1284,82 @@
             vf: {
                 enabled: false,
                 axes: [],  // [{tag, name, minValue, defaultValue, maxValue}]
-                masters: [], // [{name, coords: {tag: value}, glyphs: {...}, glyphWidths: {...}}]
+                masters: [], // [{name, coords: {tag: value}, glyphs: {...}, glyphWidths: {...}, isInterim: false, interimGlyphs: Set}]
                 instances: [], // [{name, coords: {tag: value}}]
                 currentMaster: 0, // Index of active master being edited
                 previewCoords: {}, // Current preview position in design space
                 avarTable: null // {axisSegmentMaps: [...]} for non-linear axis mapping
             },
+            // Components are just glyphs with names starting with underscore (e.g. '_stem')
+            // They are stored in state.glyphs but not exported as regular unicode glyphs
+            // Reference layers: glyphs can include references to other glyphs
+            // Each glyph can reference any other glyph by name
+            glyphReferences: {}, // { 'A': [{name: 'B', dx: 0, dy: 0, scaleX: 1, scaleY: 1, rotation: 0, skewX: 0, skewY: 0}, ...] }
+            selectedReference: -1, // Index of currently selected reference layer
+            transformMode: 'move', // 'move', 'scale', 'rotate', 'skew'
+            isDraggingReference: false, // Whether we're dragging a reference
+            refDragStart: null, // Starting point for reference drag
             // Glyph grid filter state
             glyphFilter: {
                 showUndrawn: true // Whether to show undrawn glyphs in the grid
             }
         };
         
+        // Expose state for debugging
+        window._editorState = state;
+        
+        // Transform mode management
+        function setTransformMode(mode) {
+            state.transformMode = mode;
+            updateTransformMenuButtons();
+        }
+        
+        function updateTransformMenuButtons() {
+            const modes = ['move', 'scale', 'rotate', 'skew'];
+            modes.forEach(m => {
+                const btn = document.getElementById('ref-' + m);
+                if (btn) {
+                    btn.classList.toggle('active', state.transformMode === m);
+                }
+            });
+        }
+        
+        function updateTransformMenu() {
+            const menu = document.getElementById('transform-menu');
+            if (state.selectedReference < 0 || !getGlyphReferences().length) {
+                menu.classList.remove('visible');
+                return;
+            }
+            
+            // Position menu above the reference's bounding box
+            const ref = getGlyphReferences()[state.selectedReference];
+            if (!ref) {
+                menu.classList.remove('visible');
+                return;
+            }
+            
+            const bbox = getReferenceBBox(ref);
+            if (!bbox) {
+                menu.classList.remove('visible');
+                return;
+            }
+            
+            // Convert to screen coordinates
+            const canvas = document.getElementById('editor-canvas');
+            const screenX = state.panX + (bbox.x + bbox.width / 2) * state.zoom;
+            const screenY = canvas.height - state.panY - (bbox.y + bbox.height) * state.zoom - 40;
+            
+            menu.style.left = `${screenX - menu.offsetWidth / 2}px`;
+            menu.style.top = `${Math.max(10, screenY)}px`;
+            menu.classList.add('visible');
+            updateTransformMenuButtons();
+        }
+        
         // Helper: Get all shapes for current glyph (handles legacy flat format)
-        function getGlyphShapes(char = state.currentGlyph) {
-            const data = state.glyphs[char];
+        // Optional glyphsSource can override state.glyphs (e.g., for VF interpolated preview)
+        function getGlyphShapes(char = state.currentGlyph, glyphsSource = null) {
+            const source = glyphsSource || state.glyphs;
+            const data = source[char];
             if (!data || data.length === 0) return [];
             // Check if nested (array of shapes) or flat (single shape as array of points)
             if (data[0] && Array.isArray(data[0]) && Array.isArray(data[0][0])) {
@@ -973,6 +1367,104 @@
             }
             // Legacy flat format - wrap in array
             return [data];
+        }
+        
+        // Helper: Get shapes for a component (same as glyph - components are stored in glyphs)
+        // Optional glyphsSource can override state.glyphs (e.g., for VF interpolated preview)
+        function getComponentShapes(name, glyphsSource = null) {
+            return getGlyphShapes(name, glyphsSource);
+        }
+        
+        // Helper: Transform a point by reference transform (dx, dy, scaleX, scaleY, rotation, skewX, skewY)
+        function transformPoint(x, y, ref) {
+            // Apply transforms in order: scale -> skew -> rotate -> translate
+            let px = x * (ref.scaleX || 1);
+            let py = y * (ref.scaleY || 1);
+            
+            // Skew
+            if (ref.skewX) {
+                px += py * Math.tan((ref.skewX || 0) * Math.PI / 180);
+            }
+            if (ref.skewY) {
+                py += px * Math.tan((ref.skewY || 0) * Math.PI / 180);
+            }
+            
+            // Rotate
+            if (ref.rotation) {
+                const angle = (ref.rotation || 0) * Math.PI / 180;
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                const rx = px * cos - py * sin;
+                const ry = px * sin + py * cos;
+                px = rx;
+                py = ry;
+            }
+            
+            // Translate
+            px += ref.dx || 0;
+            py += ref.dy || 0;
+            
+            return [px, py];
+        }
+        
+        // Helper: Get transformed shapes for a reference
+        // Optional glyphsSource can override state.glyphs (e.g., for VF interpolated preview)
+        function getTransformedReferenceShapes(ref, glyphsSource = null) {
+            const sourceShapes = getComponentShapes(ref.name, glyphsSource);
+            if (!sourceShapes || sourceShapes.length === 0) return [];
+            
+            return sourceShapes.map(shape => 
+                shape.map(point => transformPoint(point[0], point[1], ref))
+            );
+        }
+        
+        // Helper: Get bounding box for a reference
+        function getReferenceBBox(ref) {
+            const shapes = getTransformedReferenceShapes(ref);
+            if (!shapes || shapes.length === 0) return null;
+            
+            const allPoints = shapes.flat();
+            if (allPoints.length === 0) return null;
+            
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const [x, y] of allPoints) {
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x);
+                maxY = Math.max(maxY, y);
+            }
+            
+            return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+        }
+        
+        // Helper: Check if a screen point is inside a reference's bounding box
+        function hitTestReference(screenX, screenY, refIndex) {
+            const refs = getGlyphReferences();
+            if (refIndex < 0 || refIndex >= refs.length) return false;
+            
+            const bbox = getReferenceBBox(refs[refIndex]);
+            if (!bbox) return false;
+            
+            // Convert screen to world coordinates
+            const canvas = document.getElementById('editor-canvas');
+            const worldX = (screenX - state.panX) / state.zoom;
+            const worldY = (canvas.height - screenY - state.panY) / state.zoom;
+            
+            const margin = 5 / state.zoom; // 5 pixels margin in world space
+            return worldX >= bbox.x - margin && worldX <= bbox.x + bbox.width + margin &&
+                   worldY >= bbox.y - margin && worldY <= bbox.y + bbox.height + margin;
+        }
+        
+        // Find which reference (if any) is at the given screen position
+        function findReferenceAtPosition(screenX, screenY) {
+            const refs = getGlyphReferences();
+            // Check in reverse order (top-most first)
+            for (let i = refs.length - 1; i >= 0; i--) {
+                if (hitTestReference(screenX, screenY, i)) {
+                    return i;
+                }
+            }
+            return -1;
         }
         
         // Helper: Get points for the currently selected shape
@@ -1102,6 +1594,78 @@
             document.getElementById('instance-cancel').addEventListener('click', () => hideModal('instance-modal'));
             document.getElementById('instance-save').addEventListener('click', saveInstance);
             
+            // Component modal
+            document.getElementById('component-cancel').addEventListener('click', () => hideModal('component-modal'));
+            document.getElementById('component-save').addEventListener('click', saveComponent);
+            
+            // Components section toggle
+            document.getElementById('components-header').addEventListener('click', () => {
+                document.getElementById('components-section').classList.toggle('collapsed');
+            });
+            
+            // Delete reference button
+            document.getElementById('delete-ref-btn').addEventListener('click', () => {
+                if (state.selectedReference >= 0) {
+                    removeReference(state.currentGlyph, state.selectedReference);
+                }
+            });
+            
+            // Transform menu buttons
+            document.getElementById('ref-move').addEventListener('click', () => setTransformMode('move'));
+            document.getElementById('ref-scale').addEventListener('click', () => setTransformMode('scale'));
+            document.getElementById('ref-rotate').addEventListener('click', () => setTransformMode('rotate'));
+            document.getElementById('ref-skew').addEventListener('click', () => setTransformMode('skew'));
+            
+            // Drag and drop for reference list panel
+            const referenceList = document.getElementById('reference-list');
+            referenceList.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                referenceList.style.background = 'rgba(74, 158, 255, 0.2)';
+            });
+            referenceList.addEventListener('dragleave', () => {
+                referenceList.style.background = '';
+            });
+            referenceList.addEventListener('drop', (e) => {
+                e.preventDefault();
+                referenceList.style.background = '';
+                const componentName = e.dataTransfer.getData('component-name');
+                const glyphChar = e.dataTransfer.getData('glyph-char');
+                
+                // Reference any glyph directly (no copying)
+                const refName = componentName || glyphChar;
+                if (refName && state.glyphs[refName] && refName !== state.currentGlyph) {
+                    addReference(state.currentGlyph, refName, { dx: 0, dy: 0 });
+                }
+            });
+            
+            // Drag and drop for editor canvas (to receive component drops)
+            editorCanvas.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+            });
+            editorCanvas.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const componentName = e.dataTransfer.getData('component-name');
+                const glyphChar = e.dataTransfer.getData('glyph-char');
+                
+                // Calculate drop position in grid coordinates
+                const rect = editorCanvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const gridX = (x - state.panX) / state.zoom;
+                const gridY = (editorCanvas.height - y - state.panY) / state.zoom;
+                
+                // Reference any glyph directly (no copying)
+                const refName = componentName || glyphChar;
+                if (refName && state.glyphs[refName] && refName !== state.currentGlyph) {
+                    addReference(state.currentGlyph, refName, {
+                        dx: Math.round(gridX),
+                        dy: Math.round(gridY)
+                    });
+                }
+            });
+
             // Glyph filter modal
             document.getElementById('glyph-filter-btn').addEventListener('click', () => {
                 // Sync checkbox with current state
@@ -1122,6 +1686,8 @@
             });
 
             renderGlyphGrid();
+            renderComponentsGrid();
+            renderReferenceList();
             updateShapeList();
             updateModeButtons();
             draw();
@@ -1272,6 +1838,30 @@
                 return;
             }
 
+            // Check if clicking on a reference layer first
+            const refIdx = findReferenceAtPosition(mx, my);
+            if (refIdx >= 0) {
+                state.selectedReference = refIdx;
+                state.selectedPoint = -1;
+                state.isDragging = false;
+                state.isDraggingShape = false;
+                state.isDraggingEdge = false;
+                state.isDraggingReference = true;
+                state.refDragStart = { x: mx, y: my };
+                state.lastMousePos = { x: mx, y: my };
+                renderReferenceList();
+                draw();
+                updateTransformMenu();
+                return;
+            } else {
+                // Clicked outside any reference, deselect
+                if (state.selectedReference >= 0) {
+                    state.selectedReference = -1;
+                    renderReferenceList();
+                    updateTransformMenu();
+                }
+            }
+
             const pointHit = findPointAt(mx, my);
 
             if (e.shiftKey && pointHit) {
@@ -1342,6 +1932,43 @@
                 return;
             }
 
+            // Handle reference dragging/transforming
+            if (state.isDraggingReference && state.selectedReference >= 0) {
+                const refs = getGlyphReferences();
+                const ref = refs[state.selectedReference];
+                if (ref) {
+                    const dx = (mx - state.lastMousePos.x) / state.zoom;
+                    const dy = -(my - state.lastMousePos.y) / state.zoom;
+                    
+                    switch (state.transformMode) {
+                        case 'move':
+                            ref.dx = Math.round((ref.dx + dx) / state.gridSize) * state.gridSize;
+                            ref.dy = Math.round((ref.dy + dy) / state.gridSize) * state.gridSize;
+                            break;
+                        case 'scale': {
+                            const scaleFactor = 1 + dx * 0.01;
+                            ref.scaleX = Math.max(0.1, ref.scaleX * scaleFactor);
+                            ref.scaleY = Math.max(0.1, ref.scaleY * (1 + dy * 0.01));
+                            break;
+                        }
+                        case 'rotate': {
+                            ref.rotation = (ref.rotation + dx) % 360;
+                            break;
+                        }
+                        case 'skew': {
+                            ref.skewX = (ref.skewX || 0) + dx;
+                            ref.skewY = (ref.skewY || 0) + dy;
+                            break;
+                        }
+                    }
+                    
+                    state.lastMousePos = { x: mx, y: my };
+                    draw();
+                    updateTransformMenu();
+                }
+                return;
+            }
+
             if (state.isDragging && state.selectedPoint >= 0) {
                 const world = screenToWorld(mx, my);
                 const shapes = getGlyphShapes();
@@ -1395,13 +2022,15 @@
                 editorCanvas.releasePointerCapture(e.pointerId);
             }
             // If we were dragging, update the preview
-            if (state.isDragging || state.isDraggingShape || state.isDraggingEdge) {
+            if (state.isDragging || state.isDraggingShape || state.isDraggingEdge || state.isDraggingReference) {
                 drawPreview();
             }
             state.isDragging = false;
             state.isDraggingShape = false;
             state.isDraggingEdge = false;
+            state.isDraggingReference = false;
             state.dragEdgeIndices = null;
+            state.refDragStart = null;
             state.isPanning = false;
             editorCanvas.style.cursor = 'default';
         }
@@ -1515,6 +2144,65 @@
             draw();
         }
 
+        // Draw reference layers (components referenced by current glyph)
+        function drawReferences(ctx) {
+            const refs = getGlyphReferences();
+            if (refs.length === 0) return;
+            
+            refs.forEach((ref, idx) => {
+                const shapes = getTransformedReferenceShapes(ref);
+                if (!shapes || shapes.length === 0) return;
+                
+                const isSelected = (idx === state.selectedReference);
+                
+                // Draw filled shape
+                ctx.beginPath();
+                for (const points of shapes) {
+                    if (points.length === 0) continue;
+                    const first = worldToScreen(points[0][0], points[0][1]);
+                    ctx.moveTo(first.x, first.y);
+                    for (let i = 1; i < points.length; i++) {
+                        const p = worldToScreen(points[i][0], points[i][1]);
+                        ctx.lineTo(p.x, p.y);
+                    }
+                    ctx.closePath();
+                }
+                ctx.fillStyle = isSelected ? 'rgba(74, 158, 255, 0.3)' : 'rgba(74, 158, 255, 0.15)';  // Blue like glyphs
+                ctx.fill('nonzero');
+                ctx.strokeStyle = isSelected ? '#4a9eff' : '#4a9eff80';
+                ctx.lineWidth = isSelected ? 2 : 1;
+                ctx.stroke();
+                
+                // Draw bounding box for selected reference
+                if (isSelected) {
+                    const bbox = getReferenceBBox(ref);
+                    if (bbox) {
+                        const topLeft = worldToScreen(bbox.x, bbox.y + bbox.height);
+                        const bottomRight = worldToScreen(bbox.x + bbox.width, bbox.y);
+                        
+                        ctx.strokeStyle = '#4a9eff';  // Blue like glyphs
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([4, 4]);
+                        ctx.strokeRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
+                        ctx.setLineDash([]);
+                        
+                        // Draw corner handles
+                        const handleSize = 6;
+                        const handles = [
+                            { x: topLeft.x, y: topLeft.y },          // top-left
+                            { x: bottomRight.x, y: topLeft.y },      // top-right
+                            { x: bottomRight.x, y: bottomRight.y },  // bottom-right
+                            { x: topLeft.x, y: bottomRight.y }       // bottom-left
+                        ];
+                        ctx.fillStyle = '#4a9eff';  // Blue like glyphs
+                        for (const h of handles) {
+                            ctx.fillRect(h.x - handleSize/2, h.y - handleSize/2, handleSize, handleSize);
+                        }
+                    }
+                }
+            });
+        }
+
         function draw() {
             const ctx = editorCtx;
             const w = editorCanvas.width;
@@ -1573,11 +2261,17 @@
             ctx.stroke();
             ctx.setLineDash([]);
 
-            if (shapes.length === 0) return;
+            // Draw reference layers first (behind regular shapes) - but not in preview mode
+            if (state.editMode !== 'preview') {
+                drawReferences(ctx);
+            }
 
-            // In preview mode, draw the combined glyph shape first (filled)
+            if (shapes.length === 0 && getGlyphReferences().length === 0) return;
+
+            // In preview mode, draw the combined glyph shape (shapes + references) as a single filled path
             if (state.editMode === 'preview') {
                 ctx.beginPath();
+                // Add all regular shapes
                 for (let si = 0; si < shapes.length; si++) {
                     const points = shapes[si];
                     if (points.length === 0) continue;
@@ -1589,7 +2283,22 @@
                     }
                     ctx.closePath();
                 }
-                ctx.fillStyle = 'rgba(74, 158, 255, 0.3)';
+                // Add all reference shapes (transformed)
+                const refs = getGlyphReferences();
+                for (const ref of refs) {
+                    const refShapes = getTransformedReferenceShapes(ref);
+                    for (const points of refShapes) {
+                        if (points.length === 0) continue;
+                        const first = worldToScreen(points[0][0], points[0][1]);
+                        ctx.moveTo(first.x, first.y);
+                        for (let i = 1; i < points.length; i++) {
+                            const p = worldToScreen(points[i][0], points[i][1]);
+                            ctx.lineTo(p.x, p.y);
+                        }
+                        ctx.closePath();
+                    }
+                }
+                ctx.fillStyle = '#4a9eff';  // Solid fill in preview mode
                 ctx.fill('nonzero'); // Use nonzero winding rule per OpenType spec
             }
 
@@ -1643,14 +2352,34 @@
                 const interp = interpolateGlyphs(state.vf.previewCoords);
                 const currentChar = Object.keys(state.glyphs)[state.selectedGlyph];
                 const interpShapes = interp.glyphs[currentChar];
+                const interpRefs = interp.references || {};
                 
+                // Collect all shapes including reference layers (using interpolated component shapes and transforms)
+                const shapesToDraw = [];
+                
+                // Add the glyph's own interpolated shapes
                 if (interpShapes && interpShapes.length > 0) {
-                    // Flatten to array of shapes (handle single-shape case)
-                    let shapesToDraw = interpShapes;
                     if (interpShapes.length > 0 && typeof interpShapes[0][0] === 'number') {
-                        shapesToDraw = [interpShapes];
+                        shapesToDraw.push(interpShapes);
+                    } else {
+                        for (const shape of interpShapes) {
+                            if (shape && shape.length > 0) shapesToDraw.push(shape);
+                        }
                     }
-                    
+                }
+                
+                // Add reference layers with interpolated component shapes and transforms
+                if (interpRefs && interpRefs[currentChar]) {
+                    for (const ref of interpRefs[currentChar]) {
+                        // Use interp.glyphs as the source so component shapes are also interpolated
+                        const refShapes = getTransformedReferenceShapes(ref, interp.glyphs);
+                        for (const shape of refShapes) {
+                            if (shape && shape.length > 0) shapesToDraw.push(shape);
+                        }
+                    }
+                }
+                
+                if (shapesToDraw.length > 0) {
                     ctx.save();
                     ctx.globalAlpha = 0.6;
                     
@@ -1690,15 +2419,17 @@
             let x = 20;
             const y = 20;
 
-            // Use interpolated glyphs and widths if VF is enabled
-            let glyphs, widths;
+            // Use interpolated glyphs, widths, and references if VF is enabled
+            let glyphs, widths, refs;
             if (state.vf.enabled && state.vf.axes.length > 0) {
                 const interp = interpolateGlyphs(state.vf.previewCoords);
                 glyphs = interp.glyphs;
                 widths = interp.widths;
+                refs = interp.references;
             } else {
                 glyphs = state.glyphs;
                 widths = state.glyphWidths;
+                refs = state.glyphReferences;
             }
 
             ctx.save();
@@ -1708,12 +2439,12 @@
             ctx.beginPath();
             for (const char of text) {
                 const glyphData = glyphs[char];
-                if (glyphData && glyphData.length > 0) {
-                    // Handle both nested and flat formats
-                    const shapes = (glyphData[0] && Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0])) 
-                        ? glyphData : [glyphData];
-                    
-                    for (const points of shapes) {
+                // Get all shapes including reference layers
+                // Pass glyphs and refs as source so component references use interpolated shapes and transforms
+                const allShapes = getGlyphShapesWithReferences(char, glyphData, glyphs, refs);
+                
+                if (allShapes.length > 0) {
+                    for (const points of allShapes) {
                         if (points.length > 0) {
                             ctx.moveTo(x + points[0][0] * scale, y + points[0][1] * scale);
                             for (let i = 1; i < points.length; i++) {
@@ -1722,7 +2453,7 @@
                             ctx.closePath();
                         }
                     }
-                    x += (getGlyphWidthFromShapes(shapes, char, widths) + 1) * scale;
+                    x += (getGlyphWidthFromShapes(allShapes, char, widths) + 1) * scale;
                 } else {
                     x += 5 * scale;
                 }
@@ -1730,6 +2461,44 @@
             ctx.fillStyle = '#4a9eff';
             ctx.fill('nonzero'); // Use nonzero winding rule per OpenType spec
             ctx.restore();
+        }
+        
+        // Get all shapes for a glyph including reference layers (flattened)
+        // Optional glyphsSource can override state.glyphs (e.g., for VF interpolated preview)
+        // Optional refsSource can override state.glyphReferences (e.g., for VF interpolated preview)
+        function getGlyphShapesWithReferences(char, glyphData, glyphsSource = null, refsSource = null) {
+            const allShapes = [];
+            
+            // First add the glyph's own shapes
+            if (glyphData && glyphData.length > 0) {
+                const isNested = Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0]);
+                if (isNested) {
+                    for (const shape of glyphData) {
+                        if (shape && shape.length > 0) {
+                            allShapes.push(shape);
+                        }
+                    }
+                } else {
+                    allShapes.push(glyphData);
+                }
+            }
+            
+            // Then add any reference layers (transformed component shapes)
+            // Use glyphsSource for component lookups if provided (for VF interpolation)
+            // Use refsSource for reference transforms if provided (for VF interpolation)
+            const refs = refsSource || state.glyphReferences;
+            if (refs && refs[char]) {
+                for (const ref of refs[char]) {
+                    const transformedShapes = getTransformedReferenceShapes(ref, glyphsSource);
+                    for (const shape of transformedShapes) {
+                        if (shape && shape.length > 0) {
+                            allShapes.push(shape);
+                        }
+                    }
+                }
+            }
+            
+            return allShapes;
         }
 
         // Get glyph width from shapes - uses stored width if available, otherwise computes from points
@@ -1740,6 +2509,20 @@
             }
             // Fallback: compute from bounding box (maxX - minX) across all shapes
             const allPoints = shapes.flat();
+            if (!allPoints || allPoints.length === 0) return 5;
+            const xCoords = allPoints.map(p => p[0]);
+            const minX = Math.min(...xCoords);
+            const maxX = Math.max(...xCoords);
+            return minX >= 0 ? maxX : maxX - minX;
+        }
+        
+        // Get auto-calculated width including reference shapes
+        function getAutoWidth(char) {
+            const glyphData = state.glyphs[char] || [];
+            const allShapes = getGlyphShapesWithReferences(char, glyphData);
+            if (allShapes.length === 0) return 5;
+            
+            const allPoints = allShapes.flat();
             if (!allPoints || allPoints.length === 0) return 5;
             const xCoords = allPoints.map(p => p[0]);
             const minX = Math.min(...xCoords);
@@ -1764,20 +2547,25 @@
         }
         
         // Get glyph width for current state (considering VF mode)
+        // If there's an explicit width override, use it; otherwise use auto-calculated width including references
         function getCurrentGlyphWidth(char = null) {
             const targetChar = char || state.currentGlyph;
-            const shapes = getGlyphShapes(targetChar);
             
-            // If in VF mode, use current master's width
+            // If in VF mode, check current master's width override
             if (state.vf.enabled && state.vf.masters.length > 0) {
                 const master = state.vf.masters[state.vf.currentMaster];
-                if (master && master.glyphWidths) {
-                    return getGlyphWidthFromShapes(shapes, targetChar, master.glyphWidths);
+                if (master && master.glyphWidths && master.glyphWidths[targetChar] !== undefined) {
+                    return master.glyphWidths[targetChar];
+                }
+            } else {
+                // Check non-VF width override
+                if (state.glyphWidths[targetChar] !== undefined) {
+                    return state.glyphWidths[targetChar];
                 }
             }
             
-            // Otherwise use state.glyphWidths
-            return getGlyphWidthFromShapes(shapes, targetChar, state.glyphWidths);
+            // No override - use auto-calculated width including references
+            return getAutoWidth(targetChar);
         }
         
         // Set glyph width for current state
@@ -1822,13 +2610,20 @@
             }
         }
         
-        // Clear width override
+        // Toggle auto width mode
         function clearGlyphWidth() {
             if (!state.currentGlyph) return;
-            clearGlyphWidthOverride(state.currentGlyph);
-            // Update the input to show auto-calculated width
-            const autoWidth = getGlyphWidth(state.glyphs[state.currentGlyph] || [], null, null);
-            document.getElementById('glyph-width').value = autoWidth.toFixed(1);
+            
+            if (hasWidthOverride(state.currentGlyph)) {
+                // Currently has override - switch to auto
+                clearGlyphWidthOverride(state.currentGlyph);
+            } else {
+                // Currently auto - switch to manual (set current auto value as override)
+                const autoWidth = getAutoWidth(state.currentGlyph);
+                setGlyphWidth(state.currentGlyph, autoWidth);
+            }
+            
+            updateWidthDisplay();
             draw();
         }
 
@@ -1881,13 +2676,331 @@
             }
             
             // Also show any custom glyphs not in the Google Fonts Latin set
+            // (but skip underscore-prefixed components - they show in Components panel)
             for (const char of Object.keys(state.glyphs)) {
                 if (GOOGLE_FONTS_LATIN.includes(char)) continue; // Already rendered
+                if (char.startsWith('_')) continue; // Skip components
                 const item = createGlyphItem(char, state.glyphs[char], false);
                 glyphGrid.appendChild(item);
             }
             
             updateDeleteButtonText();
+        }
+        
+        // Components grid rendering (underscore-prefixed glyphs, not exported as regular glyphs)
+        function renderComponentsGrid() {
+            const componentsGrid = document.getElementById('components-grid');
+            const componentCount = document.getElementById('component-count');
+            componentsGrid.innerHTML = '';
+            
+            // Components are glyphs with names starting with underscore
+            const componentNames = Object.keys(state.glyphs).filter(name => name.startsWith('_')).sort();
+            componentCount.textContent = `(${componentNames.length})`;
+            
+            for (const name of componentNames) {
+                const item = createComponentItem(name, state.glyphs[name]);
+                componentsGrid.appendChild(item);
+            }
+            
+            // Add button
+            const addBtn = document.createElement('button');
+            addBtn.className = 'add-component-btn';
+            addBtn.innerHTML = '<div class="add-component-btn-content">+</div>';
+            addBtn.title = 'Add component';
+            addBtn.addEventListener('click', () => showComponentModal());
+            componentsGrid.appendChild(addBtn);
+        }
+        
+        function createComponentItem(name, glyphData) {
+            const item = document.createElement('div');
+            item.className = 'component-item';
+            item.dataset.name = name;
+            item.draggable = true;
+            
+            const content = document.createElement('div');
+            content.className = 'component-item-content';
+            
+            // SVG preview
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('viewBox', '-2 -2 14 14');
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            
+            const shapes = (glyphData && glyphData[0] && Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0])) 
+                ? glyphData : (glyphData && glyphData.length > 0 ? [glyphData] : []);
+            
+            let d = '';
+            for (const points of shapes) {
+                if (points && points.length > 0) {
+                    d += 'M' + points.map(p => p[0] + ' ' + (10 - p[1])).join(' L') + ' Z ';
+                }
+            }
+            path.setAttribute('d', d.trim());
+            path.setAttribute('fill', '#4a9eff');  // Same blue as glyphs
+            path.setAttribute('stroke', '#6ab0ff');
+            path.setAttribute('stroke-width', '0.5');
+            path.setAttribute('fill-rule', 'nonzero');
+            svg.appendChild(path);
+            content.appendChild(svg);
+            
+            const label = document.createElement('span');
+            label.textContent = name;
+            content.appendChild(label);
+            
+            item.appendChild(content);
+            
+            // Click to select/edit
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                selectComponent(name);
+            });
+            
+            // Double-click to edit component glyph
+            item.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                editComponent(name);
+            });
+            
+            // Drag start for reference layers
+            item.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('component-name', name);
+                item.classList.add('dragging');
+            });
+            
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+            });
+            
+            return item;
+        }
+        
+        function selectComponent(name) {
+            // Select the component glyph for editing (components ARE glyphs)
+            if (state.glyphs[name]) {
+                state.currentGlyph = name;
+                state.selectedShape = 0;
+                state.selectedPoint = -1;
+                state.selectedReference = -1;
+                // Update UI like normal glyph selection
+                document.getElementById('glyph-char').value = name;
+                updateWidthDisplay();
+                renderGlyphGrid();
+                renderComponentsGrid();
+                renderReferenceList();
+                updateShapeList();
+                updateTransformMenu();
+                draw();
+            }
+        }
+        
+        function editComponent(name) {
+            // Components are just glyphs - select them directly
+            selectComponent(name);
+        }
+        
+        function showComponentModal(existingName = null) {
+            document.getElementById('component-name').value = existingName || '_';
+            document.getElementById('component-modal-title').textContent = existingName ? 'Edit Component' : 'Add Component';
+            showModal('component-modal');
+        }
+        
+        function saveComponent() {
+            let name = document.getElementById('component-name').value.trim();
+            
+            // Ensure name starts with underscore
+            if (!name.startsWith('_')) {
+                name = '_' + name;
+            }
+            
+            if (!name || name === '_') {
+                alert('Please enter a component name');
+                return;
+            }
+            
+            if (!state.glyphs[name]) {
+                // Create new component with empty shape (components are just glyphs)
+                state.glyphs[name] = [[[0, 0], [4, 10], [8, 0]]]; // Default triangle shape
+            }
+            
+            hideModal('component-modal');
+            renderComponentsGrid();
+            
+            // Select the new component for editing
+            selectComponent(name);
+        }
+        
+        function deleteComponent(name) {
+            if (!confirm(`Delete component "${name}"? This will also remove all references to it.`)) return;
+            
+            // Delete the component (which is just a glyph)
+            delete state.glyphs[name];
+            
+            // Remove references to this component from all glyphs
+            for (const char of Object.keys(state.glyphReferences)) {
+                state.glyphReferences[char] = state.glyphReferences[char].filter(ref => ref.name !== name);
+                if (state.glyphReferences[char].length === 0) {
+                    delete state.glyphReferences[char];
+                }
+            }
+            
+            renderComponentsGrid();
+            renderReferenceList();
+            draw();
+        }
+        
+        function showToast(message) {
+            // Simple toast notification
+            const existing = document.querySelector('.toast');
+            if (existing) existing.remove();
+            
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            toast.style.cssText = 'position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; color: white; padding: 12px 24px; border-radius: 6px; z-index: 1000;';
+            document.body.appendChild(toast);
+            
+            setTimeout(() => toast.remove(), 3000);
+        }
+        
+        // Reference layers management
+        function getGlyphReferences(char = state.currentGlyph) {
+            return state.glyphReferences[char] || [];
+        }
+        
+        function addReference(char, componentName, transform = {}) {
+            if (!state.glyphReferences[char]) {
+                state.glyphReferences[char] = [];
+            }
+            
+            state.glyphReferences[char].push({
+                name: componentName,
+                dx: transform.dx || 0,
+                dy: transform.dy || 0,
+                scaleX: transform.scaleX !== undefined ? transform.scaleX : 1,
+                scaleY: transform.scaleY !== undefined ? transform.scaleY : 1,
+                rotation: transform.rotation || 0,
+                skewX: transform.skewX || 0,
+                skewY: transform.skewY || 0
+            });
+            
+            state.selectedReference = state.glyphReferences[char].length - 1;
+            renderReferenceList();
+            draw();
+        }
+        
+        function removeReference(char, index) {
+            if (!state.glyphReferences[char]) return;
+            state.glyphReferences[char].splice(index, 1);
+            if (state.glyphReferences[char].length === 0) {
+                delete state.glyphReferences[char];
+            }
+            if (state.selectedReference >= (state.glyphReferences[char]?.length || 0)) {
+                state.selectedReference = -1;
+            }
+            renderReferenceList();
+            draw();
+        }
+        
+        function updateReference(char, index, updates) {
+            if (!state.glyphReferences[char] || !state.glyphReferences[char][index]) return;
+            Object.assign(state.glyphReferences[char][index], updates);
+            draw();
+        }
+        
+        function renderReferenceList() {
+            const list = document.getElementById('reference-list');
+            const refs = getGlyphReferences();
+            
+            if (refs.length === 0) {
+                list.innerHTML = '<div style="color: var(--text-secondary); font-size: 11px; padding: 8px;">Drag components here to add references</div>';
+                return;
+            }
+            
+            list.innerHTML = '';
+            refs.forEach((ref, idx) => {
+                const item = document.createElement('div');
+                item.className = 'reference-item' + (idx === state.selectedReference ? ' selected' : '');
+                
+                item.innerHTML = `
+                    <span class="ref-name">${ref.name}</span>
+                    <span class="ref-delete" data-index="${idx}">×</span>
+                `;
+                
+                item.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('ref-delete')) {
+                        removeReference(state.currentGlyph, parseInt(e.target.dataset.index));
+                    } else {
+                        state.selectedReference = idx;
+                        renderReferenceList();
+                        draw();
+                        updateTransformMenu();
+                    }
+                });
+                
+                list.appendChild(item);
+            });
+            
+            // Add transform settings panel if a reference is selected
+            if (state.selectedReference >= 0 && state.selectedReference < refs.length) {
+                const selectedRef = refs[state.selectedReference];
+                const settingsPanel = document.createElement('div');
+                settingsPanel.className = 'ref-settings';
+                settingsPanel.innerHTML = `
+                    <div class="ref-settings-title">Transform: ${selectedRef.name}</div>
+                    <div class="ref-settings-grid">
+                        <div class="ref-settings-row">
+                            <label>dx</label>
+                            <input type="number" id="ref-dx" value="${selectedRef.dx || 0}" step="0.1">
+                        </div>
+                        <div class="ref-settings-row">
+                            <label>dy</label>
+                            <input type="number" id="ref-dy" value="${selectedRef.dy || 0}" step="0.1">
+                        </div>
+                        <div class="ref-settings-row">
+                            <label>Scale X</label>
+                            <input type="number" id="ref-scaleX" value="${selectedRef.scaleX !== undefined ? selectedRef.scaleX : 1}" step="0.1">
+                        </div>
+                        <div class="ref-settings-row">
+                            <label>Scale Y</label>
+                            <input type="number" id="ref-scaleY" value="${selectedRef.scaleY !== undefined ? selectedRef.scaleY : 1}" step="0.1">
+                        </div>
+                        <div class="ref-settings-row">
+                            <label>Rotation</label>
+                            <input type="number" id="ref-rotation" value="${selectedRef.rotation || 0}" step="1">
+                        </div>
+                        <div class="ref-settings-row">
+                            <label>Skew X</label>
+                            <input type="number" id="ref-skewX" value="${selectedRef.skewX || 0}" step="1">
+                        </div>
+                        <div class="ref-settings-row">
+                            <label>Skew Y</label>
+                            <input type="number" id="ref-skewY" value="${selectedRef.skewY || 0}" step="1">
+                        </div>
+                    </div>
+                `;
+                list.appendChild(settingsPanel);
+                
+                // Add event listeners for transform inputs
+                const refIdx = state.selectedReference;
+                const addInputListener = (inputId, prop) => {
+                    const input = document.getElementById(inputId);
+                    if (input) {
+                        input.addEventListener('input', () => {
+                            const value = parseFloat(input.value);
+                            if (!isNaN(value)) {
+                                updateReference(state.currentGlyph, refIdx, { [prop]: value });
+                            }
+                        });
+                    }
+                };
+                
+                addInputListener('ref-dx', 'dx');
+                addInputListener('ref-dy', 'dy');
+                addInputListener('ref-scaleX', 'scaleX');
+                addInputListener('ref-scaleY', 'scaleY');
+                addInputListener('ref-rotation', 'rotation');
+                addInputListener('ref-skewX', 'skewX');
+                addInputListener('ref-skewY', 'skewY');
+            }
         }
         
         function createGlyphItem(char, glyphData, isFallback) {
@@ -1940,6 +3053,18 @@
             content.appendChild(label);
             
             item.appendChild(content);
+
+            // Make glyphs draggable to create references
+            if (!isFallback && glyphData) {
+                item.draggable = true;
+                item.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('glyph-char', char);
+                    item.classList.add('dragging');
+                });
+                item.addEventListener('dragend', () => {
+                    item.classList.remove('dragging');
+                });
+            }
 
             if (isFallback) {
                 // Double-click to create glyph from approximation
@@ -2019,10 +3144,13 @@
             state.currentGlyph = char;
             state.selectedPoint = -1;
             state.selectedShape = 0;
+            state.selectedReference = -1;
             document.getElementById('glyph-char').value = char;
             updateWidthDisplay();
             renderGlyphGrid();
+            renderReferenceList();
             updateShapeList();
+            updateTransformMenu();
             draw();
         }
         
@@ -2039,15 +3167,23 @@
         function updateWidthDisplay() {
             if (!state.currentGlyph) return;
             const width = getCurrentGlyphWidth();
-            document.getElementById('glyph-width').value = width.toFixed(1);
-            // Indicate if it's an override or auto
-            const clearBtn = document.getElementById('clear-width');
-            if (hasWidthOverride(state.currentGlyph)) {
-                clearBtn.style.opacity = '1';
-                clearBtn.title = 'Reset to auto-calculated width';
+            const widthInput = document.getElementById('glyph-width');
+            const autoBtn = document.getElementById('clear-width');
+            const isAuto = !hasWidthOverride(state.currentGlyph);
+            
+            widthInput.value = width.toFixed(1);
+            
+            // Toggle auto button appearance and input state
+            if (isAuto) {
+                autoBtn.classList.add('btn-primary');
+                autoBtn.title = 'Width is auto-calculated (click to disable)';
+                widthInput.disabled = true;
+                widthInput.style.opacity = '0.6';
             } else {
-                clearBtn.style.opacity = '0.5';
-                clearBtn.title = 'Width is already auto-calculated';
+                autoBtn.classList.remove('btn-primary');
+                autoBtn.title = 'Enable auto-calculated width';
+                widthInput.disabled = false;
+                widthInput.style.opacity = '1';
             }
         }
 
@@ -2382,7 +3518,8 @@
                         name: 'Default',
                         coords: defaultCoords,
                         glyphs: defaultGlyphs,
-                        glyphWidths: defaultWidths
+                        glyphWidths: defaultWidths,
+                        glyphReferences: JSON.parse(JSON.stringify(state.glyphReferences || {}))
                     });
                     
                     // Import axis extremes as additional masters if we have gvar data
@@ -2425,7 +3562,8 @@
                                         name: `${axis.name || axis.tag} Min`,
                                         coords: minCoords,
                                         glyphs: minGlyphs,
-                                        glyphWidths: minWidths
+                                        glyphWidths: minWidths,
+                                        glyphReferences: JSON.parse(JSON.stringify(state.glyphReferences || {}))
                                     });
                                 }
                             }
@@ -2470,7 +3608,8 @@
                                         name: `${axis.name || axis.tag} Max`,
                                         coords: maxCoords,
                                         glyphs: maxGlyphs,
-                                        glyphWidths: maxWidths
+                                        glyphWidths: maxWidths,
+                                        glyphReferences: JSON.parse(JSON.stringify(state.glyphReferences || {}))
                                     });
                                 }
                             }
@@ -2680,9 +3819,11 @@
 
         function saveJSON() {
             const data = {
-                version: 1,
+                version: 3, // Bumped version: components are now in glyphs (names starting with _)
                 glyphs: state.glyphs,
                 glyphWidths: state.glyphWidths,
+                // components are now stored in glyphs with underscore prefix
+                glyphReferences: state.glyphReferences,
                 currentGlyph: state.currentGlyph,
                 vf: {
                     enabled: state.vf.enabled,
@@ -2719,6 +3860,19 @@
                 if (data.glyphWidths) {
                     state.glyphWidths = data.glyphWidths;
                 }
+                // Load components (version 2 - migrate to glyphs with underscore prefix)
+                if (data.components) {
+                    // Migrate old components into glyphs
+                    for (const [name, shapes] of Object.entries(data.components)) {
+                        state.glyphs[name] = shapes;
+                    }
+                }
+                if (data.glyphReferences) {
+                    state.glyphReferences = data.glyphReferences;
+                } else {
+                    state.glyphReferences = {};
+                }
+                
                 if (data.currentGlyph && state.glyphs[data.currentGlyph]) {
                     state.currentGlyph = data.currentGlyph;
                 } else if (Object.keys(state.glyphs).length > 0) {
@@ -2736,8 +3890,11 @@
                 }
                 
                 state.selectedShape = 0;
+                state.selectedReference = -1;
                 
                 renderGlyphGrid();
+                renderComponentsGrid();
+                renderReferenceList();
                 updateVFToggleUI();
                 updateVFUI();
                 updateShapeList();
@@ -2759,6 +3916,7 @@
             if (state.vf.enabled && state.vf.currentMaster < state.vf.masters.length) {
                 state.vf.masters[state.vf.currentMaster].glyphs = JSON.parse(JSON.stringify(state.glyphs));
                 state.vf.masters[state.vf.currentMaster].glyphWidths = JSON.parse(JSON.stringify(state.glyphWidths));
+                state.vf.masters[state.vf.currentMaster].glyphReferences = JSON.parse(JSON.stringify(state.glyphReferences));
             }
             
             // Create API state from UI state
@@ -2771,30 +3929,58 @@
             });
             apiState.glyphs = { ...state.glyphs };
             apiState.glyphWidths = { ...state.glyphWidths };
+            // Components are now in glyphs (underscore-prefixed names)
+            apiState.glyphReferences = JSON.parse(JSON.stringify(state.glyphReferences)); // Reference layers
             apiState.vfEnabled = state.vf.enabled;
             apiState.axes = state.vf.axes.map(a => ({ ...a }));
             apiState.masters = state.vf.masters.map(m => ({
                 name: m.name,
                 coords: { ...m.coords },
                 glyphs: { ...m.glyphs },
-                glyphWidths: m.glyphWidths ? { ...m.glyphWidths } : {}
+                glyphWidths: m.glyphWidths ? { ...m.glyphWidths } : {},
+                glyphReferences: m.glyphReferences ? JSON.parse(JSON.stringify(m.glyphReferences)) : {}
             }));
             apiState.instances = state.vf.instances.map(i => ({ name: i.name, coords: { ...i.coords } }));
             apiState.avarTable = state.vf.avarTable;
 
+            // Get selected export format
+            const exportFormat = document.getElementById('export-format').value;
+            const isVF = state.vf.enabled && state.vf.axes.length > 0;
+
             try {
                 const builder = new FontBuilder(apiState, opentype);
-                const font = builder.build({ validate: true, validateRoundTrip: true });
-                const buffer = font.toArrayBuffer();
-                const isVF = state.vf.enabled && state.vf.axes.length > 0;
-                const blob = new Blob([buffer], { type: 'font/otf' });
+                // Build font - always creates TrueType outlines (glyf table)
+                // For OTF we would need CFF conversion (not yet implemented)
+                const font = builder.build({ 
+                    validate: true, 
+                    validateRoundTrip: true,
+                    format: exportFormat // Pass format to builder
+                });
+                
+                // For OTF format, convert to CFF if the font has glyf table
+                let outputFont = font;
+                if (exportFormat === 'otf' && font.tables.glyf) {
+                    // Convert TTF to CFF using opentype.js conversion
+                    try {
+                        outputFont = opentype.convertFontFormat(font, 'cff');
+                        console.log('Converted to CFF format');
+                    } catch (convErr) {
+                        console.warn('CFF conversion failed, using TTF format:', convErr);
+                        // Fall back to TTF if CFF conversion fails
+                    }
+                }
+                
+                const buffer = outputFont.toArrayBuffer();
+                const ext = exportFormat === 'otf' ? 'otf' : 'ttf';
+                const mimeType = exportFormat === 'otf' ? 'font/otf' : 'font/ttf';
+                const blob = new Blob([buffer], { type: mimeType });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = isVF ? 'custom-font-VF.otf' : 'custom-font.otf';
+                a.download = isVF ? `custom-font-VF.${ext}` : `custom-font.${ext}`;
                 a.click();
                 URL.revokeObjectURL(url);
-                console.log('Font exported successfully');
+                console.log(`Font exported successfully as ${ext.toUpperCase()}`);
             } catch (e) {
                 console.error('Font export failed:', e);
                 alert('Font export failed: ' + e.message);
@@ -3213,7 +4399,8 @@
                         name: 'Default',
                         coords: {},
                         glyphs: JSON.parse(JSON.stringify(state.glyphs)),
-                        glyphWidths: JSON.parse(JSON.stringify(state.glyphWidths))
+                        glyphWidths: JSON.parse(JSON.stringify(state.glyphWidths)),
+                        glyphReferences: JSON.parse(JSON.stringify(state.glyphReferences || {}))
                     });
                 }
                 updateVFUI();
@@ -3272,15 +4459,53 @@
             
             const nameInput = document.getElementById('master-name');
             const saveBtn = document.getElementById('master-save');
+            const interimCheckbox = document.getElementById('master-interim');
+            const glyphSelectionDiv = document.getElementById('master-glyph-selection');
+            const glyphCheckboxes = document.getElementById('master-glyph-checkboxes');
+            
+            // Setup interim checkbox toggle
+            interimCheckbox.onchange = () => {
+                glyphSelectionDiv.style.display = interimCheckbox.checked ? 'block' : 'none';
+            };
+            
+            // Populate glyph checkboxes
+            glyphCheckboxes.innerHTML = '';
+            const allGlyphs = Object.keys(state.glyphs).sort();
+            for (const char of allGlyphs) {
+                const label = document.createElement('label');
+                label.style.cssText = 'display: inline-flex; align-items: center; padding: 2px 6px; background: #333; border-radius: 3px; cursor: pointer;';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = char;
+                checkbox.className = 'master-glyph-checkbox';
+                checkbox.style.marginRight = '4px';
+                label.appendChild(checkbox);
+                label.appendChild(document.createTextNode(char));
+                glyphCheckboxes.appendChild(label);
+            }
             
             if (masterIndex >= 0) {
-                nameInput.value = state.vf.masters[masterIndex].name;
+                const master = state.vf.masters[masterIndex];
+                nameInput.value = master.name;
                 saveBtn.textContent = 'Update Master';
                 saveBtn.dataset.editIndex = masterIndex;
+                
+                // Set interim state
+                interimCheckbox.checked = master.isInterim || false;
+                glyphSelectionDiv.style.display = master.isInterim ? 'block' : 'none';
+                
+                // Check the glyphs that participate
+                if (master.isInterim && master.interimGlyphs) {
+                    document.querySelectorAll('.master-glyph-checkbox').forEach(cb => {
+                        cb.checked = master.interimGlyphs.has(cb.value);
+                    });
+                }
             } else {
                 nameInput.value = '';
                 saveBtn.textContent = 'Add Master';
                 delete saveBtn.dataset.editIndex;
+                interimCheckbox.checked = false;
+                glyphSelectionDiv.style.display = 'none';
             }
             
             showModal('master-modal');
@@ -3379,6 +4604,18 @@
                 coords[input.dataset.axis] = parseFloat(input.value);
             });
             
+            const isInterim = document.getElementById('master-interim').checked;
+            const interimGlyphs = new Set();
+            if (isInterim) {
+                document.querySelectorAll('.master-glyph-checkbox:checked').forEach(cb => {
+                    interimGlyphs.add(cb.value);
+                });
+                if (interimGlyphs.size === 0) {
+                    alert('Please select at least one glyph for the interim master');
+                    return;
+                }
+            }
+            
             const saveBtn = document.getElementById('master-save');
             const editIndex = saveBtn.dataset.editIndex;
             
@@ -3387,8 +4624,26 @@
                 const masterIndex = parseInt(editIndex);
                 state.vf.masters[masterIndex].name = name;
                 state.vf.masters[masterIndex].coords = coords;
+                state.vf.masters[masterIndex].isInterim = isInterim;
+                state.vf.masters[masterIndex].interimGlyphs = isInterim ? interimGlyphs : null;
+                
+                // If switching to interim, filter glyphs to only include selected ones
+                if (isInterim) {
+                    const filteredGlyphs = {};
+                    const filteredWidths = {};
+                    for (const char of interimGlyphs) {
+                        if (state.vf.masters[masterIndex].glyphs[char]) {
+                            filteredGlyphs[char] = state.vf.masters[masterIndex].glyphs[char];
+                        }
+                        if (state.vf.masters[masterIndex].glyphWidths && state.vf.masters[masterIndex].glyphWidths[char]) {
+                            filteredWidths[char] = state.vf.masters[masterIndex].glyphWidths[char];
+                        }
+                    }
+                    state.vf.masters[masterIndex].glyphs = filteredGlyphs;
+                    state.vf.masters[masterIndex].glyphWidths = filteredWidths;
+                }
             } else {
-                // Adding new master - extrapolate from existing masters if available
+                // Adding new master
                 let newGlyphs;
                 let newWidths = {};
                 
@@ -3409,11 +4664,30 @@
                     newWidths = JSON.parse(JSON.stringify(state.glyphWidths));
                 }
                 
+                // For interim masters, only include selected glyphs
+                if (isInterim) {
+                    const filteredGlyphs = {};
+                    const filteredWidths = {};
+                    for (const char of interimGlyphs) {
+                        if (newGlyphs[char]) {
+                            filteredGlyphs[char] = newGlyphs[char];
+                        }
+                        if (newWidths[char] !== undefined) {
+                            filteredWidths[char] = newWidths[char];
+                        }
+                    }
+                    newGlyphs = filteredGlyphs;
+                    newWidths = filteredWidths;
+                }
+                
                 state.vf.masters.push({
                     name,
                     coords,
                     glyphs: newGlyphs,
-                    glyphWidths: newWidths
+                    glyphWidths: newWidths,
+                    glyphReferences: JSON.parse(JSON.stringify(state.glyphReferences || {})),
+                    isInterim: isInterim,
+                    interimGlyphs: isInterim ? interimGlyphs : null
                 });
             }
             
@@ -3595,14 +4869,19 @@
             // Save current glyph edits to current master
             if (state.vf.currentMaster < state.vf.masters.length) {
                 state.vf.masters[state.vf.currentMaster].glyphs = JSON.parse(JSON.stringify(state.glyphs));
+                state.vf.masters[state.vf.currentMaster].glyphWidths = JSON.parse(JSON.stringify(state.glyphWidths));
+                state.vf.masters[state.vf.currentMaster].glyphReferences = JSON.parse(JSON.stringify(state.glyphReferences));
             }
             
             // Switch to new master
             state.vf.currentMaster = index;
             state.glyphs = JSON.parse(JSON.stringify(state.vf.masters[index].glyphs));
+            state.glyphWidths = JSON.parse(JSON.stringify(state.vf.masters[index].glyphWidths || {}));
+            state.glyphReferences = JSON.parse(JSON.stringify(state.vf.masters[index].glyphReferences || {}));
             
             renderGlyphGrid();
             updateMasterList();
+            renderReferenceList();
             draw();
             drawPreview();
         }
@@ -3957,8 +5236,91 @@
                 }
             }
             
-            return { glyphs: resultGlyphs, widths: resultWidths };
+            // Interpolate reference transforms
+            const resultRefs = {};
+            const baseRefs = defaultMaster.glyphReferences || {};
+            
+            for (const char of Object.keys(baseRefs)) {
+                if (!baseRefs[char] || baseRefs[char].length === 0) continue;
+                
+                // Start with a copy of base references
+                resultRefs[char] = baseRefs[char].map(ref => ({
+                    name: ref.name,
+                    dx: ref.dx || 0,
+                    dy: ref.dy || 0,
+                    scaleX: ref.scaleX !== undefined ? ref.scaleX : 1,
+                    scaleY: ref.scaleY !== undefined ? ref.scaleY : 1,
+                    rotation: ref.rotation || 0,
+                    skewX: ref.skewX || 0,
+                    skewY: ref.skewY || 0
+                }));
+                
+                // Apply deltas from each axis
+                for (const { axis, minMaster, maxMaster, minMasterNorm, maxMasterNorm } of axisMasters) {
+                    const normalizedPos = normalizedCoords[axis.tag] || 0;
+                    if (Math.abs(normalizedPos) < 0.0001) continue;
+                    
+                    let deltaMaster = null;
+                    let deltaSign = 1;
+                    
+                    if (normalizedPos < 0 && minMaster) {
+                        deltaMaster = minMaster;
+                        deltaSign = Math.abs(normalizedPos / minMasterNorm);
+                    } else if (normalizedPos > 0 && maxMaster) {
+                        deltaMaster = maxMaster;
+                        deltaSign = normalizedPos / maxMasterNorm;
+                    } else if (normalizedPos < 0 && !minMaster && maxMaster) {
+                        deltaMaster = maxMaster;
+                        deltaSign = -Math.abs(normalizedPos / maxMasterNorm);
+                    } else if (normalizedPos > 0 && !maxMaster && minMaster) {
+                        deltaMaster = minMaster;
+                        deltaSign = -normalizedPos / Math.abs(minMasterNorm);
+                    }
+                    
+                    if (!deltaMaster || !deltaMaster.glyphReferences) continue;
+                    
+                    const deltaRefs = deltaMaster.glyphReferences[char];
+                    if (!deltaRefs || deltaRefs.length !== resultRefs[char].length) continue;
+                    
+                    // Apply deltas to each reference transform property
+                    for (let refIdx = 0; refIdx < resultRefs[char].length; refIdx++) {
+                        const baseRef = baseRefs[char][refIdx];
+                        const deltaRef = deltaRefs[refIdx];
+                        const resultRef = resultRefs[char][refIdx];
+                        
+                        if (baseRef.name !== deltaRef.name) continue; // Reference mismatch
+                        
+                        resultRef.dx += ((deltaRef.dx || 0) - (baseRef.dx || 0)) * deltaSign;
+                        resultRef.dy += ((deltaRef.dy || 0) - (baseRef.dy || 0)) * deltaSign;
+                        resultRef.scaleX += ((deltaRef.scaleX ?? 1) - (baseRef.scaleX ?? 1)) * deltaSign;
+                        resultRef.scaleY += ((deltaRef.scaleY ?? 1) - (baseRef.scaleY ?? 1)) * deltaSign;
+                        resultRef.rotation += ((deltaRef.rotation || 0) - (baseRef.rotation || 0)) * deltaSign;
+                        resultRef.skewX += ((deltaRef.skewX || 0) - (baseRef.skewX || 0)) * deltaSign;
+                        resultRef.skewY += ((deltaRef.skewY || 0) - (baseRef.skewY || 0)) * deltaSign;
+                    }
+                }
+            }
+            
+            return { glyphs: resultGlyphs, widths: resultWidths, references: resultRefs };
         }
+
+        // Expose functions for debugging/testing
+        window._editorFunctions = {
+            draw,
+            drawPreview,
+            renderGlyphGrid,
+            renderComponentsGrid,
+            renderReferenceList,
+            getGlyphShapes,
+            getGlyphReferences,
+            getTransformedReferenceShapes,
+            transformPoint,
+            selectGlyph,
+            updateShapeList,
+            downloadFont,
+            FontEditorState,
+            FontBuilder
+        };
 
         // Initialize
         init();
