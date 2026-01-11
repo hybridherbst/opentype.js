@@ -1441,6 +1441,181 @@
             color: var(--text-secondary);
             font-size: 12px;
         }
+
+        /* Preview panel */
+        .preview-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            gap: 20px;
+            overflow: hidden;
+        }
+
+        .preview-controls {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .preview-controls-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .preview-controls-row label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            min-width: 70px;
+        }
+
+        .preview-controls-row span {
+            font-size: 12px;
+            color: var(--text-primary);
+            min-width: 50px;
+        }
+
+        .preview-axes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+
+        .preview-axis-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-secondary);
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+
+        .preview-axis-control label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            min-width: 40px;
+        }
+
+        .preview-axis-control input[type="range"] {
+            width: 100px;
+        }
+
+        .preview-axis-control span {
+            font-size: 11px;
+            min-width: 35px;
+            text-align: right;
+        }
+
+        .preview-features {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .preview-feature-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-secondary);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .preview-feature-toggle:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .preview-feature-toggle input {
+            margin: 0;
+        }
+
+        .preview-feature-toggle .tag {
+            font-family: monospace;
+            color: var(--text-secondary);
+        }
+
+        .preview-sample-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .preview-text-container {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .preview-text-container textarea {
+            width: 100%;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px;
+            color: var(--text-primary);
+            font-size: 14px;
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .preview-render-area {
+            flex: 1;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 20px;
+            overflow: auto;
+            min-height: 200px;
+        }
+
+        .preview-render-content {
+            font-family: var(--preview-font, sans-serif);
+            line-height: 1.4;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .preview-delta-section {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .preview-delta-section h3 {
+            font-size: 14px;
+            margin-bottom: 12px;
+            color: var(--text-secondary);
+        }
+
+        .preview-delta-info {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .preview-delta-glyph {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px;
+            margin: 4px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+        }
+
+        .preview-delta-glyph .glyph-char {
+            font-size: 24px;
+            font-family: var(--preview-font, sans-serif);
+        }
+
+        .preview-delta-glyph .delta-indicator {
+            font-size: 10px;
+            color: var(--accent);
+        }
     </style>
 </head>
 <body>
@@ -1467,6 +1642,7 @@
             <button class="main-tab active" data-tab="drawing">Drawing</button>
             <button class="main-tab" data-tab="ligatures">Ligatures</button>
             <button class="main-tab" data-tab="kerning">Kerning</button>
+            <button class="main-tab" data-tab="preview">Preview</button>
         </div>
 
         <!-- Drawing Tab Content -->
@@ -1721,6 +1897,47 @@
                 </div>
             </div>
         </div><!-- End Kerning Tab -->
+
+        <!-- Preview Tab Content -->
+        <div class="tab-content" id="tab-preview">
+            <div class="preview-panel">
+                <div class="preview-controls">
+                    <div class="preview-controls-row">
+                        <label>Font Size:</label>
+                        <input type="range" id="preview-font-size" min="12" max="200" value="72" style="width: 150px;">
+                        <span id="preview-font-size-value">72px</span>
+                    </div>
+                    <div class="preview-axes" id="preview-axes">
+                        <!-- Axis sliders will be rendered here dynamically -->
+                    </div>
+                    <div class="preview-features" id="preview-features">
+                        <!-- Feature toggles will be rendered here dynamically -->
+                    </div>
+                    <div class="preview-sample-buttons">
+                        <button class="btn btn-small" data-sample="hamburgevons">Hamburgevons</button>
+                        <button class="btn btn-small" data-sample="alphabet">Alphabet</button>
+                        <button class="btn btn-small" data-sample="pangram">Pangram</button>
+                        <button class="btn btn-small" data-sample="lorem">Lorem Ipsum</button>
+                        <button class="btn btn-small" data-sample="numbers">Numbers</button>
+                    </div>
+                </div>
+                <div class="preview-text-container">
+                    <textarea id="preview-text-input" placeholder="Type to preview your font..." rows="4">HAMBURGEVONS
+The quick brown fox jumps over the lazy dog.
+0123456789 !@#$%^&amp;*()
+fi fl ff ffi ffl</textarea>
+                </div>
+                <div class="preview-render-area" id="preview-render-area">
+                    <!-- Font preview will be rendered here -->
+                </div>
+                <div class="preview-delta-section" id="preview-delta-section" style="display: none;">
+                    <h3>Intermediate Master Deltas</h3>
+                    <div class="preview-delta-info" id="preview-delta-info">
+                        <!-- Delta visualization for sparse masters -->
+                    </div>
+                </div>
+            </div>
+        </div><!-- End Preview Tab -->
     </div>
 
     <!-- Modals -->
@@ -2399,6 +2616,11 @@
                     // Special handling when switching to ligatures tab
                     if (targetTab === 'ligatures') {
                         renderLigatureList();
+                    }
+                    
+                    // Special handling when switching to preview tab
+                    if (targetTab === 'preview') {
+                        initPreviewTab();
                     }
                 });
             });
@@ -3549,7 +3771,7 @@
                 if (si < 0 || si >= shapes.length) continue;
                 const points = shapes[si];
                 for (let i = points.length - 1; i >= 0; i--) {
-                    const screen = worldToScreen(points[i][0], points[i][1]);
+                    const screen = worldToScreen(points[i].x, points[i].y);
                     const dist = Math.sqrt((mx - screen.x) ** 2 + (my - screen.y) ** 2);
                     if (dist < threshold) return { shapeIndex: si, pointIndex: i };
                 }
@@ -3581,8 +3803,8 @@
             // Ray casting algorithm
             let inside = false;
             for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-                const pi = worldToScreen(points[i][0], points[i][1]);
-                const pj = worldToScreen(points[j][0], points[j][1]);
+                const pi = worldToScreen(points[i].x, points[i].y);
+                const pj = worldToScreen(points[j].x, points[j].y);
                 if (((pi.y > my) !== (pj.y > my)) &&
                     (mx < (pj.x - pi.x) * (my - pi.y) / (pj.y - pi.y) + pi.x)) {
                     inside = !inside;
@@ -5420,9 +5642,15 @@
                     
                     // Prefer TrueType points (glyph.points) over path commands
                     if (glyph.points && glyph.points.length > 0) {
-                        const contours = extractGlyphPoints(glyph.points);
+                        const contours = extractGlyphContours(glyph);
                         if (contours.length > 0) {
-                            state.glyphs[key] = contours;
+                            // Round coordinates for editor
+                            const roundedContours = contours.map(c => c.map(p => ({
+                                x: Math.round(p.x),
+                                y: Math.round(p.y),
+                                onCurve: p.onCurve
+                            })));
+                            state.glyphs[key] = roundedContours;
                             if (glyph.advanceWidth !== undefined) {
                                 state.glyphWidths[key] = Math.round(glyph.advanceWidth);
                             } else {
@@ -5713,36 +5941,9 @@
             showImportModal(e);
         }
 
-        // getCubicBezierExtremaX, getQuadBezierExtremaX, and getPathBounds
+        // getCubicBezierExtremaX, getQuadBezierExtremaX, getPathBounds, and extractGlyphContours
         // are now imported from font-editor-api.js
 
-        // Extract TrueType glyph points into contour format
-        // Similar to extractTransformedPoints but for direct glyph.points
-        function extractGlyphPoints(glyphPoints) {
-            const contours = [];
-            let currentContour = [];
-            
-            for (const pt of glyphPoints) {
-                currentContour.push({
-                    x: Math.round(pt.x),
-                    y: Math.round(pt.y),
-                    onCurve: pt.onCurve !== false
-                });
-                
-                if (pt.lastPointOfContour) {
-                    contours.push(currentContour);
-                    currentContour = [];
-                }
-            }
-            
-            // If there's a remaining contour, add it
-            if (currentContour.length > 0) {
-                contours.push(currentContour);
-            }
-            
-            return contours;
-        }
-        
         // Extract path commands into contour format (for CFF fonts)
         // Handles M, L, Q, C, Z commands
         function extractPathAsContours(path) {
@@ -7446,6 +7647,323 @@
         }
 
         // Expose functions for debugging/testing
+        // =========================================
+        // Preview Tab Functions
+        // =========================================
+        
+        let previewFont = null; // The compiled font for preview
+        let previewFontUrl = null; // ObjectURL for the font
+        
+        // Sample texts for preview
+        const SAMPLE_TEXTS = {
+            hamburgevons: 'HAMBURGEVONS\nhamburgevons',
+            alphabet: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz',
+            pangram: 'The quick brown fox jumps over the lazy dog.\nPack my box with five dozen liquor jugs.',
+            lorem: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.\nSed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+            numbers: '0123456789\n!@#$%^&*()_+-=[]{}|;:\'",.<>?/'
+        };
+        
+        // OpenType features list
+        const OT_FEATURES = [
+            { tag: 'liga', name: 'Standard Ligatures' },
+            { tag: 'kern', name: 'Kerning' },
+            { tag: 'dlig', name: 'Discretionary Ligatures' },
+            { tag: 'smcp', name: 'Small Caps' },
+            { tag: 'c2sc', name: 'Caps to Small Caps' },
+            { tag: 'onum', name: 'Oldstyle Figures' },
+            { tag: 'lnum', name: 'Lining Figures' },
+            { tag: 'tnum', name: 'Tabular Figures' },
+            { tag: 'pnum', name: 'Proportional Figures' },
+            { tag: 'frac', name: 'Fractions' },
+            { tag: 'sups', name: 'Superscript' },
+            { tag: 'subs', name: 'Subscript' },
+            { tag: 'swsh', name: 'Swash' },
+            { tag: 'calt', name: 'Contextual Alternates' },
+            { tag: 'salt', name: 'Stylistic Alternates' },
+            { tag: 'ss01', name: 'Stylistic Set 1' },
+            { tag: 'ss02', name: 'Stylistic Set 2' },
+            { tag: 'ss03', name: 'Stylistic Set 3' }
+        ];
+        
+        // Initialize preview tab when switching to it
+        function initPreviewTab() {
+            buildPreviewFont();
+            renderPreviewAxes();
+            renderPreviewFeatures();
+            setupPreviewEventListeners();
+            renderPreview();
+        }
+        
+        // Build the font as a byte array and load it
+        async function buildPreviewFont() {
+            try {
+                // Use the existing downloadFont logic but don't trigger download
+                const format = document.getElementById('export-format').value;
+                const fontBytes = buildFontBytes(format);
+                
+                if (!fontBytes) {
+                    console.error('Failed to build font bytes');
+                    return;
+                }
+                
+                // Revoke previous font URL if exists
+                if (previewFontUrl) {
+                    URL.revokeObjectURL(previewFontUrl);
+                }
+                
+                // Create blob and object URL
+                const blob = new Blob([fontBytes], { type: format === 'otf' ? 'font/otf' : 'font/ttf' });
+                previewFontUrl = URL.createObjectURL(blob);
+                
+                // Load font with FontFace API
+                const fontFace = new FontFace('PreviewFont', `url(${previewFontUrl})`);
+                await fontFace.load();
+                
+                // Remove old font if exists
+                for (const face of document.fonts) {
+                    if (face.family === 'PreviewFont') {
+                        document.fonts.delete(face);
+                    }
+                }
+                
+                document.fonts.add(fontFace);
+                
+                // Also parse with opentype.js to get axis info
+                try {
+                    const arrayBuffer = fontBytes instanceof ArrayBuffer ? fontBytes : fontBytes.buffer;
+                    previewFont = opentype.parse(arrayBuffer);
+                } catch (parseErr) {
+                    console.warn('Could not parse font for axis info:', parseErr);
+                    previewFont = null;
+                }
+                
+                // Update CSS variable for preview font
+                document.documentElement.style.setProperty('--preview-font-loaded', 'PreviewFont');
+                
+                // Re-render axes if VF
+                renderPreviewAxes();
+                
+            } catch (err) {
+                console.error('Error building preview font:', err);
+            }
+        }
+        
+        // Build font bytes without downloading (extracted from downloadFont logic)
+        function buildFontBytes(format) {
+            // Create a FontEditorState from current state (same as downloadFont)
+            const apiState = new FontEditorState({
+                unitsPerEm: state.unitsPerEm,
+                ascender: state.ascender,
+                descender: state.descender
+            });
+            apiState.glyphs = { ...state.glyphs };
+            apiState.glyphWidths = { ...state.glyphWidths };
+            apiState.sidebearing = state.sidebearing;
+            apiState.ligatures = [...state.ligatures];
+            apiState.kerning = { ...state.kerning };
+            apiState.glyphReferences = JSON.parse(JSON.stringify(state.glyphReferences));
+            if (state.vf.enabled) {
+                apiState.vf = JSON.parse(JSON.stringify(state.vf));
+            }
+            
+            const builder = new FontBuilder(apiState);
+            const font = builder.build({
+                familyName: 'CustomFont',
+                styleName: 'Regular',
+                format: format
+            });
+            
+            if (!font) return null;
+            return font.toArrayBuffer();
+        }
+        
+        // Render axis sliders based on loaded font
+        function renderPreviewAxes() {
+            const container = document.getElementById('preview-axes');
+            container.innerHTML = '';
+            
+            if (!previewFont || !previewFont.tables.fvar) {
+                return;
+            }
+            
+            const axes = previewFont.tables.fvar.axes;
+            axes.forEach(axis => {
+                const control = document.createElement('div');
+                control.className = 'preview-axis-control';
+                
+                const label = document.createElement('label');
+                label.textContent = axis.tag;
+                label.title = axis.name?.en || axis.tag;
+                
+                const slider = document.createElement('input');
+                slider.type = 'range';
+                slider.min = axis.minValue;
+                slider.max = axis.maxValue;
+                slider.value = axis.defaultValue;
+                slider.step = 1;
+                slider.dataset.axis = axis.tag;
+                
+                const valueDisplay = document.createElement('span');
+                valueDisplay.textContent = axis.defaultValue;
+                
+                slider.addEventListener('input', () => {
+                    valueDisplay.textContent = slider.value;
+                    applyPreviewVariations();
+                });
+                
+                control.appendChild(label);
+                control.appendChild(slider);
+                control.appendChild(valueDisplay);
+                container.appendChild(control);
+            });
+        }
+        
+        // Render feature toggles
+        function renderPreviewFeatures() {
+            const container = document.getElementById('preview-features');
+            container.innerHTML = '';
+            
+            OT_FEATURES.forEach(feature => {
+                const toggle = document.createElement('label');
+                toggle.className = 'preview-feature-toggle';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.dataset.feature = feature.tag;
+                // Enable liga and kern by default
+                checkbox.checked = feature.tag === 'liga' || feature.tag === 'kern';
+                
+                checkbox.addEventListener('change', renderPreview);
+                
+                const tagSpan = document.createElement('span');
+                tagSpan.className = 'tag';
+                tagSpan.textContent = feature.tag;
+                
+                toggle.appendChild(checkbox);
+                toggle.appendChild(tagSpan);
+                toggle.title = feature.name;
+                
+                container.appendChild(toggle);
+            });
+        }
+        
+        // Setup event listeners for preview tab
+        function setupPreviewEventListeners() {
+            // Font size slider
+            const fontSizeSlider = document.getElementById('preview-font-size');
+            const fontSizeValue = document.getElementById('preview-font-size-value');
+            
+            if (!fontSizeSlider._listenerAdded) {
+                fontSizeSlider.addEventListener('input', () => {
+                    fontSizeValue.textContent = fontSizeSlider.value + 'px';
+                    renderPreview();
+                });
+                fontSizeSlider._listenerAdded = true;
+            }
+            
+            // Text input
+            const textInput = document.getElementById('preview-text-input');
+            if (!textInput._listenerAdded) {
+                textInput.addEventListener('input', renderPreview);
+                textInput._listenerAdded = true;
+            }
+            
+            // Sample text buttons
+            document.querySelectorAll('.preview-sample-buttons button').forEach(btn => {
+                if (!btn._listenerAdded) {
+                    btn.addEventListener('click', () => {
+                        const sample = btn.dataset.sample;
+                        if (SAMPLE_TEXTS[sample]) {
+                            textInput.value = SAMPLE_TEXTS[sample];
+                            renderPreview();
+                        }
+                    });
+                    btn._listenerAdded = true;
+                }
+            });
+        }
+        
+        // Apply font-variation-settings based on sliders
+        function applyPreviewVariations() {
+            renderPreview();
+        }
+        
+        // Render the preview
+        function renderPreview() {
+            const renderArea = document.getElementById('preview-render-area');
+            const textInput = document.getElementById('preview-text-input');
+            const fontSize = document.getElementById('preview-font-size').value;
+            
+            // Build font-variation-settings
+            const variationSettings = [];
+            document.querySelectorAll('#preview-axes input[type="range"]').forEach(slider => {
+                variationSettings.push(`"${slider.dataset.axis}" ${slider.value}`);
+            });
+            
+            // Build font-feature-settings
+            const featureSettings = [];
+            document.querySelectorAll('#preview-features input[type="checkbox"]').forEach(checkbox => {
+                featureSettings.push(`"${checkbox.dataset.feature}" ${checkbox.checked ? 1 : 0}`);
+            });
+            
+            // Create preview content
+            const content = document.createElement('div');
+            content.className = 'preview-render-content';
+            content.style.fontFamily = 'PreviewFont, sans-serif';
+            content.style.fontSize = fontSize + 'px';
+            if (variationSettings.length > 0) {
+                content.style.fontVariationSettings = variationSettings.join(', ');
+            }
+            if (featureSettings.length > 0) {
+                content.style.fontFeatureSettings = featureSettings.join(', ');
+            }
+            content.textContent = textInput.value;
+            
+            renderArea.innerHTML = '';
+            renderArea.appendChild(content);
+            
+            // Update delta visualization if VF with sparse masters
+            updateDeltaVisualization();
+        }
+        
+        // Update delta visualization for sparse/interim masters
+        function updateDeltaVisualization() {
+            const deltaSection = document.getElementById('preview-delta-section');
+            const deltaInfo = document.getElementById('preview-delta-info');
+            
+            if (!state.vf.enabled) {
+                deltaSection.style.display = 'none';
+                return;
+            }
+            
+            // Check for interim masters (sparse masters)
+            const interimMasters = state.vf.masters.filter(m => m.isInterim);
+            if (interimMasters.length === 0) {
+                deltaSection.style.display = 'none';
+                return;
+            }
+            
+            deltaSection.style.display = 'block';
+            
+            let html = '<p>Interim masters with sparse glyph data:</p><div style="display: flex; flex-wrap: wrap; gap: 8px;">';
+            
+            interimMasters.forEach(master => {
+                const glyphCount = master.interimGlyphs ? master.interimGlyphs.size : 0;
+                html += `
+                    <div class="preview-delta-glyph" style="min-width: 100px;">
+                        <strong>${master.name}</strong>
+                        <span style="font-size: 11px; color: var(--text-secondary);">
+                            ${glyphCount} glyph${glyphCount !== 1 ? 's' : ''} with deltas
+                        </span>
+                        ${master.interimGlyphs ? `<span class="delta-indicator">${Array.from(master.interimGlyphs).slice(0, 5).join(' ')}</span>` : ''}
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            deltaInfo.innerHTML = html;
+        }
+        
         window._editorFunctions = {
             draw,
             drawPreview,
