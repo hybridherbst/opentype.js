@@ -1,0 +1,86 @@
+{
+  "version": 4,
+  "glyphs": {
+    "O": [
+      [
+        { "x": 0, "y": 0, "onCurve": true },
+        { "x": 0, "y": 700, "onCurve": true },
+        { "x": 500, "y": 700, "onCurve": true },
+        { "x": 500, "y": 0, "onCurve": true }
+      ]
+    ],
+    "_Test": [
+      [
+        { "x": 50, "y": 100, "onCurve": true },
+        { "x": 400, "y": 100, "onCurve": true },
+        { "x": 400, "y": 600, "onCurve": true },
+        { "x": 50, "y": 600, "onCurve": true }
+      ]
+    ]
+  },
+  "glyphWidths": {},
+  "glyphReferences": {
+    "O": [
+      {
+        "name": "_Test",
+        "dx": 0,
+        "dy": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotation": 0,
+        "skewX": 0,
+        "skewY": 0
+      }
+    ]
+  },
+  "currentGlyph": "O",
+  "vf": {
+    "enabled": true,
+    "axes": [
+      {
+        "tag": "TEST",
+        "name": "Test",
+        "minValue": 100,
+        "defaultValue": 400,
+        "maxValue": 900
+      }
+    ],
+    "masters": [
+      {
+        "name": "Default",
+        "coords": { "TEST": 400 },
+        "glyphs": {
+          "O": [[{"x":0,"y":0,"onCurve":true},{"x":0,"y":700,"onCurve":true},{"x":500,"y":700,"onCurve":true},{"x":500,"y":0,"onCurve":true}]],
+          "_Test": [[{"x":50,"y":100,"onCurve":true},{"x":400,"y":100,"onCurve":true},{"x":400,"y":600,"onCurve":true},{"x":50,"y":600,"onCurve":true}]]
+        },
+        "glyphWidths": {}
+      },
+      {
+        "name": "Light",
+        "coords": { "TEST": 100 },
+        "glyphs": {
+          "O": [[{"x":0,"y":0,"onCurve":true},{"x":-50,"y":700,"onCurve":true},{"x":350,"y":700,"onCurve":true},{"x":500,"y":0,"onCurve":true}]],
+          "_Test": [[{"x":50,"y":100,"onCurve":true},{"x":300,"y":100,"onCurve":true},{"x":250,"y":600,"onCurve":true},{"x":0,"y":600,"onCurve":true}]]
+        },
+        "glyphWidths": {},
+        "isInterim": false,
+        "interimGlyphs": null
+      },
+      {
+        "name": "Right",
+        "coords": { "TEST": 900 },
+        "glyphs": {
+          "O": [[{"x":0,"y":0,"onCurve":true},{"x":100,"y":550,"onCurve":true},{"x":650,"y":400,"onCurve":true},{"x":500,"y":0,"onCurve":true}]],
+          "_Test": [[{"x":150,"y":100,"onCurve":true},{"x":550,"y":100,"onCurve":true},{"x":700,"y":350,"onCurve":true},{"x":350,"y":400,"onCurve":true}]]
+        },
+        "glyphWidths": {},
+        "isInterim": false,
+        "interimGlyphs": null
+      }
+    ],
+    "instances": [],
+    "currentMaster": 0,
+    "previewCoords": { "TEST": 100 },
+    "avarTable": null
+  }
+}

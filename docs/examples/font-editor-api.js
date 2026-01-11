@@ -16,13 +16,26 @@ if (typeof window !== 'undefined' && window.opentype) {
 }
 
 /**
- * @typedef {number[]} Point
- * A 2D point as [x, y] array
+ * @typedef {Object} TrueTypePoint
+ * @property {number} x - X coordinate in font units
+ * @property {number} y - Y coordinate in font units
+ * @property {boolean} onCurve - Whether this is an on-curve point (true) or control point (false)
+ * @property {boolean} [lastPointOfContour] - Whether this is the last point of a contour
+ */
+
+/**
+ * @typedef {TrueTypePoint[]} Contour
+ * A contour is an array of TrueType points that form a closed shape
+ */
+
+/**
+ * @typedef {Contour[]} GlyphOutline
+ * A glyph outline is an array of contours (shapes)
  */
 
 /**
  * @typedef {Object} GlyphData
- * @property {Point[]} points - Array of [x, y] points defining the glyph outline
+ * @property {GlyphOutline} contours - TrueType-style contours
  */
 
 /**
@@ -38,7 +51,7 @@ if (typeof window !== 'undefined' && window.opentype) {
  * @typedef {Object} MasterDefinition
  * @property {string} name - Master name (e.g., 'Light', 'Bold')
  * @property {Object<string, number>} coords - Axis coordinates {tag: value}
- * @property {Object<string, Point[]>} glyphs - Glyph data for this master
+ * @property {Object<string, GlyphOutline>} glyphs - Glyph data for this master
  * @property {Object<string, number>} glyphWidths - Explicit glyph widths for this master
  */
 
@@ -196,24 +209,179 @@ export function getPathBounds(path) {
 }
 
 /**
+ * Extract TrueType points from a glyph, preserving all curve information.
+ * This is the preferred way to extract glyph data for VF and accurate export.
+ * 
+ * @param {Object} glyph - OpenType.js glyph object
+ * @returns {Contour[]} Array of contours, each containing TrueType points
+ */
+export function extractGlyphContours(glyph) {
+    if (!glyph || !glyph.points || glyph.points.length === 0) {
+        return [];
+    }
+    
+    const contours = [];
+    let currentContour = [];
+    
+    for (const pt of glyph.points) {
+        currentContour.push({
+            x: pt.x,
+            y: pt.y,
+            onCurve: pt.onCurve !== false
+        });
+        
+        if (pt.lastPointOfContour) {
+            contours.push(currentContour);
+            currentContour = [];
+        }
+    }
+    
+    if (currentContour.length > 0) {
+        contours.push(currentContour);
+    }
+    
+    return contours;
+}
+
+/**
+ * Extract TrueType points from a variation transform result.
+ * Used for importing variable font masters at specific coordinates.
+ * 
+ * @param {Object[]} transformPoints - Points from font.variation.getTransform()
+ * @returns {Contour[]} Array of contours, each containing TrueType points
+ */
+export function extractTransformContours(transformPoints) {
+    if (!transformPoints || transformPoints.length === 0) {
+        return [];
+    }
+    
+    const contours = [];
+    let currentContour = [];
+    
+    for (const pt of transformPoints) {
+        currentContour.push({
+            x: pt.x,
+            y: pt.y,
+            onCurve: pt.onCurve !== false
+        });
+        
+        if (pt.lastPointOfContour) {
+            contours.push(currentContour);
+            currentContour = [];
+        }
+    }
+    
+    if (currentContour.length > 0) {
+        contours.push(currentContour);
+    }
+    
+    return contours;
+}
+
+/**
+ * Convert contours to a flat array of TrueType points (for glyph.points format)
+ * 
+ * @param {Contour[]} contours - Array of contours
+ * @returns {Object[]} Flat array of {x, y, onCurve, lastPointOfContour}
+ */
+export function contoursToPoints(contours) {
+    const points = [];
+    for (const contour of contours) {
+        for (let i = 0; i < contour.length; i++) {
+            const pt = contour[i];
+            points.push({
+                x: Math.round(pt.x),
+                y: Math.round(pt.y),
+                onCurve: pt.onCurve !== false,
+                lastPointOfContour: i === contour.length - 1
+            });
+        }
+    }
+    return points;
+}
+
+/**
+ * Convert contours to an opentype.js Path object.
+ * Handles on-curve and off-curve points with quadratic curves.
+ * 
+ * @param {Contour[]} contours - Array of contours
+ * @param {Object} opentypeModule - The opentype.js module
+ * @returns {Object} OpenType.js Path object
+ */
+export function contoursToPath(contours, opentypeModule) {
+    const ot = opentypeModule;
+    const path = new ot.Path();
+    
+    for (const contour of contours) {
+        if (contour.length === 0) continue;
+        
+        // Find first on-curve point to start from
+        let startIdx = 0;
+        for (let i = 0; i < contour.length; i++) {
+            if (contour[i].onCurve) {
+                startIdx = i;
+                break;
+            }
+        }
+        
+        // Rotate contour so we start from an on-curve point
+        const rotated = [...contour.slice(startIdx), ...contour.slice(0, startIdx)];
+        
+        // If first point is off-curve, create implicit on-curve midpoint
+        if (!rotated[0].onCurve) {
+            const last = rotated[rotated.length - 1];
+            const first = rotated[0];
+            const midX = (last.x + first.x) / 2;
+            const midY = (last.y + first.y) / 2;
+            rotated.unshift({ x: midX, y: midY, onCurve: true });
+        }
+        
+        path.moveTo(rotated[0].x, rotated[0].y);
+        
+        let i = 1;
+        while (i < rotated.length) {
+            const pt = rotated[i];
+            
+            if (pt.onCurve) {
+                path.lineTo(pt.x, pt.y);
+                i++;
+            } else {
+                const next = rotated[(i + 1) % rotated.length];
+                
+                if (next.onCurve) {
+                    path.quadraticCurveTo(pt.x, pt.y, next.x, next.y);
+                    i += 2;
+                } else {
+                    // Two consecutive off-curve: implied on-curve midpoint
+                    const midX = (pt.x + next.x) / 2;
+                    const midY = (pt.y + next.y) / 2;
+                    path.quadraticCurveTo(pt.x, pt.y, midX, midY);
+                    i++;
+                }
+            }
+        }
+        
+        path.closePath();
+    }
+    
+    return path;
+}
+
+/**
  * Extract simplified polygon points from a path (for display purposes).
- * Note: This flattens curves to their endpoints, losing curve information.
+ * @deprecated Use extractGlyphContours for VF/export
  *
  * @param {Object} path - OpenType.js path object
- * @param {number} unitsPerEm - The font's unitsPerEm value
- * @param {number} [editorScale=10] - Target editor coordinate max (glyphs are designed in 0-editorScale space)
- * @returns {Point[]} Array of [x, y] points
+ * @returns {Point[]} Array of [x, y] points in font units
  */
-export function extractPathPoints(path, unitsPerEm, editorScale = 10) {
+export function extractPathPoints(path) {
     const points = [];
-    // Convert from font units back to editor coordinates
-    const scale = editorScale / unitsPerEm;
 
     for (const cmd of path.commands) {
         if (cmd.type === 'M' || cmd.type === 'L') {
             points.push([
-                Math.round(cmd.x * scale * 10) / 10,
-                Math.round(cmd.y * scale * 10) / 10
+                Math.round(cmd.x),
+                Math.round(cmd.y)
             ]);
         }
     }
@@ -321,6 +489,9 @@ export class FontEditorState {
         this.unitsPerEm = options.unitsPerEm || 800;
         this.ascender = options.ascender || 800;
         this.descender = options.descender || 0;
+        // Sidebearing: padding applied half to left, half to right in auto-width mode
+        // When building font, X coordinates are offset by sidebearing/2 to center glyphs
+        this.sidebearing = options.sidebearing || 0;
         this.glyphs = {};
         this.glyphWidths = {};
         // Components are just glyphs with names starting with underscore (e.g. '_stem')
@@ -352,8 +523,14 @@ export class FontEditorState {
         };
     }
 
-    addGlyph(char, points = [], width = undefined) {
-        this.glyphs[char] = points;
+    /**
+     * Add a glyph with contours.
+     * @param {string} char - The character/glyph name
+     * @param {Array} contours - Contours in format [[{x, y, onCurve}, ...], ...]
+     * @param {number} [width] - Optional explicit width
+     */
+    addGlyph(char, contours = [], width = undefined) {
+        this.glyphs[char] = contours;
         if (width !== undefined) {
             this.glyphWidths[char] = width;
         }
@@ -372,9 +549,14 @@ export class FontEditorState {
             return widths[char];
         }
 
-        const points = this.getGlyphPoints(char);
-        if (!points || points.length === 0) return 5;
-        const xCoords = points.map(p => p[0]);
+        const contours = this.getGlyphPoints(char);
+        if (!contours || contours.length === 0) return 5;
+        
+        // Flatten all contours and get x coordinates
+        const allPoints = contours.flat();
+        if (!allPoints || allPoints.length === 0) return 5;
+        
+        const xCoords = allPoints.map(p => p.x);
         const minX = Math.min(...xCoords);
         const maxX = Math.max(...xCoords);
         return minX >= 0 ? maxX : maxX - minX;
@@ -399,28 +581,36 @@ export class FontEditorState {
         return false;
     }
 
-    addPoint(x, y) {
+    /**
+     * Add a point to the current glyph's first contour.
+     * @param {number} x - X coordinate
+     * @param {number} y - Y coordinate  
+     * @param {boolean} [onCurve=true] - Whether this is an on-curve point
+     */
+    addPoint(x, y, onCurve = true) {
         if (!this.currentGlyph) return -1;
         if (!this.glyphs[this.currentGlyph]) {
-            this.glyphs[this.currentGlyph] = [];
+            this.glyphs[this.currentGlyph] = [[]]; // Initialize with one empty contour
         }
-        this.glyphs[this.currentGlyph].push([x, y]);
-        return this.glyphs[this.currentGlyph].length - 1;
+        // Add to first contour
+        const contour = this.glyphs[this.currentGlyph][0];
+        contour.push({ x, y, onCurve });
+        return contour.length - 1;
     }
 
-    updatePoint(index, x, y) {
+    updatePoint(index, x, y, onCurve = true) {
         if (!this.currentGlyph || !this.glyphs[this.currentGlyph]) return false;
-        const points = this.glyphs[this.currentGlyph];
-        if (index < 0 || index >= points.length) return false;
-        points[index] = [x, y];
+        const contour = this.glyphs[this.currentGlyph][0];
+        if (!contour || index < 0 || index >= contour.length) return false;
+        contour[index] = { x, y, onCurve };
         return true;
     }
 
     deletePoint(index) {
         if (!this.currentGlyph || !this.glyphs[this.currentGlyph]) return false;
-        const points = this.glyphs[this.currentGlyph];
-        if (index < 0 || index >= points.length) return false;
-        points.splice(index, 1);
+        const contour = this.glyphs[this.currentGlyph][0];
+        if (!contour || index < 0 || index >= contour.length) return false;
+        contour.splice(index, 1);
         return true;
     }
 
@@ -701,49 +891,46 @@ export class FontBuilder {
         const data = state.glyphs[glyphName];
         if (!data || data.length === 0) return [];
         
-        // Check if already nested
-        if (data[0] && Array.isArray(data[0]) && Array.isArray(data[0][0])) {
-            return data;
-        }
-        return [data];
+        // Use the common normalization function to handle all formats
+        return this._normalizeShapes(data);
     }
 
     /**
      * Get transformed shapes from a reference layer
+     * All shapes use contour format: arrays of {x, y, onCurve} objects
      */
     _getTransformedReferenceShapes(ref) {
         const sourceShapes = this._getComponentShapes(ref.name);
         if (!sourceShapes || sourceShapes.length === 0) return [];
         
         return sourceShapes.map(shape => 
-            shape.map(point => this._transformPoint(point[0], point[1], ref))
+            shape.map(point => {
+                const transformed = this._transformPoint(point.x, point.y, ref);
+                return { x: transformed[0], y: transformed[1], onCurve: point.onCurve !== false };
+            })
         );
     }
 
     /**
      * Get all shapes for a glyph including reference layers (flattened/baked)
-     * Components are transformed and merged into the glyph's shapes
+     * Components are transformed and merged into the glyph's shapes.
+     * All shapes use contour format: [[{x, y, onCurve}, ...], ...]
      */
-    _getGlyphShapesWithReferences(char, pointsOrShapes) {
+    _getGlyphShapesWithReferences(char, contours) {
         const state = this.state;
         const allShapes = [];
         
-        // First add the glyph's own shapes
-        if (pointsOrShapes && pointsOrShapes.length > 0) {
-            const isNested = Array.isArray(pointsOrShapes[0]) && 
-                             Array.isArray(pointsOrShapes[0][0]);
-            if (isNested) {
-                for (const shape of pointsOrShapes) {
-                    if (shape && shape.length > 0) {
-                        allShapes.push(shape);
-                    }
-                }
-            } else if (pointsOrShapes.length > 0) {
-                allShapes.push(pointsOrShapes);
+        // Normalize the glyph's own contours (handles legacy [x,y] format)
+        const normalizedContours = this._normalizeShapes(contours);
+        
+        // Add the glyph's own contours
+        for (const contour of normalizedContours) {
+            if (contour && contour.length > 0) {
+                allShapes.push(contour);
             }
         }
         
-        // Then add any reference layers (transformed component shapes)
+        // Add any reference layers (transformed component shapes)
         if (state.glyphReferences && state.glyphReferences[char]) {
             for (const ref of state.glyphReferences[char]) {
                 const transformedShapes = this._getTransformedReferenceShapes(ref);
@@ -759,19 +946,128 @@ export class FontBuilder {
     }
 
     /**
-     * Normalize shapes to always be in nested format [[shape1], [shape2], ...]
+     * Normalize contours to nested format [[{x, y, onCurve}, ...], ...]
+     * Ensures input is always in the standard contour array format.
+     * Handles both legacy [x, y] arrays and new {x, y, onCurve} objects.
      */
-    _normalizeShapes(pointsOrShapes) {
-        if (!pointsOrShapes || pointsOrShapes.length === 0) return [];
+    _normalizeShapes(contours) {
+        if (!contours || contours.length === 0) return [];
         
-        const isNested = Array.isArray(pointsOrShapes[0]) && 
-                         Array.isArray(pointsOrShapes[0][0]);
-        if (isNested) {
-            return pointsOrShapes.filter(s => s && s.length > 0);
-        } else if (pointsOrShapes.length > 0) {
-            return [pointsOrShapes];
+        const firstItem = contours[0];
+        
+        // Check if we have legacy format: [[[x, y], ...], ...] or [[x, y], ...]
+        // Legacy format uses arrays [x, y] instead of objects {x, y, onCurve}
+        const isLegacyNestedContours = Array.isArray(firstItem) && 
+            firstItem.length > 0 && 
+            Array.isArray(firstItem[0]) && 
+            typeof firstItem[0][0] === 'number';
+        
+        const isLegacySingleContour = Array.isArray(firstItem) && 
+            typeof firstItem[0] === 'number';
+        
+        if (isLegacyNestedContours) {
+            // [[[x, y], ...], ...] -> [[{x, y, onCurve}, ...], ...]
+            return contours.map(contour => 
+                contour.map(pt => ({ x: pt[0], y: pt[1], onCurve: true }))
+            ).filter(c => c && c.length > 0);
         }
-        return [];
+        
+        if (isLegacySingleContour) {
+            // [[x, y], ...] -> [[{x, y, onCurve}, ...]]
+            return [contours.map(pt => ({ x: pt[0], y: pt[1], onCurve: true }))];
+        }
+        
+        // Single contour of point objects - wrap in array
+        if (firstItem && typeof firstItem === 'object' && !Array.isArray(firstItem) && 'x' in firstItem) {
+            return [contours];
+        }
+        
+        // Already nested contours - filter out empty ones
+        return contours.filter(c => c && c.length > 0);
+    }
+
+    /**
+     * Convert TrueType points array to a Path for rendering
+     * Handles on-curve and off-curve points with quadratic curves
+     */
+    _pointsToPath(points) {
+        const ot = this.opentype;
+        const path = new ot.Path();
+        
+        if (!points || points.length === 0) return path;
+        
+        // Split into contours
+        const contours = [];
+        let currentContour = [];
+        
+        for (const pt of points) {
+            currentContour.push(pt);
+            if (pt.lastPointOfContour) {
+                contours.push(currentContour);
+                currentContour = [];
+            }
+        }
+        if (currentContour.length > 0) {
+            contours.push(currentContour);
+        }
+        
+        // Draw each contour
+        for (const contour of contours) {
+            if (contour.length === 0) continue;
+            
+            // Find first on-curve point to start from
+            let startIdx = 0;
+            for (let i = 0; i < contour.length; i++) {
+                if (contour[i].onCurve) {
+                    startIdx = i;
+                    break;
+                }
+            }
+            
+            // Rotate contour so we start from an on-curve point
+            const rotated = [...contour.slice(startIdx), ...contour.slice(0, startIdx)];
+            
+            // If first point is off-curve, we need to find an implicit on-curve
+            if (!rotated[0].onCurve) {
+                // Insert implicit on-curve midpoint between last and first off-curve
+                const last = rotated[rotated.length - 1];
+                const first = rotated[0];
+                const midX = (last.x + first.x) / 2;
+                const midY = (last.y + first.y) / 2;
+                rotated.unshift({ x: midX, y: midY, onCurve: true });
+            }
+            
+            path.moveTo(rotated[0].x, rotated[0].y);
+            
+            let i = 1;
+            while (i < rotated.length) {
+                const pt = rotated[i];
+                
+                if (pt.onCurve) {
+                    path.lineTo(pt.x, pt.y);
+                    i++;
+                } else {
+                    // Off-curve point - find the next on-curve (or implicit)
+                    const next = rotated[(i + 1) % rotated.length];
+                    
+                    if (next.onCurve) {
+                        // Quadratic curve: control=pt, end=next
+                        path.quadraticCurveTo(pt.x, pt.y, next.x, next.y);
+                        i += 2;
+                    } else {
+                        // Two consecutive off-curve: implied on-curve midpoint
+                        const midX = (pt.x + next.x) / 2;
+                        const midY = (pt.y + next.y) / 2;
+                        path.quadraticCurveTo(pt.x, pt.y, midX, midY);
+                        i++;
+                    }
+                }
+            }
+            
+            path.closePath();
+        }
+        
+        return path;
     }
 
     /**
@@ -799,28 +1095,29 @@ export class FontBuilder {
         let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
         
         for (const ref of refs) {
-            let sourceShapes;
+            let sourceContours;
             
             // Check if this is a synthetic shape component
             if (syntheticShapeComponents && baseGlyphs && 
                 ref.name.endsWith('_shape') && ref.name.startsWith('_')) {
                 const originalChar = ref.name.slice(1, -6); // Remove leading _ and trailing _shape
                 if (syntheticShapeComponents.has(originalChar)) {
-                    // Get shapes from the original glyph
-                    sourceShapes = this._normalizeShapes(baseGlyphs[originalChar]);
+                    // Get contours from the original glyph
+                    sourceContours = this._normalizeShapes(baseGlyphs[originalChar]);
                 } else {
-                    sourceShapes = this._getComponentShapes(ref.name);
+                    sourceContours = this._getComponentShapes(ref.name);
                 }
             } else {
-                sourceShapes = this._getComponentShapes(ref.name);
+                sourceContours = this._getComponentShapes(ref.name);
             }
             
-            if (!sourceShapes || sourceShapes.length === 0) continue;
+            if (!sourceContours || sourceContours.length === 0) continue;
             
             // Transform each point and track bounds
-            for (const shape of sourceShapes) {
-                for (const point of shape) {
-                    const transformed = this._transformPoint(point[0], point[1], ref);
+            // All contours use format: [{x, y, onCurve}, ...]
+            for (const contour of sourceContours) {
+                for (const point of contour) {
+                    const transformed = this._transformPoint(point.x, point.y, ref);
                     const x = Math.round(transformed[0] * scale);
                     const y = Math.round(transformed[1] * scale);
                     xMin = Math.min(xMin, x);
@@ -839,18 +1136,18 @@ export class FontBuilder {
     }
 
     build(options = {}) {
-        // The editor uses a coordinate space of roughly 0-10.
-        // We scale this to match unitsPerEm (default 800).
-        // scale = unitsPerEm / editorMax, where editorMax ≈ 10
-        const editorScale = options.editorScale || 10; // editor coordinate max
+        // All glyph data is stored in font units (unitsPerEm), so scale = 1
+        // Only .notdef and space use a standard size based on unitsPerEm
         const validate = options.validate !== false;
         const validateRoundTrip = options.validateRoundTrip !== false;
         const useComposites = options.useComposites !== false; // Default: true for TTF composites
         const ot = this.opentype;
         const state = this.state;
         
-        // Calculate scale: editor coords -> font units
-        const scale = state.unitsPerEm / editorScale;
+        // All glyph coordinates are already in font units
+        const scale = 1;
+        // For fixed-size elements (like .notdef), use a proportion of unitsPerEm
+        const notdefScale = state.unitsPerEm / 10;
 
         const otGlyphs = [];
         const glyphIndexMap = new Map();
@@ -858,26 +1155,26 @@ export class FontBuilder {
 
         // Create .notdef glyph with a visible rectangle (required by font validators)
         const notdefPath = new ot.Path();
-        const notdefWidth = Math.round(5 * scale);
-        const notdefHeight = Math.round(7 * scale);
+        const notdefWidth = Math.round(5 * notdefScale);
+        const notdefHeight = Math.round(7 * notdefScale);
         // Draw a rectangle for .notdef
-        notdefPath.moveTo(Math.round(0.5 * scale), 0);
-        notdefPath.lineTo(Math.round(4.5 * scale), 0);
-        notdefPath.lineTo(Math.round(4.5 * scale), notdefHeight);
-        notdefPath.lineTo(Math.round(0.5 * scale), notdefHeight);
+        notdefPath.moveTo(Math.round(0.5 * notdefScale), 0);
+        notdefPath.lineTo(Math.round(4.5 * notdefScale), 0);
+        notdefPath.lineTo(Math.round(4.5 * notdefScale), notdefHeight);
+        notdefPath.lineTo(Math.round(0.5 * notdefScale), notdefHeight);
         notdefPath.closePath();
         // Draw inner rectangle (hollow)
-        notdefPath.moveTo(Math.round(1 * scale), Math.round(0.5 * scale));
-        notdefPath.lineTo(Math.round(1 * scale), Math.round(6.5 * scale));
-        notdefPath.lineTo(Math.round(4 * scale), Math.round(6.5 * scale));
-        notdefPath.lineTo(Math.round(4 * scale), Math.round(0.5 * scale));
+        notdefPath.moveTo(Math.round(1 * notdefScale), Math.round(0.5 * notdefScale));
+        notdefPath.lineTo(Math.round(1 * notdefScale), Math.round(6.5 * notdefScale));
+        notdefPath.lineTo(Math.round(4 * notdefScale), Math.round(6.5 * notdefScale));
+        notdefPath.lineTo(Math.round(4 * notdefScale), Math.round(0.5 * notdefScale));
         notdefPath.closePath();
         
         otGlyphs.push(new ot.Glyph({ name: '.notdef', unicode: 0, path: notdefPath, advanceWidth: notdefWidth }));
         glyphIndexMap.set('.notdef', 0);
-        otGlyphs.push(new ot.Glyph({ name: 'space', unicode: 32, path: new ot.Path(), advanceWidth: Math.round(5 * scale) }));
+        otGlyphs.push(new ot.Glyph({ name: 'space', unicode: 32, path: new ot.Path(), advanceWidth: Math.round(5 * notdefScale) }));
         glyphIndexMap.set('space', 1);
-        otGlyphs.push(new ot.Glyph({ name: 'uni00A0', unicode: 0x00A0, path: new ot.Path(), advanceWidth: Math.round(5 * scale) }));
+        otGlyphs.push(new ot.Glyph({ name: 'uni00A0', unicode: 0x00A0, path: new ot.Path(), advanceWidth: Math.round(5 * notdefScale) }));
         glyphIndexMap.set('uni00A0', 2);
 
         let glyphIndex = 3;
@@ -952,13 +1249,14 @@ export class FontBuilder {
                 
                 const path = new ot.Path();
                 
-                // Draw all shapes in the component
-                const shapes = this._normalizeShapes(compShapes);
-                for (const shape of shapes) {
-                    if (shape && shape.length > 0) {
-                        path.moveTo(Math.round(shape[0][0] * scale), Math.round(shape[0][1] * scale));
-                        for (let i = 1; i < shape.length; i++) {
-                            path.lineTo(Math.round(shape[i][0] * scale), Math.round(shape[i][1] * scale));
+                // Draw all contours in the component
+                // All contours use format: [[{x, y, onCurve}, ...], ...]
+                const contours = this._normalizeShapes(compShapes);
+                for (const contour of contours) {
+                    if (contour && contour.length > 0) {
+                        path.moveTo(Math.round(contour[0].x * scale), Math.round(contour[0].y * scale));
+                        for (let i = 1; i < contour.length; i++) {
+                            path.lineTo(Math.round(contour[i].x * scale), Math.round(contour[i].y * scale));
                         }
                         path.closePath();
                     }
@@ -981,6 +1279,9 @@ export class FontBuilder {
         }
 
         // Step 2: Create character glyphs (skip underscore-prefixed components)
+        // Calculate left side bearing offset (sidebearing is split half left, half right)
+        const lsbOffset = (state.sidebearing || 0) / 2;
+        
         for (const [char, pointsOrShapes] of Object.entries(baseGlyphs)) {
             // Skip component glyphs (underscore-prefixed) - they're handled in Step 1
             if (char.startsWith('_')) continue;
@@ -1040,7 +1341,7 @@ export class FontBuilder {
                     name: glyphName,
                     unicode: char.length === 1 ? char.charCodeAt(0) : undefined,
                     path: new ot.Path(), // Empty path - composite uses components
-                    advanceWidth: Math.round((width + 1) * scale)
+                    advanceWidth: Math.round((width + (state.sidebearing || 0)) * scale)
                 });
                 
                 // Set composite glyph properties
@@ -1053,29 +1354,65 @@ export class FontBuilder {
                 
                 otGlyphs.push(compositeGlyph);
             } else {
-                // Create a simple glyph with baked paths
-                const path = new ot.Path();
+                // Create a simple glyph from contours
+                // All shapes use contour format: [[{x, y, onCurve}, ...], ...]
+                const allContours = this._getGlyphShapesWithReferences(char, pointsOrShapes);
                 
-                // Get all shapes including reference layers (baked/flattened)
-                const allShapes = this._getGlyphShapesWithReferences(char, pointsOrShapes);
-                
-                // Draw all shapes as contours
-                for (const shape of allShapes) {
-                    if (shape && shape.length > 0) {
-                        path.moveTo(Math.round(shape[0][0] * scale), Math.round(shape[0][1] * scale));
-                        for (let i = 1; i < shape.length; i++) {
-                            path.lineTo(Math.round(shape[i][0] * scale), Math.round(shape[i][1] * scale));
+                if (state.vfEnabled && allContours.length > 0 && allContours[0].length > 0) {
+                    // Create glyph with TrueType points for VF (preserves curve structure)
+                    const points = [];
+                    let numberOfContours = 0;
+                    
+                    for (const contour of allContours) {
+                        if (contour && contour.length > 0) {
+                            for (let i = 0; i < contour.length; i++) {
+                                const pt = contour[i];
+                                points.push({
+                                    // Apply lsbOffset to center glyph within advance width
+                                    x: Math.round((pt.x + lsbOffset) * scale),
+                                    y: Math.round(pt.y * scale),
+                                    onCurve: pt.onCurve !== false,
+                                    lastPointOfContour: (i === contour.length - 1)
+                                });
+                            }
+                            numberOfContours++;
                         }
-                        path.closePath();
                     }
+                    
+                    // Also create a path for rendering (required for font display)
+                    const path = this._pointsToPath(points, scale);
+                    
+                    const glyph = new ot.Glyph({
+                        name: glyphName,
+                        unicode: char.length === 1 ? char.charCodeAt(0) : undefined,
+                        path,
+                        advanceWidth: Math.round((width + (state.sidebearing || 0)) * scale),
+                        points
+                    });
+                    glyph.numberOfContours = numberOfContours;
+                    otGlyphs.push(glyph);
+                } else {
+                    // Create glyph with path only (non-VF)
+                    const path = new ot.Path();
+                    
+                    for (const contour of allContours) {
+                        if (contour && contour.length > 0) {
+                            // Apply lsbOffset to center glyph within advance width
+                            path.moveTo(Math.round((contour[0].x + lsbOffset) * scale), Math.round(contour[0].y * scale));
+                            for (let i = 1; i < contour.length; i++) {
+                                path.lineTo(Math.round((contour[i].x + lsbOffset) * scale), Math.round(contour[i].y * scale));
+                            }
+                            path.closePath();
+                        }
+                    }
+                    
+                    otGlyphs.push(new ot.Glyph({
+                        name: glyphName,
+                        unicode: char.length === 1 ? char.charCodeAt(0) : undefined,
+                        path,
+                        advanceWidth: Math.round((width + (state.sidebearing || 0)) * scale)
+                    }));
                 }
-                
-                otGlyphs.push(new ot.Glyph({
-                    name: glyphName,
-                    unicode: char.length === 1 ? char.charCodeAt(0) : undefined,
-                    path,
-                    advanceWidth: Math.round((width + 1) * scale)
-                }));
             }
             glyphIndexMap.set(glyphName, glyphIndex++);
         }
@@ -1144,24 +1481,24 @@ export class FontBuilder {
      * @returns {number} The calculated width
      */
     _getAutoWidth(char, baseGlyphs) {
-        const pointsOrShapes = baseGlyphs[char];
-        const allShapes = this._getGlyphShapesWithReferences(char, pointsOrShapes);
+        const contours = baseGlyphs[char];
+        const allShapes = this._getGlyphShapesWithReferences(char, contours);
         
         if (!allShapes || allShapes.length === 0) return 5;
         
         const allPoints = allShapes.flat();
         if (!allPoints || allPoints.length === 0) return 5;
         
-        const xCoords = allPoints.map(p => p[0]);
+        const xCoords = allPoints.map(p => p.x);
         const minX = Math.min(...xCoords);
         const maxX = Math.max(...xCoords);
         return minX >= 0 ? maxX : maxX - minX;
     }
 
     /**
-     * Get glyph width - uses explicit override if available, otherwise calculates from shapes including references
+     * Get glyph width - uses explicit override if available, otherwise calculates from contours
      */
-    _getGlyphWidth(pointsOrShapes, char, widthsObj, baseGlyphs = null) {
+    _getGlyphWidth(contours, char, widthsObj, baseGlyphs = null) {
         // First check for explicit width override
         if (widthsObj && widthsObj[char] !== undefined) {
             return widthsObj[char];
@@ -1172,17 +1509,18 @@ export class FontBuilder {
             return this._getAutoWidth(char, baseGlyphs);
         }
         
-        // Fallback to simple calculation from provided shapes (for compatibility)
-        if (!pointsOrShapes || pointsOrShapes.length === 0) return 5;
+        // Fallback to simple calculation from provided contours
+        if (!contours || contours.length === 0) return 5;
         
-        // Detect if this is a nested (multi-shape) format
-        const isNested = Array.isArray(pointsOrShapes[0]) && Array.isArray(pointsOrShapes[0][0]);
+        // Normalize contours first (handles legacy [x,y] format)
+        const normalized = this._normalizeShapes(contours);
+        if (!normalized || normalized.length === 0) return 5;
         
-        // Flatten all points from all shapes to find bounding box
-        const allPoints = isNested ? pointsOrShapes.flat() : pointsOrShapes;
+        // Flatten all points from all contours to find bounding box
+        const allPoints = normalized.flat();
         if (!allPoints || allPoints.length === 0) return 5;
         
-        const xCoords = allPoints.map(p => p[0]);
+        const xCoords = allPoints.map(p => p.x);
         const minX = Math.min(...xCoords);
         const maxX = Math.max(...xCoords);
         return minX >= 0 ? maxX : maxX - minX;
@@ -1403,22 +1741,31 @@ export class FontBuilder {
     
     /**
      * Flatten multi-shape glyph data into a flat array of points.
-     * Handles both nested format [[[x,y]...], [[x,y]...]] and flat format [[x,y]...].
+     * Handles multiple formats:
+     * - New contour format: [{x, y, onCurve}, ...] or [[{x, y, onCurve}, ...], ...]
+     * Contour format: [[{x, y, onCurve}, ...], ...]
+     * 
+     * Returns flat array of {x, y, onCurve} points.
+     * Handles both legacy [x, y] arrays and new {x, y, onCurve} objects.
      * @private
      */
-    _flattenGlyphPoints(pointsOrShapes) {
-        if (!pointsOrShapes || pointsOrShapes.length === 0) return [];
+    _flattenGlyphPoints(contours) {
+        if (!contours || contours.length === 0) return [];
         
-        // Detect if this is nested format (multi-shape)
-        const isNested = Array.isArray(pointsOrShapes[0]) && Array.isArray(pointsOrShapes[0][0]);
+        // First normalize the contours to handle legacy format
+        const normalized = this._normalizeShapes(contours);
+        if (!normalized || normalized.length === 0) return [];
         
-        if (isNested) {
-            // Flatten all shapes into a single array of points
-            return pointsOrShapes.flat();
-        }
-        
-        // Already flat format
-        return pointsOrShapes;
+        // Flatten all contours
+        return normalized.flat();
+    }
+    
+    /**
+     * Get point coordinates (identity - all points are already {x, y, onCurve}).
+     * @private
+     */
+    _getPointCoords(point) {
+        return { x: point.x, y: point.y, onCurve: point.onCurve !== false };
     }
 
     _buildMasterDeltas(axis, scale, axisIndex, axisCount, syntheticShapeComponents = new Map()) {
@@ -1505,8 +1852,10 @@ export class FontBuilder {
                 const deltaX = [];
                 const deltaY = [];
                 for (let i = 0; i < basePoints.length; i++) {
-                    deltaX.push(Math.round((targetPoints[i][0] - basePoints[i][0]) * scale));
-                    deltaY.push(Math.round((targetPoints[i][1] - basePoints[i][1]) * scale));
+                    const basePt = this._getPointCoords(basePoints[i]);
+                    const targetPt = this._getPointCoords(targetPoints[i]);
+                    deltaX.push(Math.round((targetPt.x - basePt.x) * scale));
+                    deltaY.push(Math.round((targetPt.y - basePt.y) * scale));
                 }
                 deltaX.push(0, 0, 0, 0);
                 deltaY.push(0, 0, 0, 0);
@@ -1560,8 +1909,10 @@ export class FontBuilder {
                 const deltaY = [];
 
                 for (let i = 0; i < basePoints.length; i++) {
-                    deltaX.push(Math.round((targetPoints[i][0] - basePoints[i][0]) * scale * deltaScale));
-                    deltaY.push(Math.round((targetPoints[i][1] - basePoints[i][1]) * scale * deltaScale));
+                    const basePt = this._getPointCoords(basePoints[i]);
+                    const targetPt = this._getPointCoords(targetPoints[i]);
+                    deltaX.push(Math.round((targetPt.x - basePt.x) * scale * deltaScale));
+                    deltaY.push(Math.round((targetPt.y - basePt.y) * scale * deltaScale));
                 }
 
                 deltaX.push(0, 0, 0, 0);
@@ -1642,8 +1993,10 @@ export class FontBuilder {
                 const deltaX = [];
                 const deltaY = [];
                 for (let i = 0; i < basePoints.length; i++) {
-                    deltaX.push(Math.round((basePoints[i][0] - targetPoints[i][0]) * scale * deltaScale));
-                    deltaY.push(Math.round((basePoints[i][1] - targetPoints[i][1]) * scale * deltaScale));
+                    const basePt = this._getPointCoords(basePoints[i]);
+                    const targetPt = this._getPointCoords(targetPoints[i]);
+                    deltaX.push(Math.round((basePt.x - targetPt.x) * scale * deltaScale));
+                    deltaY.push(Math.round((basePt.y - targetPt.y) * scale * deltaScale));
                 }
                 deltaX.push(0, 0, 0, 0);
                 deltaY.push(0, 0, 0, 0);
@@ -1683,8 +2036,10 @@ export class FontBuilder {
                 const deltaX = [];
                 const deltaY = [];
                 for (let i = 0; i < basePoints.length; i++) {
-                    deltaX.push(Math.round((basePoints[i][0] - targetPoints[i][0]) * scale * deltaScale));
-                    deltaY.push(Math.round((basePoints[i][1] - targetPoints[i][1]) * scale * deltaScale));
+                    const basePt = this._getPointCoords(basePoints[i]);
+                    const targetPt = this._getPointCoords(targetPoints[i]);
+                    deltaX.push(Math.round((basePt.x - targetPt.x) * scale * deltaScale));
+                    deltaY.push(Math.round((basePt.y - targetPt.y) * scale * deltaScale));
                 }
                 deltaX.push(0, 0, 0, 0);
                 deltaY.push(0, 0, 0, 0);
@@ -1852,11 +2207,12 @@ export class FontBuilder {
             const rightIdx = glyphIndexMap.get(rightGlyphName);
             
             if (leftIdx !== undefined && rightIdx !== undefined) {
-                // Scale the kerning value from editor units to font units
-                const scaledValue = Math.round(value * scale / 10);
-                if (scaledValue !== 0) {
+                // Kerning values from the editor are already in font units
+                // (pixelsToKern returns: pixels * 800 / fontSize)
+                // No additional scaling needed
+                if (value !== 0) {
                     // kern table format: 'leftIndex,rightIndex' (comma-separated)
-                    kernPairs[`${leftIdx},${rightIdx}`] = scaledValue;
+                    kernPairs[`${leftIdx},${rightIdx}`] = Math.round(value);
                 }
             }
         }
@@ -1893,9 +2249,30 @@ export class FontImporter {
         const range = options.range || 'all';
         const overwrite = options.overwrite !== false;
         const importVF = options.importVF !== false;
-        const editorScale = options.editorScale || 10;
+        const verbose = options.verbose || false;
 
         const font = this.opentype.parse(buffer);
+        
+        // Store unitsPerEm in state
+        state.unitsPerEm = font.unitsPerEm;
+        
+        if (verbose) {
+            console.log('=== FontImporter: Parsing font ===');
+            console.log('Font family:', font.names?.fontFamily?.en || 'unknown');
+            console.log('unitsPerEm:', font.unitsPerEm);
+            console.log('Glyphs count:', font.glyphs?.length);
+            console.log('Tables:', Object.keys(font.tables || {}).join(', '));
+            console.log('Has kern table:', !!font.tables.kern);
+            console.log('Has GPOS table:', !!font.tables.gpos);
+            console.log('Has GSUB table:', !!font.tables.gsub);
+            console.log('kerningPairs count:', Object.keys(font.kerningPairs || {}).length);
+            if (font.tables.gpos) {
+                console.log('GPOS features:', font.tables.gpos.features?.map(f => f.tag).join(', '));
+            }
+            if (font.tables.gsub) {
+                console.log('GSUB features:', font.tables.gsub.features?.map(f => f.tag).join(', '));
+            }
+        }
 
         if (overwrite) {
             state.glyphs = {};
@@ -1905,38 +2282,73 @@ export class FontImporter {
             state.masters = [];
             state.instances = [];
             state.previewCoords = {};
+            state.kerning = {};
+            state.ligatures = [];
         }
 
-        const charCodes = this._getCharCodes(range);
+        const charCodes = this._getCharCodes(range, font);
         let importedCount = 0;
-        // Scale from font units to editor coordinates
-        const scale = editorScale / font.unitsPerEm;
+        const isVF = !!(font.tables.fvar && font.tables.gvar && font.variation);
 
         for (const code of charCodes) {
             const char = String.fromCharCode(code);
             const glyph = font.charToGlyph(char);
+            if (!glyph || glyph.index === 0) continue;
 
-            if (glyph && glyph.path && glyph.path.commands.length > 0) {
-                if (!overwrite && state.glyphs[char]) {
-                    continue;
+            if (!overwrite && state.glyphs[char]) {
+                continue;
+            }
+            
+            // Prefer using glyph.points for TrueType fonts (more accurate than path reconstruction)
+            // This handles both VF and non-VF TrueType fonts
+            if (glyph.points && glyph.points.length > 0) {
+                const contours = extractGlyphContours(glyph);
+                if (contours.length > 0) {
+                    state.glyphs[char] = contours;
+                    state.glyphWidths[char] = glyph.advanceWidth;
+                    importedCount++;
                 }
-
-                const points = extractPathPoints(glyph.path, font.unitsPerEm, editorScale);
+            } else if (glyph.path && glyph.path.commands.length > 0) {
+                // For CFF fonts (no points, only path), extract from path
+                const points = extractPathPoints(glyph.path);
                 if (points.length > 0) {
-                    state.glyphs[char] = points;
+                    // Wrap in array for single contour
+                    state.glyphs[char] = [points.map(p => ({ x: p[0], y: p[1], onCurve: true }))];
                     const bounds = getPathBounds(glyph.path);
-                    // Width in editor coordinates (excluding sidebearing for now)
-                    const glyphWidth = bounds.maxX * scale;
-                    if (glyphWidth > 0) {
-                        state.glyphWidths[char] = Math.round(glyphWidth * 10) / 10;
-                    }
+                    state.glyphWidths[char] = bounds.maxX;
                     importedCount++;
                 }
             }
         }
+        
+        if (verbose) {
+            console.log('Imported glyphs:', importedCount);
+        }
 
         if (importVF && font.tables.fvar && font.tables.fvar.axes) {
-            this._importVariableFontData(state, font);
+            this._importVariableFontData(state, font, verbose);
+            if (verbose) {
+                console.log('Imported VF axes:', state.axes?.length);
+                console.log('Imported VF masters:', state.masters?.length);
+            }
+        }
+
+        // Import kerning pairs from kern table or GPOS table
+        const importKerning = options.importKerning !== false;
+        if (importKerning) {
+            this._importKerningData(state, font, verbose);
+            if (verbose) {
+                console.log('Imported kerning pairs:', Object.keys(state.kerning || {}).length);
+            }
+        }
+
+        // Import ligatures from GSUB table
+        const importLigatures = options.importLigatures !== false;
+        if (importLigatures) {
+            this._importLigatureData(state, font, verbose);
+            if (verbose) {
+                console.log('Imported ligatures:', state.ligatures?.length);
+            }
         }
 
         if (importedCount > 0 && !state.currentGlyph) {
@@ -1946,7 +2358,7 @@ export class FontImporter {
         return { importedCount, font };
     }
 
-    _getCharCodes(range) {
+    _getCharCodes(range, font = null) {
         const charCodes = [];
         const pushRange = (start, end) => {
             for (let i = start; i <= end; i++) {
@@ -1968,6 +2380,20 @@ export class FontImporter {
             case 'digits':
                 pushRange(48, 57);
                 break;
+            case 'allChars':
+                // Import ALL characters in the font
+                if (font && font.glyphs) {
+                    for (let i = 0; i < font.glyphs.length; i++) {
+                        const glyph = font.glyphs.get(i);
+                        if (glyph && glyph.unicode && glyph.unicode > 0) {
+                            charCodes.push(glyph.unicode);
+                        }
+                    }
+                } else {
+                    // Fallback to printable ASCII
+                    pushRange(32, 126);
+                }
+                break;
             case 'all':
             default:
                 pushRange(32, 126);
@@ -1977,7 +2403,7 @@ export class FontImporter {
         return charCodes;
     }
 
-    _importVariableFontData(state, font) {
+    _importVariableFontData(state, font, verbose = false) {
         state.vfEnabled = true;
         state.axes = font.tables.fvar.axes.map(a => ({
             tag: a.tag,
@@ -1992,12 +2418,87 @@ export class FontImporter {
             return acc;
         }, {});
 
+        // For VF fonts with gvar, we need to import masters at axis extremes
+        // The default master uses the glyphs already imported
         state.masters = [{
             name: 'Default',
-            coords: defaultCoords,
-            glyphs: { ...state.glyphs },
+            coords: { ...defaultCoords },
+            glyphs: JSON.parse(JSON.stringify(state.glyphs)),
             glyphWidths: { ...state.glyphWidths }
         }];
+
+        // Import masters at axis extremes if we have gvar
+        if (font.tables.gvar && font.variation) {
+            const importedChars = Object.keys(state.glyphs);
+            
+            for (const axis of state.axes) {
+                // Import min master (if different from default)
+                if (axis.minValue !== axis.defaultValue) {
+                    const minCoords = { ...defaultCoords, [axis.tag]: axis.minValue };
+                    const minGlyphs = {};
+                    const minWidths = {};
+                    
+                    for (const char of importedChars) {
+                        const glyph = font.charToGlyph(char);
+                        if (glyph && glyph.points && glyph.points.length > 0) {
+                            try {
+                                const transform = font.variation.getTransform(glyph.index, { [axis.tag]: axis.minValue });
+                                if (transform && transform.points) {
+                                    minGlyphs[char] = extractTransformContours(transform.points);
+                                    minWidths[char] = transform.advanceWidth;
+                                }
+                            } catch (e) {
+                                if (verbose) console.log(`Error getting min transform for ${char}:`, e.message);
+                            }
+                        }
+                    }
+                    
+                    if (Object.keys(minGlyphs).length > 0) {
+                        state.masters.push({
+                            name: `${axis.name || axis.tag} Min`,
+                            coords: minCoords,
+                            glyphs: minGlyphs,
+                            glyphWidths: minWidths
+                        });
+                    }
+                }
+                
+                // Import max master (if different from default)
+                if (axis.maxValue !== axis.defaultValue) {
+                    const maxCoords = { ...defaultCoords, [axis.tag]: axis.maxValue };
+                    const maxGlyphs = {};
+                    const maxWidths = {};
+                    
+                    for (const char of importedChars) {
+                        const glyph = font.charToGlyph(char);
+                        if (glyph && glyph.points && glyph.points.length > 0) {
+                            try {
+                                const transform = font.variation.getTransform(glyph.index, { [axis.tag]: axis.maxValue });
+                                if (transform && transform.points) {
+                                    maxGlyphs[char] = extractTransformContours(transform.points);
+                                    maxWidths[char] = transform.advanceWidth;
+                                }
+                            } catch (e) {
+                                if (verbose) console.log(`Error getting max transform for ${char}:`, e.message);
+                            }
+                        }
+                    }
+                    
+                    if (Object.keys(maxGlyphs).length > 0) {
+                        state.masters.push({
+                            name: `${axis.name || axis.tag} Max`,
+                            coords: maxCoords,
+                            glyphs: maxGlyphs,
+                            glyphWidths: maxWidths
+                        });
+                    }
+                }
+            }
+        }
+        
+        if (verbose) {
+            console.log('Imported', state.masters.length, 'masters');
+        }
 
         state.instances = (font.tables.fvar.instances || []).map(inst => ({
             name: inst.name?.en || Object.values(inst.name)[0] || 'Instance',
@@ -2020,5 +2521,201 @@ export class FontImporter {
         for (const axis of state.axes) {
             state.previewCoords[axis.tag] = axis.defaultValue;
         }
+    }
+
+    /**
+     * Import kerning data from the font
+     * Checks both the kern table and GPOS kern feature
+     */
+    _importKerningData(state, font, verbose = false) {
+        if (!state.kerning) {
+            state.kerning = {};
+        }
+        
+        if (verbose) {
+            console.log('=== Importing kerning data ===');
+            console.log('font.kerningPairs:', Object.keys(font.kerningPairs || {}).length, 'pairs');
+        }
+
+        // Try to import from kern table first
+        if (font.kerningPairs && Object.keys(font.kerningPairs).length > 0) {
+            // font.kerningPairs can be in format 'leftIdx/rightIdx' or 'leftIdx,rightIdx'
+            for (const [pairKey, value] of Object.entries(font.kerningPairs)) {
+                // Handle both comma and slash separators
+                const separator = pairKey.includes('/') ? '/' : ',';
+                const [leftIdx, rightIdx] = pairKey.split(separator).map(Number);
+                
+                if (isNaN(leftIdx) || isNaN(rightIdx)) continue;
+                
+                // Convert glyph indices back to characters
+                const leftGlyph = font.glyphs.get(leftIdx);
+                const rightGlyph = font.glyphs.get(rightIdx);
+                
+                if (leftGlyph && rightGlyph) {
+                    const leftChar = this._glyphToChar(leftGlyph);
+                    const rightChar = this._glyphToChar(rightGlyph);
+                    
+                    if (leftChar && rightChar) {
+                        // Store kerning value directly (already in font units)
+                        state.kerning[leftChar + rightChar] = value;
+                    }
+                }
+            }
+        }
+
+        // Also check GPOS table for pair positioning (more common in modern fonts)
+        if (font.tables.gpos) {
+            try {
+                // Get kerning values using the font's getKerningValue method
+                // This handles both kern table and GPOS lookups
+                const glyphChars = Object.keys(state.glyphs);
+                for (const leftChar of glyphChars) {
+                    for (const rightChar of glyphChars) {
+                        const leftGlyph = font.charToGlyph(leftChar);
+                        const rightGlyph = font.charToGlyph(rightChar);
+                        
+                        if (leftGlyph && rightGlyph) {
+                            const kernValue = font.getKerningValue(leftGlyph, rightGlyph);
+                            if (kernValue !== 0) {
+                                // Only store if not already imported from kern table
+                                const pairKey = leftChar + rightChar;
+                                if (!state.kerning[pairKey]) {
+                                    state.kerning[pairKey] = kernValue;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Error importing GPOS kerning:', e);
+            }
+        }
+    }
+
+    /**
+     * Import ligature data from GSUB table
+     */
+    _importLigatureData(state, font, verbose = false) {
+        if (!state.ligatures) {
+            state.ligatures = [];
+        }
+
+        if (!font.tables.gsub) {
+            if (verbose) console.log('No GSUB table found');
+            return;
+        }
+        
+        if (verbose) {
+            console.log('=== Importing ligature data ===');
+            console.log('GSUB scripts:', font.tables.gsub.scripts?.map(s => s.tag).join(', '));
+            console.log('GSUB features:', font.tables.gsub.features?.map(f => f.tag).join(', '));
+        }
+
+        try {
+            // Look for ligature substitution lookups in GSUB
+            const gsub = font.tables.gsub;
+            
+            // Find features that use ligature lookups (liga, dlig, etc.)
+            const ligaFeatures = ['liga', 'dlig', 'clig', 'rlig'];
+            
+            for (const script of (gsub.scripts || [])) {
+                for (const langSys of [script.script.defaultLangSys, ...(script.script.langSysRecords || []).map(r => r.langSys)]) {
+                    if (!langSys || !langSys.featureIndexes) continue;
+                    
+                    for (const featureIdx of langSys.featureIndexes) {
+                        const feature = gsub.features[featureIdx];
+                        if (!feature || !ligaFeatures.includes(feature.tag)) continue;
+                        
+                        if (verbose) console.log('Processing feature:', feature.tag);
+                        
+                        // Process lookups for this feature
+                        for (const lookupIdx of feature.feature.lookupListIndexes) {
+                            const lookup = gsub.lookups[lookupIdx];
+                            if (!lookup || lookup.lookupType !== 4) continue; // Type 4 = Ligature Substitution
+                            
+                            for (const subtable of lookup.subtables) {
+                                if (!subtable.ligatureSets || !subtable.coverage) continue;
+                                
+                                // Coverage maps position to actual glyph index
+                                const coverageGlyphs = subtable.coverage.glyphs || [];
+                                
+                                // ligatureSets is indexed by position in coverage, not glyph index
+                                for (const [posStr, ligSet] of Object.entries(subtable.ligatureSets)) {
+                                    const pos = parseInt(posStr);
+                                    const firstGlyphIdx = coverageGlyphs[pos];
+                                    if (firstGlyphIdx === undefined) continue;
+                                    
+                                    const firstGlyph = font.glyphs.get(firstGlyphIdx);
+                                    const firstChar = firstGlyph ? this._glyphToChar(firstGlyph) : null;
+                                    if (!firstChar) continue;
+                                    
+                                    for (const lig of ligSet) {
+                                        // lig.components is array of following glyph indices
+                                        // lig.ligGlyph is the resulting ligature glyph index
+                                        const sequence = [firstChar];
+                                        let valid = true;
+                                        
+                                        for (const compIdx of lig.components) {
+                                            const compGlyph = font.glyphs.get(compIdx);
+                                            const compChar = compGlyph ? this._glyphToChar(compGlyph) : null;
+                                            if (compChar) {
+                                                sequence.push(compChar);
+                                            } else {
+                                                valid = false;
+                                                break;
+                                            }
+                                        }
+                                        
+                                        if (valid && sequence.length >= 2) {
+                                            const ligGlyph = font.glyphs.get(lig.ligGlyph);
+                                            const ligName = ligGlyph ? ligGlyph.name : null;
+                                            
+                                            if (ligName) {
+                                                // Join sequence array to string for UI compatibility
+                                                const sequenceStr = sequence.join('');
+                                                
+                                                // Check if this ligature already exists
+                                                const existing = state.ligatures.find(
+                                                    l => l.sequence === sequenceStr
+                                                );
+                                                
+                                                if (!existing) {
+                                                    state.ligatures.push({
+                                                        sequence: sequenceStr,  // String, not array
+                                                        result: ligName,
+                                                        enabled: true
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Error importing ligatures:', e);
+        }
+    }
+
+    /**
+     * Convert a glyph to its character representation
+     */
+    _glyphToChar(glyph) {
+        if (!glyph) return null;
+        
+        // Try unicode first
+        if (glyph.unicode !== undefined && glyph.unicode !== null) {
+            return String.fromCodePoint(glyph.unicode);
+        }
+        
+        // Try unicodes array
+        if (glyph.unicodes && glyph.unicodes.length > 0) {
+            return String.fromCodePoint(glyph.unicodes[0]);
+        }
+        
+        return null;
     }
 }

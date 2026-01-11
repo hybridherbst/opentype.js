@@ -18,6 +18,26 @@ import {
 import * as opentype from '../src/opentype.js';
 import { readFileSync } from 'fs';
 
+
+/**
+ * Helper to create contours from simple [x, y] pairs.
+ * @param {Array<[number, number]>} points - Array of [x, y] pairs
+ * @returns {Array<Array<{x: number, y: number, onCurve: boolean}>>} Contours
+ */
+function contours(points) {
+    return [points.map(([x, y]) => ({ x, y, onCurve: true }))];
+}
+
+/**
+ * Helper to create multiple contours from arrays of [x, y] pairs.
+ * @param {Array<Array<[number, number]>>} shapes - Array of contours, each an array of [x, y] pairs
+ * @returns {Array<Array<{x: number, y: number, onCurve: boolean}>>} Contours
+ */
+function multiContours(shapes) {
+    return shapes.map(shape => shape.map(([x, y]) => ({ x, y, onCurve: true })));
+}
+
+
 describe('Font Editor API', () => {
     
     describe('Geometry Utilities', () => {
@@ -105,18 +125,20 @@ describe('Font Editor API', () => {
                         { type: 'Z' }
                     ]
                 };
-                const points = extractPathPoints(path, 1000);
+                const points = extractPathPoints(path);
                 assert.equal(points.length, 3);
             });
             
-            it('should scale points according to unitsPerEm', () => {
+            it('should return points in font units without scaling', () => {
                 const path = {
                     commands: [
                         { type: 'M', x: 500, y: 500 }
                     ]
                 };
-                const points = extractPathPoints(path, 1000, 10);
-                assert.ok(points[0][0] < 500, 'Points should be scaled down');
+                const points = extractPathPoints(path);
+                // Points are returned in font units without scaling
+                assert.equal(points[0][0], 500, 'Points should be in font units');
+                assert.equal(points[0][1], 500, 'Points should be in font units');
             });
         });
         
@@ -281,17 +303,17 @@ describe('Font Editor API', () => {
             });
             
             it('should add a glyph', () => {
-                state.addGlyph('A', [[0, 0], [5, 10], [10, 0]]);
-                assert.deepEqual(state.getGlyphPoints('A'), [[0, 0], [5, 10], [10, 0]]);
+                state.addGlyph('A', contours([[0, 0], [350, 700], [700, 0]]));
+                assert.deepEqual(state.getGlyphPoints('A'), contours([[0, 0], [350, 700], [700, 0]]));
             });
             
             it('should add a glyph with explicit width', () => {
-                state.addGlyph('A', [[0, 0], [5, 10], [10, 0]], 12);
-                assert.equal(state.glyphWidths['A'], 12);
+                state.addGlyph('A', contours([[0, 0], [350, 700], [700, 0]]), 750);
+                assert.equal(state.glyphWidths['A'], 750);
             });
             
             it('should delete a glyph', () => {
-                state.addGlyph('A', [[0, 0]]);
+                state.addGlyph('A', contours([[0, 0]]));
                 assert.ok(state.deleteGlyph('A'));
                 assert.deepEqual(state.getGlyphPoints('A'), []);
             });
@@ -301,13 +323,13 @@ describe('Font Editor API', () => {
             });
             
             it('should calculate glyph width from points', () => {
-                state.addGlyph('A', [[0, 0], [5, 10], [10, 0]]);
-                assert.equal(state.getGlyphWidth('A'), 10);
+                state.addGlyph('A', contours([[0, 0], [350, 700], [700, 0]]));
+                assert.equal(state.getGlyphWidth('A'), 700);
             });
             
             it('should use explicit width if set', () => {
-                state.addGlyph('A', [[0, 0], [5, 10], [10, 0]], 15);
-                assert.equal(state.getGlyphWidth('A'), 15);
+                state.addGlyph('A', contours([[0, 0], [350, 700], [700, 0]]), 800);
+                assert.equal(state.getGlyphWidth('A'), 800);
             });
         });
         
@@ -316,24 +338,26 @@ describe('Font Editor API', () => {
             
             beforeEach(() => {
                 state = new FontEditorState();
-                state.addGlyph('A', [[0, 0], [5, 10]]);
+                state.addGlyph('A', contours([[0, 0], [350, 700]]));
                 state.currentGlyph = 'A';
             });
             
             it('should add a point', () => {
                 const idx = state.addPoint(10, 0);
                 assert.equal(idx, 2);
-                assert.equal(state.getGlyphPoints('A').length, 3);
+                // Check the first contour has 3 points
+                assert.equal(state.getGlyphPoints('A')[0].length, 3);
             });
             
             it('should update a point', () => {
                 assert.ok(state.updatePoint(0, 1, 2));
-                assert.deepEqual(state.getGlyphPoints('A')[0], [1, 2]);
+                const point = state.getGlyphPoints('A')[0][0];
+                assert.deepEqual({ x: point.x, y: point.y }, { x: 1, y: 2 });
             });
             
             it('should delete a point', () => {
                 assert.ok(state.deletePoint(0));
-                assert.equal(state.getGlyphPoints('A').length, 1);
+                assert.equal(state.getGlyphPoints('A')[0].length, 1);
             });
             
             it('should return false for invalid point index', () => {
@@ -347,7 +371,7 @@ describe('Font Editor API', () => {
             
             beforeEach(() => {
                 state = new FontEditorState();
-                state.addGlyph('A', [[0, 0], [5, 10], [10, 0]]);
+                state.addGlyph('A', contours([[0, 0], [350, 700], [700, 0]]));
             });
             
             it('should add an axis', () => {
@@ -397,7 +421,7 @@ describe('Font Editor API', () => {
         describe('serialization', () => {
             it('should serialize to JSON', () => {
                 const state = new FontEditorState({ familyName: 'Test' });
-                state.addGlyph('A', [[0, 0]]);
+                state.addGlyph('A', contours([[0, 0], [350, 700], [700, 0]]));
                 
                 const json = state.toJSON();
                 assert.equal(json.familyName, 'Test');
@@ -407,8 +431,8 @@ describe('Font Editor API', () => {
             it('should deserialize from JSON', () => {
                 const json = {
                     familyName: 'Restored Font',
-                    glyphs: { 'B': [[1, 2]] },
-                    glyphWidths: { 'B': 5 },
+                    glyphs: { 'B': contours([[100, 200]]) },
+                    glyphWidths: { 'B': 500 },
                     axes: [{ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 }]
                 };
                 
@@ -416,7 +440,7 @@ describe('Font Editor API', () => {
                 state.fromJSON(json);
                 
                 assert.equal(state.familyName, 'Restored Font');
-                assert.deepEqual(state.getGlyphPoints('B'), [[1, 2]]);
+                assert.deepEqual(state.getGlyphPoints('B'), contours([[100, 200]]));
                 assert.equal(state.axes.length, 1);
             });
         });
@@ -433,8 +457,8 @@ describe('Font Editor API', () => {
                 ascender: 800,
                 descender: 0
             });
-            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
-            state.addGlyph('B', [[0, 0], [6, 0], [6, 10], [0, 10]]);
+            state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
+            state.addGlyph('B', contours([[0, 0], [480, 0], [480, 700], [0, 700]]));
         });
         
         it('should build a basic font', () => {
@@ -484,7 +508,7 @@ describe('Font Editor API', () => {
         
         beforeEach(() => {
             state = new FontEditorState();
-            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
             
             state.addAxis({
                 tag: 'wght',
@@ -496,8 +520,8 @@ describe('Font Editor API', () => {
             
             state.setVariableFontEnabled(true);
             
-            // Add bold master
-            state.addMaster('Bold', { wght: 700 }, { 'A': [[0, 0], [4, 12], [10, 0]] });
+            // Add bold master with wider/taller glyph
+            state.addMaster('Bold', { wght: 700 }, { 'A': contours([[0, 0], [400, 750], [800, 0]]) });
         });
         
         it('should build a variable font', () => {
@@ -525,15 +549,15 @@ describe('Font Editor API', () => {
                 styleName: 'Regular'
             });
             
-            // Create a component glyph
-            state.addGlyph('_stem', [[0, 0], [2, 0], [2, 10], [0, 10]]);
+            // Create a component glyph (stem shape)
+            state.addGlyph('_stem', contours([[0, 0], [120, 0], [120, 700], [0, 700]]));
             
             // Create a glyph that only references the component (no own shapes)
             state.addGlyph('I', []);  // Empty - no own shapes
             // Add reference directly to state (no addGlyphReference method yet)
             state.glyphReferences['I'] = [{
                 name: '_stem',
-                dx: 1,
+                dx: 60,
                 dy: 0,
                 scaleX: 1,
                 scaleY: 1,
@@ -565,8 +589,8 @@ describe('Font Editor API', () => {
                 styleName: 'Regular'
             });
             
-            // Create a component glyph
-            state.addGlyph('_stem', [[0, 0], [2, 0], [2, 10], [0, 10]]);
+            // Create a component glyph (stem shape)
+            state.addGlyph('_stem', contours([[0, 0], [120, 0], [120, 700], [0, 700]]));
             
             // Create a glyph that only references the component
             state.addGlyph('I', []);
@@ -607,7 +631,7 @@ describe('Font Editor API', () => {
                 familyName: 'Test Font',
                 styleName: 'Regular'
             });
-            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
             
             const builder = new FontBuilder(state, opentype);
             const font = builder.build();
@@ -623,14 +647,14 @@ describe('Font Editor API', () => {
                 styleName: 'Variable'
             });
             
-            // Create a component glyph
-            state.addGlyph('_stem', [[0, 0], [2, 0], [2, 10], [0, 10]]);
+            // Create a component glyph (stem shape)
+            state.addGlyph('_stem', contours([[0, 0], [120, 0], [120, 700], [0, 700]]));
             
             // Create a glyph that only references the component
             state.addGlyph('I', []);
             state.glyphReferences['I'] = [{
                 name: '_stem',
-                dx: 1,
+                dx: 60,
                 dy: 0,
                 scaleX: 1,
                 scaleY: 1
@@ -648,7 +672,7 @@ describe('Font Editor API', () => {
             
             // Add bold master with thicker component
             state.addMaster('Bold', { wght: 900 }, {
-                '_stem': [[0, 0], [4, 0], [4, 10], [0, 10]],
+                '_stem': contours([[0, 0], [240, 0], [240, 700], [0, 700]]),
                 'I': []
             });
             
@@ -679,7 +703,7 @@ describe('Font Editor API', () => {
             });
             
             // Create component and glyph with reference
-            state.addGlyph('_stem', [[0, 0], [2, 0], [2, 10], [0, 10]]);
+            state.addGlyph('_stem', contours([[0, 0], [120, 0], [120, 700], [0, 700]]));
             state.addGlyph('I', []);
             state.glyphReferences['I'] = [{
                 name: '_stem',
@@ -698,7 +722,7 @@ describe('Font Editor API', () => {
             });
             state.setVariableFontEnabled(true);
             state.addMaster('Bold', { wght: 900 }, {
-                '_stem': [[0, 0], [4, 0], [4, 10], [0, 10]],
+                '_stem': contours([[0, 0], [240, 0], [240, 700], [0, 700]]),
                 'I': []
             });
             
@@ -724,10 +748,10 @@ describe('Font Editor API', () => {
             });
             
             // Create a component glyph (e.g., a dot/diacritic)
-            state.addGlyph('_dot', [[4, 8], [5, 8], [5, 9], [4, 9]]);
+            state.addGlyph('_dot', contours([[280, 560], [350, 560], [350, 630], [280, 630]]));
             
             // Create 'i' with its own shapes (stem) AND a reference to the dot
-            state.addGlyph('i', [[2, 0], [4, 0], [4, 6], [2, 6]]); // stem shape
+            state.addGlyph('i', contours([[140, 0], [280, 0], [280, 420], [140, 420]])); // stem shape
             state.glyphReferences['i'] = [{
                 name: '_dot',
                 dx: 0,
@@ -773,14 +797,14 @@ describe('Font Editor API', () => {
             });
             
             // Create components
-            state.addGlyph('_accent', [[3, 9], [5, 9], [4, 10]]);
+            state.addGlyph('_accent', contours([[210, 630], [350, 630], [280, 700]]));
             
             // Create 'e' with own shape and accent reference
-            state.addGlyph('e', [[1, 0], [6, 0], [6, 3], [1, 3], [1, 5], [6, 5], [6, 8], [1, 8]]); // e shape
+            state.addGlyph('e', contours([[70, 0], [420, 0], [420, 210], [70, 210], [70, 350], [420, 350], [420, 560], [70, 560]])); // e shape
             state.glyphReferences['e'] = [{
                 name: '_accent',
                 dx: 0,
-                dy: 1,
+                dy: 70,
                 scaleX: 1,
                 scaleY: 1
             }];
@@ -818,7 +842,7 @@ describe('Font Editor API', () => {
             });
             
             // Create a simple glyph with only shapes
-            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
             
             const builder = new FontBuilder(state, opentype);
             const font = builder.build({ useComposites: true });
@@ -840,13 +864,13 @@ describe('Font Editor API', () => {
             });
             
             // Create a component
-            state.addGlyph('_stem', [[0, 0], [2, 10]]);
+            state.addGlyph('_stem', contours([[0, 0], [120, 700]]));
             
             // Create a glyph with ONLY references, no own shapes
             state.addGlyph('I', []);
             state.glyphReferences['I'] = [{
                 name: '_stem',
-                dx: 1,
+                dx: 60,
                 dy: 0,
                 scaleX: 1,
                 scaleY: 1
@@ -916,7 +940,7 @@ describe('Font Editor API', () => {
         it('should import a font file', async () => {
             // Create a simple font to import
             const originalState = new FontEditorState();
-            originalState.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            originalState.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
             
             const builder = new FontBuilder(originalState, opentype);
             const buffer = builder.toArrayBuffer();
@@ -935,8 +959,8 @@ describe('Font Editor API', () => {
         describe('glyph path validation', () => {
             it('should pass validation when glyphs have paths', () => {
                 const state = new FontEditorState();
-                state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
-                state.addGlyph('B', [[0, 0], [0, 10], [5, 10], [5, 0]]);
+                state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
+                state.addGlyph('B', contours([[0, 0], [0, 700], [350, 700], [350, 0]]));
                 
                 const builder = new FontBuilder(state, opentype);
                 // Should not throw
@@ -959,7 +983,7 @@ describe('Font Editor API', () => {
         describe('roundtrip validation', () => {
             it('should validate successful roundtrip', () => {
                 const state = new FontEditorState();
-                state.addGlyph('X', [[0, 0], [3, 5], [6, 0], [4, 3], [6, 6], [3, 5], [0, 6], [2, 3]]);
+                state.addGlyph('X', contours([[0, 0], [210, 350], [420, 0], [280, 210], [420, 420], [210, 350], [0, 420], [140, 210]]));
                 
                 const builder = new FontBuilder(state, opentype);
                 // Should not throw
@@ -969,7 +993,7 @@ describe('Font Editor API', () => {
             
             it('should preserve glyph paths after export and reparse', () => {
                 const state = new FontEditorState();
-                state.addGlyph('T', [[2, 0], [2, 7], [0, 7], [0, 10], [7, 10], [7, 7], [5, 7], [5, 0]]);
+                state.addGlyph('T', contours([[140, 0], [140, 490], [0, 490], [0, 700], [490, 700], [490, 490], [350, 490], [350, 0]]));
                 
                 const builder = new FontBuilder(state, opentype);
                 const buffer = builder.toArrayBuffer();
@@ -988,8 +1012,8 @@ describe('Font Editor API', () => {
         describe('advance width preservation', () => {
             it('should preserve explicit advance widths', () => {
                 const state = new FontEditorState();
-                state.addGlyph('W', [[0, 10], [2, 0], [4, 6], [6, 0], [8, 10]]);
-                state.setGlyphWidth('W', 12);
+                state.addGlyph('W', contours([[0, 700], [140, 0], [280, 420], [420, 0], [560, 700]]));
+                state.setGlyphWidth('W', 600);
                 
                 const builder = new FontBuilder(state, opentype);
                 const buffer = builder.toArrayBuffer();
@@ -997,14 +1021,14 @@ describe('Font Editor API', () => {
                 const parsed = opentype.parse(buffer);
                 const glyphW = parsed.charToGlyph('W');
                 
-                // Width should be (12 + 1) * scale = 13 * 80 = 1040
-                assert.equal(glyphW.advanceWidth, 1040, 'Advance width should be preserved');
+                // Width should be 600 + sidebearing (0) = 600 (scale = 1, data in font units)
+                assert.equal(glyphW.advanceWidth, 600, 'Advance width should be preserved');
             });
             
             it('should compute width from bounding box when not explicit', () => {
                 const state = new FontEditorState();
-                // Glyph from x=0 to x=8
-                state.addGlyph('H', [[0, 0], [0, 10], [8, 10], [8, 0]]);
+                // Glyph from x=0 to x=560
+                state.addGlyph('H', contours([[0, 0], [0, 700], [560, 700], [560, 0]]));
                 // No explicit width set
                 
                 const builder = new FontBuilder(state, opentype);
@@ -1013,8 +1037,8 @@ describe('Font Editor API', () => {
                 const parsed = opentype.parse(buffer);
                 const glyphH = parsed.charToGlyph('H');
                 
-                // Width should be based on maxX (8) + 1 = 9 * 80 = 720
-                assert.equal(glyphH.advanceWidth, 720, 'Advance width should be computed from bounds');
+                // Width should be maxX (560) + sidebearing (0) = 560 (scale = 1, data in font units)
+                assert.equal(glyphH.advanceWidth, 560, 'Advance width should be computed from bounds');
             });
         });
     });
@@ -1023,12 +1047,10 @@ describe('Font Editor API', () => {
         it('should preserve edited glyph points after export and reimport', () => {
             // Create state with initial glyph
             const state = new FontEditorState();
-            const originalPoints = [[0, 0], [4, 10], [8, 0]];
-            state.addGlyph('A', originalPoints);
+            state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
             
             // "Edit" the glyph - simulate user modification
-            const editedPoints = [[1, 1], [5, 12], [9, 1]];
-            state.glyphs['A'] = editedPoints;
+            state.glyphs['A'] = contours([[70, 70], [350, 750], [630, 70]]);
             
             // Export to font
             const builder = new FontBuilder(state, opentype);
@@ -1041,19 +1063,22 @@ describe('Font Editor API', () => {
             
             // Verify the imported glyph has the EDITED points, not original
             assert.ok(newState.glyphs['A'], 'Glyph A should exist after import');
-            const importedPoints = newState.glyphs['A'];
+            const importedContours = newState.glyphs['A'];
+            
+            // Check contour structure
+            assert.ok(Array.isArray(importedContours) && importedContours.length > 0, 'Should have contours');
+            const importedPoints = importedContours[0]; // First contour
             
             // Check point count matches
-            assert.equal(importedPoints.length, editedPoints.length, 'Point count should match');
+            assert.equal(importedPoints.length, 3, 'Point count should match');
             
-            // Check points are approximately the edited ones (scaled)
-            // The font uses scale=80 for export, then import rescales back
-            // Points should be close to original editor coordinates
+            // Check points are approximately the edited ones (now scale=1)
+            const editedPoints = [[70, 70], [350, 750], [630, 70]];
             for (let i = 0; i < editedPoints.length; i++) {
                 const origX = editedPoints[i][0];
                 const origY = editedPoints[i][1];
-                const impX = importedPoints[i][0];
-                const impY = importedPoints[i][1];
+                const impX = importedPoints[i].x;
+                const impY = importedPoints[i].y;
                 
                 // Allow tolerance for rounding
                 assert.ok(Math.abs(impX - origX) < 2, `Point ${i} X should be close: ${impX} vs ${origX}`);
@@ -1065,11 +1090,11 @@ describe('Font Editor API', () => {
             const state = new FontEditorState();
             
             // Add initial glyphs
-            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
-            state.addGlyph('B', [[0, 0], [0, 10], [5, 10], [5, 0]]);
+            state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
+            state.addGlyph('B', contours([[0, 0], [0, 700], [350, 700], [350, 0]]));
             
             // Modify A completely
-            state.glyphs['A'] = [[2, 2], [6, 14], [10, 2]];
+            state.glyphs['A'] = contours([[140, 140], [420, 750], [700, 140]]);
             
             // Build font and check the path is the modified one
             const builder = new FontBuilder(state, opentype);
@@ -1078,20 +1103,20 @@ describe('Font Editor API', () => {
             const glyphA = font.charToGlyph('A');
             assert.ok(glyphA.path, 'Glyph A should have path');
             
-            // Path should start at the modified point (2*80=160, 2*80=160)
+            // Path should start at the modified point (scale=1)
             const firstCmd = glyphA.path.commands.find(c => c.type === 'M');
             assert.ok(firstCmd, 'Should have moveTo command');
-            assert.equal(firstCmd.x, 2 * 80, 'First point X should be modified value');
-            assert.equal(firstCmd.y, 2 * 80, 'First point Y should be modified value');
+            assert.equal(firstCmd.x, 140, 'First point X should be modified value');
+            assert.equal(firstCmd.y, 140, 'First point Y should be modified value');
         });
         
         it('should preserve multiple glyphs with edits', () => {
             const state = new FontEditorState();
             
             // Add and modify multiple glyphs
-            state.addGlyph('X', [[0, 0], [8, 10], [8, 0], [0, 10]]);
-            state.addGlyph('Y', [[0, 10], [4, 5], [8, 10], [4, 0]]);
-            state.addGlyph('Z', [[0, 10], [8, 10], [0, 0], [8, 0]]);
+            state.addGlyph('X', contours([[0, 0], [560, 700], [560, 0], [0, 700]]));
+            state.addGlyph('Y', contours([[0, 700], [280, 350], [560, 700], [280, 0]]));
+            state.addGlyph('Z', contours([[0, 700], [560, 700], [0, 0], [560, 0]]));
             
             const builder = new FontBuilder(state, opentype);
             const buffer = builder.toArrayBuffer();
@@ -1115,14 +1140,14 @@ describe('Font Editor API', () => {
             // 5. Verify edits are preserved
             
             const state = new FontEditorState();
-            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
-            state.addGlyph('B', [[0, 0], [0, 10], [6, 10], [6, 0]]);
+            state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
+            state.addGlyph('B', contours([[0, 0], [0, 700], [420, 700], [420, 0]]));
             
-            // User edits: move point 1 of A from [4, 10] to [5, 12]
-            state.glyphs['A'][1] = [5, 12];
+            // User edits: move point 1 of A from {x:320, y:700} to {x:350, y:750}
+            state.glyphs['A'][0][1] = { x: 350, y: 750, onCurve: true };
             
             // User edits: widen B
-            state.glyphs['B'] = [[0, 0], [0, 10], [8, 10], [8, 0]];
+            state.glyphs['B'] = contours([[0, 0], [0, 700], [560, 700], [560, 0]]);
             
             // Export
             const builder = new FontBuilder(state, opentype);
@@ -1136,27 +1161,30 @@ describe('Font Editor API', () => {
             // Verify A was modified
             const importedA = newState.glyphs['A'];
             assert.ok(importedA, 'Glyph A should exist');
-            assert.equal(importedA.length, 3, 'A should have 3 points');
+            assert.ok(importedA[0], 'A should have first contour');
+            assert.equal(importedA[0].length, 3, 'A contour should have 3 points');
             
-            // Point 1 should be close to [5, 12]
-            assert.ok(Math.abs(importedA[1][0] - 5) < 1, `A point 1 X should be ~5, got ${importedA[1][0]}`);
-            assert.ok(Math.abs(importedA[1][1] - 12) < 1, `A point 1 Y should be ~12, got ${importedA[1][1]}`);
+            // Point 1 should be close to {x:350, y:750}
+            const pt1 = importedA[0][1];
+            assert.ok(Math.abs(pt1.x - 350) < 2, `A point 1 X should be ~350, got ${pt1.x}`);
+            assert.ok(Math.abs(pt1.y - 750) < 2, `A point 1 Y should be ~750, got ${pt1.y}`);
             
             // Verify B was modified  
             const importedB = newState.glyphs['B'];
             assert.ok(importedB, 'Glyph B should exist');
+            assert.ok(importedB[0], 'B should have first contour');
             
-            // B's rightmost point should be at x=8
-            const maxX = Math.max(...importedB.map(p => p[0]));
-            assert.ok(Math.abs(maxX - 8) < 1, `B max X should be ~8, got ${maxX}`);
+            // B's rightmost point should be at x=560
+            const maxX = Math.max(...importedB[0].map(p => p.x));
+            assert.ok(Math.abs(maxX - 560) < 2, `B max X should be ~560, got ${maxX}`);
         });
         
         it('should correctly scale widths through export-reimport', () => {
             const state = new FontEditorState();
             
             // Add glyph with specific width
-            state.addGlyph('W', [[0, 10], [4, 0], [8, 10], [12, 0], [16, 10]]);
-            state.setGlyphWidth('W', 18); // Explicit width
+            state.addGlyph('W', contours([[0, 700], [280, 0], [560, 700], [840, 0], [1120, 700]]));
+            state.setGlyphWidth('W', 1200); // Explicit width
             
             // Export and reimport
             const builder = new FontBuilder(state, opentype);
@@ -1168,15 +1196,15 @@ describe('Font Editor API', () => {
             
             // Check width is preserved (approximately)
             const importedWidth = newState.glyphWidths['W'] || 0;
-            // Width should be close to 18 (or maxX of points which is 16)
-            assert.ok(importedWidth > 14, `Width should be preserved, got ${importedWidth}`);
+            // Width should be close to 1200
+            assert.ok(importedWidth > 1100, `Width should be preserved, got ${importedWidth}`);
         });
     });
     
     describe('Font Validation', () => {
         it('should create .notdef glyph with a drawing (not empty)', () => {
             const state = new FontEditorState();
-            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
             
             const builder = new FontBuilder(state, opentype);
             const font = builder.build();
@@ -1192,7 +1220,7 @@ describe('Font Editor API', () => {
         
         it('should set version string to match head fontRevision', () => {
             const state = new FontEditorState();
-            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
             
             const builder = new FontBuilder(state, opentype);
             const font = builder.build();
@@ -1205,11 +1233,11 @@ describe('Font Editor API', () => {
         
         it('should create STAT table for variable fonts', () => {
             const state = new FontEditorState();
-            state.addGlyph('A', [[0, 0], [4, 10], [8, 0]]);
+            state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
             state.setVariableFontEnabled(true);
             state.addAxis({ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 });
-            state.addMaster('Light', { wght: 100 }, { 'A': [[0, 0], [3, 8], [6, 0]] });
-            state.addMaster('Bold', { wght: 900 }, { 'A': [[0, 0], [5, 12], [10, 0]] });
+            state.addMaster('Light', { wght: 100 }, { 'A': contours([[0, 0], [210, 560], [420, 0]]) });
+            state.addMaster('Bold', { wght: 900 }, { 'A': contours([[0, 0], [400, 750], [800, 0]]) });
             
             const builder = new FontBuilder(state, opentype);
             const font = builder.build();
@@ -1224,99 +1252,102 @@ describe('Font Editor API', () => {
     
     describe('Multi-Shape Glyph Support', () => {
         
-        describe('nested shape format handling', () => {
+        describe('contour format handling', () => {
             
-            it('should detect flat vs nested shape format', () => {
-                // Test the format detection logic used in font-editor
-                const flatFormat = [[0, 0], [5, 10], [10, 0]];
-                const nestedFormat = [[[0, 0], [5, 10], [10, 0]]];
-                const multiShapeFormat = [[[0, 0], [5, 10], [10, 0]], [[2, 2], [3, 5], [4, 2]]];
+            it('should detect single vs multiple contours', () => {
+                // Test the format detection logic for contour format
+                // Single contour: [[{x, y, onCurve}, ...]]
+                // Multiple contours: [[{x, y, onCurve}, ...], [{x, y, onCurve}, ...]]
                 
-                // Flat format: first element is an array with exactly 2 numbers
-                const isFlat = (data) => data[0] && Array.isArray(data[0]) && typeof data[0][0] === 'number';
-                const isNested = (data) => data[0] && Array.isArray(data[0]) && Array.isArray(data[0][0]);
+                const singleContour = contours([[0, 0], [400, 800], [800, 0]]);
+                const multiContour = multiContours([
+                    [[0, 0], [400, 800], [800, 0]],
+                    [[160, 160], [240, 400], [320, 160]]
+                ]);
                 
-                assert.ok(isFlat(flatFormat), 'Flat format should be detected');
-                assert.ok(!isNested(flatFormat), 'Flat format should not be nested');
+                // Single contour has length 1
+                assert.equal(singleContour.length, 1, 'Single contour should have 1 contour');
+                // Multi contour has length 2
+                assert.equal(multiContour.length, 2, 'Multi contour should have 2 contours');
                 
-                assert.ok(!isFlat(nestedFormat), 'Nested format should not be flat');
-                assert.ok(isNested(nestedFormat), 'Nested format should be detected');
-                
-                assert.ok(!isFlat(multiShapeFormat), 'Multi-shape format should not be flat');
-                assert.ok(isNested(multiShapeFormat), 'Multi-shape format should be nested');
+                // Each contour is an array of point objects
+                assert.ok(singleContour[0][0].x !== undefined, 'Points should have x property');
+                assert.ok(singleContour[0][0].y !== undefined, 'Points should have y property');
+                assert.ok(singleContour[0][0].onCurve !== undefined, 'Points should have onCurve property');
             });
             
-            it('should flatten shapes for interpolation', () => {
-                // Simulate the flattenShapesToPoints function from font-editor
-                const flattenShapesToPoints = (shapesOrPoints) => {
-                    if (!shapesOrPoints || shapesOrPoints.length === 0) return [];
-                    if (Array.isArray(shapesOrPoints[0]) && typeof shapesOrPoints[0][0] === 'number') {
-                        return shapesOrPoints;
-                    }
-                    return shapesOrPoints.flat();
+            it('should flatten contours for interpolation', () => {
+                // Flatten all points from all contours
+                const flattenContours = (contours) => {
+                    if (!contours || contours.length === 0) return [];
+                    return contours.flat();
                 };
                 
-                const flatFormat = [[0, 0], [5, 10], [10, 0]];
-                const nestedFormat = [[[0, 0], [5, 10], [10, 0]]];
-                const multiShapeFormat = [[[0, 0], [5, 10]], [[2, 2], [4, 2]]];
+                const single = contours([[0, 0], [400, 800], [800, 0]]);
+                const multi = multiContours([
+                    [[0, 0], [400, 800]],
+                    [[160, 160], [320, 160]]
+                ]);
                 
-                assert.deepEqual(flattenShapesToPoints(flatFormat), flatFormat);
-                assert.deepEqual(flattenShapesToPoints(nestedFormat), [[0, 0], [5, 10], [10, 0]]);
-                assert.deepEqual(flattenShapesToPoints(multiShapeFormat), [[0, 0], [5, 10], [2, 2], [4, 2]]);
+                const flatSingle = flattenContours(single);
+                assert.equal(flatSingle.length, 3, 'Flattened single contour should have 3 points');
+                assert.equal(flatSingle[0].x, 0);
+                assert.equal(flatSingle[1].x, 400);
+                
+                const flatMulti = flattenContours(multi);
+                assert.equal(flatMulti.length, 4, 'Flattened multi contour should have 4 points');
+                assert.equal(flatMulti[2].x, 160);
             });
             
-            it('should build SVG path from nested shapes', () => {
-                // Simulate the renderGlyphGrid path building logic
-                const buildSVGPath = (glyphData) => {
-                    const shapes = (glyphData && glyphData[0] && Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0])) 
-                        ? glyphData : (glyphData && glyphData.length > 0 ? [glyphData] : []);
+            it('should build SVG path from contours', () => {
+                // Build SVG path from contour format
+                const buildSVGPath = (contours, height = 800) => {
+                    if (!contours || contours.length === 0) return '';
                     
                     let d = '';
-                    for (const points of shapes) {
+                    for (const points of contours) {
                         if (points && points.length > 0) {
-                            d += 'M' + points.map(p => p[0] + ' ' + (10 - p[1])).join(' L') + ' Z ';
+                            d += 'M' + points.map(p => p.x + ' ' + (height - p.y)).join(' L') + ' Z ';
                         }
                     }
                     return d.trim();
                 };
                 
-                // Flat format should work
-                const flat = [[0, 0], [5, 10], [10, 0]];
-                assert.equal(buildSVGPath(flat), 'M0 10 L5 0 L10 10 Z');
+                // Single contour
+                const single = contours([[0, 0], [400, 800], [800, 0]]);
+                assert.equal(buildSVGPath(single), 'M0 800 L400 0 L800 800 Z');
                 
-                // Nested format should work
-                const nested = [[[0, 0], [5, 10], [10, 0]]];
-                assert.equal(buildSVGPath(nested), 'M0 10 L5 0 L10 10 Z');
+                // Multi contour (two shapes)
+                const multi = multiContours([
+                    [[0, 0], [400, 800]],
+                    [[160, 160], [240, 400]]
+                ]);
+                assert.equal(buildSVGPath(multi), 'M0 800 L400 0 Z M160 640 L240 400 Z');
                 
-                // Multi-shape format should produce multiple paths
-                const multi = [[[0, 0], [5, 10]], [[2, 2], [3, 5]]];
-                assert.equal(buildSVGPath(multi), 'M0 10 L5 0 Z M2 8 L3 5 Z');
-                
-                // Empty data should produce empty path
+                // Empty data
                 assert.equal(buildSVGPath([]), '');
                 assert.equal(buildSVGPath(null), '');
             });
             
             it('should not produce NaN in SVG path coordinates', () => {
-                const buildSVGPath = (glyphData) => {
-                    const shapes = (glyphData && glyphData[0] && Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0])) 
-                        ? glyphData : (glyphData && glyphData.length > 0 ? [glyphData] : []);
+                const buildSVGPath = (contours, height = 800) => {
+                    if (!contours || contours.length === 0) return '';
                     
                     let d = '';
-                    for (const points of shapes) {
+                    for (const points of contours) {
                         if (points && points.length > 0) {
-                            d += 'M' + points.map(p => p[0] + ' ' + (10 - p[1])).join(' L') + ' Z ';
+                            d += 'M' + points.map(p => p.x + ' ' + (height - p.y)).join(' L') + ' Z ';
                         }
                     }
                     return d.trim();
                 };
                 
-                // These patterns should all produce valid paths without NaN
+                // Test with various valid contour data
                 const testCases = [
-                    [[0, 0], [5, 10], [10, 0]],
-                    [[[0, 0], [5, 10], [10, 0]]],
-                    [[[0, 0]], [[5, 5]]],
-                    [[[1.5, 2.5], [3.5, 4.5]]]
+                    contours([[0, 0], [400, 800], [800, 0]]),
+                    multiContours([[[0, 0], [400, 800], [800, 0]]]),
+                    multiContours([[[0, 0]], [[400, 400]]]),
+                    multiContours([[[120, 200], [280, 360]]])
                 ];
                 
                 for (const data of testCases) {
@@ -1327,56 +1358,46 @@ describe('Font Editor API', () => {
             });
         });
         
-        describe('shape interpolation for variable fonts', () => {
+        describe('contour interpolation for variable fonts', () => {
             
-            it('should interpolate nested shapes correctly', () => {
-                // Simulate the interpolation logic from font-editor
-                const interpolateShapes = (p1, p2, t) => {
-                    const isNested = p1[0] && Array.isArray(p1[0]) && Array.isArray(p1[0][0]);
+            it('should interpolate contours correctly', () => {
+                // Interpolation logic for contour format
+                const interpolateContours = (c1, c2, t) => {
+                    if (c1.length !== c2.length) return c1;
                     
-                    if (isNested) {
-                        if (p1.length !== p2.length) return p1;
-                        const result = [];
-                        for (let shapeIdx = 0; shapeIdx < p1.length; shapeIdx++) {
-                            const shape1 = p1[shapeIdx];
-                            const shape2 = p2[shapeIdx];
-                            if (!shape1 || !shape2 || shape1.length !== shape2.length) {
-                                result.push(shape1 || shape2 || []);
-                            } else {
-                                const interpolated = shape1.map((pt, i) => [
-                                    pt[0] + (shape2[i][0] - pt[0]) * t,
-                                    pt[1] + (shape2[i][1] - pt[1]) * t
-                                ]);
-                                result.push(interpolated);
-                            }
+                    return c1.map((contour1, contourIdx) => {
+                        const contour2 = c2[contourIdx];
+                        if (!contour1 || !contour2 || contour1.length !== contour2.length) {
+                            return contour1 || contour2 || [];
                         }
-                        return result;
-                    } else {
-                        if (p1.length !== p2.length) return p1;
-                        return p1.map((pt, i) => [
-                            pt[0] + (p2[i][0] - pt[0]) * t,
-                            pt[1] + (p2[i][1] - pt[1]) * t
-                        ]);
-                    }
+                        return contour1.map((pt, i) => ({
+                            x: pt.x + (contour2[i].x - pt.x) * t,
+                            y: pt.y + (contour2[i].y - pt.y) * t,
+                            onCurve: pt.onCurve
+                        }));
+                    });
                 };
                 
-                // Test nested format interpolation
-                const shape1 = [[[0, 0], [10, 10]]];
-                const shape2 = [[[0, 0], [20, 20]]];
+                // Test single contour interpolation (font units)
+                const shape1 = contours([[0, 0], [400, 800]]);
+                const shape2 = contours([[0, 0], [600, 800]]);
                 
-                const midpoint = interpolateShapes(shape1, shape2, 0.5);
-                assert.deepEqual(midpoint, [[[0, 0], [15, 15]]]);
+                const midpoint = interpolateContours(shape1, shape2, 0.5);
+                assert.equal(midpoint[0][0].x, 0);
+                assert.equal(midpoint[0][1].x, 500, 'Midpoint X should be 500');
+                assert.equal(midpoint[0][1].y, 800);
                 
                 // Test extrapolation (t > 1)
-                const extrapolated = interpolateShapes(shape1, shape2, 2);
-                assert.deepEqual(extrapolated, [[[0, 0], [30, 30]]]);
+                const extrapolated = interpolateContours(shape1, shape2, 2);
+                assert.equal(extrapolated[0][1].x, 800, 'Extrapolated X should be 800');
                 
-                // Test multi-shape
-                const multi1 = [[[0, 0]], [[10, 10]]];
-                const multi2 = [[[0, 0]], [[20, 20]]];
+                // Test multi-contour interpolation
+                const multi1 = multiContours([[[0, 0]], [[400, 400]]]);
+                const multi2 = multiContours([[[0, 0]], [[600, 600]]]);
                 
-                const multiMidpoint = interpolateShapes(multi1, multi2, 0.5);
-                assert.deepEqual(multiMidpoint, [[[0, 0]], [[15, 15]]]);
+                const multiMidpoint = interpolateContours(multi1, multi2, 0.5);
+                assert.equal(multiMidpoint[1][0].x, 500);
+                assert.equal(multiMidpoint[1][0].y, 500);
             });
         });
     });
@@ -1384,19 +1405,20 @@ describe('Font Editor API', () => {
     describe('Multi-Shape Glyph Export', () => {
         it('should export fonts with multi-shape glyphs without NaN advanceWidth', () => {
             // Glyph with multiple shapes (like the letter 'B' with inner counters)
-            const multiShapeGlyph = [
-                [[0, 0], [10, 0], [10, 10], [0, 10]], // outer shape
-                [[2, 2], [8, 2], [8, 8], [2, 8]]      // inner counter
-            ];
+            // Using proper font units (unitsPerEm = 800)
+            const multiShapeGlyph = multiContours([
+                [[0, 0], [600, 0], [600, 700], [0, 700]], // outer shape
+                [[100, 100], [500, 100], [500, 600], [100, 600]]  // inner counter
+            ]);
             
             const state = {
                 familyName: 'Test Font',
                 styleName: 'Regular',
                 unitsPerEm: 800,
-                ascender: 800,
-                descender: -200,
+                ascender: 700,
+                descender: -100,
                 glyphs: {
-                    'A': [[0, 0], [5, 10], [10, 0]],  // simple single-shape
+                    'A': contours([[0, 0], [300, 700], [600, 0]]),  // simple single-shape
                     'B': multiShapeGlyph              // multi-shape
                 },
                 glyphWidths: {},
@@ -1421,17 +1443,17 @@ describe('Font Editor API', () => {
         });
         
         it('should build paths correctly for multi-shape glyphs', () => {
-            const multiShapeGlyph = [
-                [[0, 0], [10, 0], [10, 10], [0, 10]],
-                [[2, 2], [8, 2], [8, 8], [2, 8]]
-            ];
+            const multiShapeGlyph = multiContours([
+                [[0, 0], [600, 0], [600, 700], [0, 700]],
+                [[100, 100], [500, 100], [500, 600], [100, 600]]
+            ]);
             
             const state = {
                 familyName: 'Test Font',
                 styleName: 'Regular',
                 unitsPerEm: 800,
-                ascender: 800,
-                descender: -200,
+                ascender: 700,
+                descender: -100,
                 glyphs: { 'B': multiShapeGlyph },
                 glyphWidths: {},
                 vfEnabled: false,
@@ -1461,17 +1483,17 @@ describe('Font Editor API', () => {
         
         it('should compute width correctly from multi-shape glyphs', () => {
             // Multi-shape where outer bounds define the width
-            const multiShapeGlyph = [
-                [[0, 0], [20, 0], [20, 10], [0, 10]], // outer: width 20
-                [[5, 2], [15, 2], [15, 8], [5, 8]]    // inner: narrower
-            ];
+            const multiShapeGlyph = multiContours([
+                [[0, 0], [700, 0], [700, 600], [0, 600]], // outer: width 700
+                [[100, 100], [600, 100], [600, 500], [100, 500]]  // inner: narrower
+            ]);
             
             const state = {
                 familyName: 'Test Font',
                 styleName: 'Regular',
                 unitsPerEm: 800,
-                ascender: 800,
-                descender: -200,
+                ascender: 700,
+                descender: -100,
                 glyphs: { 'X': multiShapeGlyph },
                 glyphWidths: {},
                 vfEnabled: false,
@@ -1484,9 +1506,8 @@ describe('Font Editor API', () => {
             const font = builder.build();
             
             const xGlyph = font.glyphs.get(3);
-            // Width should be (20 + 1) * 80 = 1680 (based on outer shape maxX)
-            // scale = 800 / 10 = 80
-            assert.equal(xGlyph.advanceWidth, 1680);
+            // Width should be 700 + sidebearing (0) = 700 (based on outer shape maxX)
+            assert.equal(xGlyph.advanceWidth, 700);
         });
     });
 
@@ -1500,19 +1521,20 @@ describe('Font Editor API', () => {
                 descender: -200
             });
             
-            // Shape 1: outer rectangle (4 points)
-            const baseShape1 = [[0, 0], [8, 0], [8, 10], [0, 10]];
-            // Shape 2: inner rectangle (4 points)
-            const baseShape2 = [[2, 2], [6, 2], [6, 5], [2, 5]];
+            // Shape 1: outer rectangle (4 points) in font units
+            const baseGlyph = multiContours([
+                [[0, 0], [560, 0], [560, 700], [0, 700]],
+                [[140, 140], [420, 140], [420, 350], [140, 350]]
+            ]);
             
             // Bold master - shapes are wider
-            const boldShape1 = [[0, 0], [10, 0], [10, 10], [0, 10]];
-            const boldShape2 = [[1, 2], [9, 2], [9, 5], [1, 5]];
+            const boldGlyph = multiContours([
+                [[0, 0], [700, 0], [700, 700], [0, 700]],
+                [[70, 140], [630, 140], [630, 350], [70, 350]]
+            ]);
             
-            state.glyphs = {
-                'A': [baseShape1, baseShape2]
-            };
-            state.glyphWidths = { 'A': 8 };
+            state.glyphs = { 'A': baseGlyph };
+            state.glyphWidths = { 'A': 560 };
             
             state.vfEnabled = true;
             state.axes = [{
@@ -1526,14 +1548,14 @@ describe('Font Editor API', () => {
                 {
                     name: 'Regular',
                     coords: { wght: 400 },
-                    glyphs: { 'A': [baseShape1, baseShape2] },
-                    glyphWidths: { 'A': 8 }
+                    glyphs: { 'A': baseGlyph },
+                    glyphWidths: { 'A': 560 }
                 },
                 {
                     name: 'Bold',
                     coords: { wght: 700 },
-                    glyphs: { 'A': [boldShape1, boldShape2] },
-                    glyphWidths: { 'A': 10 }
+                    glyphs: { 'A': boldGlyph },
+                    glyphWidths: { 'A': 700 }
                 }
             ];
             state.instances = [];
@@ -1567,18 +1589,18 @@ describe('Font Editor API', () => {
                 descender: -200
             });
             
-            // Create two glyphs with very different shapes
-            const glyphA_base = [[[0, 0], [8, 0], [4, 10]]];  // Triangle pointing up
-            const glyphA_bold = [[[0, 0], [10, 0], [5, 12]]]; // Larger triangle
+            // Create two glyphs with very different shapes (using font units)
+            const glyphA_base = contours([[0, 0], [560, 0], [280, 700]]);  // Triangle pointing up
+            const glyphA_bold = contours([[0, 0], [700, 0], [350, 750]]); // Larger triangle
             
-            const glyphB_base = [[[0, 10], [8, 10], [8, 0], [0, 0]]];  // Rectangle
-            const glyphB_bold = [[[0, 10], [8, 10], [8, 0], [0, 0]]];  // Same rectangle (no change)
+            const glyphB_base = contours([[0, 700], [560, 700], [560, 0], [0, 0]]);  // Rectangle
+            const glyphB_bold = contours([[0, 700], [560, 700], [560, 0], [0, 0]]);  // Same rectangle (no change)
             
             state.glyphs = {
                 'A': glyphA_base,
                 'B': glyphB_base
             };
-            state.glyphWidths = { 'A': 8, 'B': 8 };
+            state.glyphWidths = { 'A': 560, 'B': 560 };
             
             state.vfEnabled = true;
             state.axes = [{
@@ -1593,13 +1615,13 @@ describe('Font Editor API', () => {
                     name: 'Regular',
                     coords: { wght: 400 },
                     glyphs: { 'A': glyphA_base, 'B': glyphB_base },
-                    glyphWidths: { 'A': 8, 'B': 8 }
+                    glyphWidths: { 'A': 560, 'B': 560 }
                 },
                 {
                     name: 'Bold',
                     coords: { wght: 700 },
                     glyphs: { 'A': glyphA_bold, 'B': glyphB_bold },
-                    glyphWidths: { 'A': 10, 'B': 8 }
+                    glyphWidths: { 'A': 700, 'B': 560 }
                 }
             ];
             state.instances = [];
@@ -1654,15 +1676,15 @@ describe('Font Editor API', () => {
             });
             
             // Add base glyph first (will become the default master)
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.setGlyphWidth('A', 10);
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.setGlyphWidth('A', 600);
             
             // Define axis: wght 100-900, default 400
             state.addAxis({ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 });
             state.setVariableFontEnabled(true);
             
-            // Light master at wght=100: narrow glyph (width 5)
-            state.addMaster('Light', { wght: 100 }, { 'A': [[0, 0], [5, 0], [5, 10], [0, 10]] }, { 'A': 5 });
+            // Light master at wght=100: narrow glyph (width 300)
+            state.addMaster('Light', { wght: 100 }, { 'A': contours([[0, 0], [300, 0], [300, 700], [0, 700]]) }, { 'A': 300 });
             
             // Note: Default master at wght=400 is already created from addGlyph above
             
@@ -1676,16 +1698,16 @@ describe('Font Editor API', () => {
             const glyphA = parsed.charToGlyph('A');
             assert.ok(glyphA, 'Should find glyph A');
             
-            // Width at wght=100: should be ~5 * scale
+            // Width at wght=100: should be ~300
             const width100 = parsed.variation.process.getTransform(glyphA, { wght: 100 }).advanceWidth;
             
-            // Width at wght=400 (default): should be ~10 * scale
+            // Width at wght=400 (default): should be ~600
             const width400 = parsed.variation.process.getTransform(glyphA, { wght: 400 }).advanceWidth;
             
-            // Width at wght=900 (extrapolated): should be ~15 * scale (extrapolating the trend)
-            // From 100->400 (300 range), width goes 5->10 (delta of 5)
-            // From 400->900 (500 range), extrapolation should add 5 * (500/300) ≈ 8.33
-            // So width at 900 should be approximately 10 + 8.33 = 18.33 * scale
+            // Width at wght=900 (extrapolated): should be ~900 (extrapolating the trend)
+            // From 100->400 (300 range), width goes 300->600 (delta of 300)
+            // From 400->900 (500 range), extrapolation should add 300 * (500/300) = 500
+            // So width at 900 should be approximately 600 + 500 = 1100
             const width900 = parsed.variation.process.getTransform(glyphA, { wght: 900 }).advanceWidth;
             
             // The key assertion: width at 900 should be larger than width at 400 (not stuck or zero)
@@ -1716,16 +1738,16 @@ describe('Font Editor API', () => {
             });
             
             // Add base glyph at default width
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.setGlyphWidth('A', 10);
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.setGlyphWidth('A', 600);
             
             // Define axis: wght 100-900, default 400
             state.addAxis({ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 });
             state.setVariableFontEnabled(true);
             
-            // Bold master at wght=700: wider glyph (width 15)
+            // Bold master at wght=700: wider glyph (width 900)
             // No light master, so extrapolation is needed for wght < 400
-            state.addMaster('Bold', { wght: 700 }, { 'A': [[0, 0], [15, 0], [15, 10], [0, 10]] }, { 'A': 15 });
+            state.addMaster('Bold', { wght: 700 }, { 'A': contours([[0, 0], [900, 0], [900, 700], [0, 700]]) }, { 'A': 900 });
             
             const builder = new FontBuilder(state, opentype);
             const font = builder.build({ validate: true, validateRoundTrip: false });
@@ -1735,16 +1757,16 @@ describe('Font Editor API', () => {
             const glyphA = parsed.charToGlyph('A');
             assert.ok(glyphA, 'Should find glyph A');
             
-            // Width at wght=700: should be ~15 * scale
+            // Width at wght=700: should be ~900
             const width700 = parsed.variation.process.getTransform(glyphA, { wght: 700 }).advanceWidth;
             
-            // Width at wght=400 (default): should be ~10 * scale
+            // Width at wght=400 (default): should be ~600
             const width400 = parsed.variation.process.getTransform(glyphA, { wght: 400 }).advanceWidth;
             
-            // Width at wght=100 (extrapolated in min direction): should be less than 400
+            // Width at wght=100 (extrapolated in min direction): should be less than 600
             const width100 = parsed.variation.process.getTransform(glyphA, { wght: 100 }).advanceWidth;
             
-            // Width at wght=900 (extrapolated in max direction): should be more than 700
+            // Width at wght=900 (extrapolated in max direction): should be more than 900
             const width900 = parsed.variation.process.getTransform(glyphA, { wght: 900 }).advanceWidth;
             
             // Key assertions
@@ -1764,22 +1786,22 @@ describe('Font Editor API', () => {
             });
             
             // Add base glyph at default
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.setGlyphWidth('A', 10);
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.setGlyphWidth('A', 600);
             
             state.addAxis({ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 });
             state.setVariableFontEnabled(true);
             
             // Light master at 100 (narrow)
-            state.addMaster('Light', { wght: 100 }, { 'A': [[0, 0], [5, 0], [5, 10], [0, 10]] }, { 'A': 5 });
+            state.addMaster('Light', { wght: 100 }, { 'A': contours([[0, 0], [300, 0], [300, 700], [0, 700]]) }, { 'A': 300 });
             
             // Medium master at 500 (intermediate - with a "kink" correction)
-            // Linear interpolation between 400->900 would give width ~12 at 500
-            // But we want width 11 (slight correction)
-            state.addMaster('Medium', { wght: 500 }, { 'A': [[0, 0], [11, 0], [11, 10], [0, 10]] }, { 'A': 11 });
+            // Linear interpolation between 400->900 would give width ~720 at 500
+            // But we want width 660 (slight correction)
+            state.addMaster('Medium', { wght: 500 }, { 'A': contours([[0, 0], [660, 0], [660, 700], [0, 700]]) }, { 'A': 660 });
             
             // Bold master at 900 (wide)
-            state.addMaster('Bold', { wght: 900 }, { 'A': [[0, 0], [20, 0], [20, 10], [0, 10]] }, { 'A': 20 });
+            state.addMaster('Bold', { wght: 900 }, { 'A': contours([[0, 0], [1200, 0], [1200, 700], [0, 700]]) }, { 'A': 1200 });
             
             const builder = new FontBuilder(state, opentype);
             const font = builder.build({ validate: true, validateRoundTrip: false });
@@ -1818,31 +1840,31 @@ describe('Font Editor API', () => {
             });
             
             // Add base glyphs
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.setGlyphWidth('A', 10);
-            state.addGlyph('B', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.setGlyphWidth('B', 10);
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.setGlyphWidth('A', 600);
+            state.addGlyph('B', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.setGlyphWidth('B', 600);
             
             state.addAxis({ tag: 'wght', name: 'Weight', minValue: 100, defaultValue: 400, maxValue: 900 });
             state.setVariableFontEnabled(true);
             
             // Light master with both A and B
             state.addMaster('Light', { wght: 100 }, { 
-                'A': [[0, 0], [5, 0], [5, 10], [0, 10]],
-                'B': [[0, 0], [5, 0], [5, 10], [0, 10]]
-            }, { 'A': 5, 'B': 5 });
+                'A': contours([[0, 0], [300, 0], [300, 700], [0, 700]]),
+                'B': contours([[0, 0], [300, 0], [300, 700], [0, 700]])
+            }, { 'A': 300, 'B': 300 });
             
             // Intermediate master at 500 with ONLY glyph A (B doesn't participate)
             // This is the "sparse" feature - not all glyphs need to be defined
             state.addMaster('Medium', { wght: 500 }, { 
-                'A': [[0, 0], [11, 0], [11, 10], [0, 10]]
-            }, { 'A': 11 });
+                'A': contours([[0, 0], [660, 0], [660, 700], [0, 700]])
+            }, { 'A': 660 });
             
             // Bold master with both A and B
             state.addMaster('Bold', { wght: 900 }, { 
-                'A': [[0, 0], [20, 0], [20, 10], [0, 10]],
-                'B': [[0, 0], [20, 0], [20, 10], [0, 10]]
-            }, { 'A': 20, 'B': 20 });
+                'A': contours([[0, 0], [1200, 0], [1200, 700], [0, 700]]),
+                'B': contours([[0, 0], [1200, 0], [1200, 700], [0, 700]])
+            }, { 'A': 1200, 'B': 1200 });
             
             const builder = new FontBuilder(state, opentype);
             const font = builder.build({ validate: true, validateRoundTrip: false });
@@ -1882,11 +1904,11 @@ describe('Font Editor API', () => {
                 descender: -200
             });
             
-            // Add base glyphs
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('B', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            // Add base glyphs (using font units)
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('B', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
             // Add ligature glyph (named A_B following standard convention)
-            state.addGlyph('A_B', [[0, 0], [20, 0], [20, 10], [0, 10]]);
+            state.addGlyph('A_B', contours([[0, 0], [1200, 0], [1200, 700], [0, 700]]));
             
             // Add ligature substitution: A + B -> A_B
             state.addLigature('AB', 'A_B', true);
@@ -1924,13 +1946,13 @@ describe('Font Editor API', () => {
                 descender: -200
             });
             
-            // Add base glyphs
-            state.addGlyph('f', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('i', [[0, 0], [5, 0], [5, 10], [0, 10]]);
-            state.addGlyph('l', [[0, 0], [5, 0], [5, 10], [0, 10]]);
+            // Add base glyphs (using font units)
+            state.addGlyph('f', contours([[0, 0], [400, 0], [400, 700], [0, 700]]));
+            state.addGlyph('i', contours([[0, 0], [250, 0], [250, 700], [0, 700]]));
+            state.addGlyph('l', contours([[0, 0], [250, 0], [250, 700], [0, 700]]));
             // Add ligature glyphs
-            state.addGlyph('fi', [[0, 0], [15, 0], [15, 10], [0, 10]]);
-            state.addGlyph('fl', [[0, 0], [15, 0], [15, 10], [0, 10]]);
+            state.addGlyph('fi', contours([[0, 0], [650, 0], [650, 700], [0, 700]]));
+            state.addGlyph('fl', contours([[0, 0], [650, 0], [650, 700], [0, 700]]));
             
             // Add ligature substitutions
             state.addLigature('fi', 'fi', true);
@@ -1960,10 +1982,10 @@ describe('Font Editor API', () => {
                 descender: -200
             });
             
-            // Add base glyphs
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('B', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('A_B', [[0, 0], [20, 0], [20, 10], [0, 10]]);
+            // Add base glyphs (using font units)
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('B', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('A_B', contours([[0, 0], [1200, 0], [1200, 700], [0, 700]]));
             
             // Add ligature but disabled
             state.addLigature('AB', 'A_B', false);
@@ -1986,10 +2008,10 @@ describe('Font Editor API', () => {
                 descender: -200
             });
             
-            // Add only 'A' glyph, not 'B'
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            // Add only 'A' glyph, not 'B' (using font units)
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
             // Add ligature glyph
-            state.addGlyph('A_B', [[0, 0], [20, 0], [20, 10], [0, 10]]);
+            state.addGlyph('A_B', contours([[0, 0], [1200, 0], [1200, 700], [0, 700]]));
             
             // Add ligature that references missing glyph 'B'
             state.addLigature('AB', 'A_B', true);
@@ -2013,11 +2035,11 @@ describe('Font Editor API', () => {
                 descender: -200
             });
             
-            // Add regular glyphs
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('B', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            // Add regular glyphs (using font units)
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('B', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
             // Add ligature glyph with multi-char name - should NOT get unicode
-            state.addGlyph('A_B', [[0, 0], [20, 0], [20, 10], [0, 10]]);
+            state.addGlyph('A_B', contours([[0, 0], [1200, 0], [1200, 700], [0, 700]]));
             
             const builder = new FontBuilder(state, opentype);
             const font = builder.build({ validate: true, validateRoundTrip: false });
@@ -2051,10 +2073,10 @@ describe('Font Editor API', () => {
                 descender: -200
             });
             
-            // Add base glyphs
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('B', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('A_B', [[0, 0], [20, 0], [20, 10], [0, 10]]);
+            // Add base glyphs (using font units)
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('B', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('A_B', contours([[0, 0], [1200, 0], [1200, 700], [0, 700]]));
             
             // Add ligature
             state.addLigature('AB', 'A_B', true);
@@ -2097,10 +2119,10 @@ describe('Font Editor API', () => {
             });
 
             // Add glyphs
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('V', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('T', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('o', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('V', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('T', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('o', contours([[0, 0], [400, 0], [400, 500], [0, 500]]));
 
             // Add kerning pairs (in editor units)
             state.kerning = {
@@ -2133,8 +2155,8 @@ describe('Font Editor API', () => {
                 descender: -200
             });
 
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('V', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('V', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
             // No kerning
 
             const builder = new FontBuilder(state, opentype);
@@ -2155,8 +2177,8 @@ describe('Font Editor API', () => {
                 descender: -200
             });
 
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('V', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('V', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
             state.kerning = { 'AV': -50 };
             state.features = { kern: false };
 
@@ -2178,7 +2200,7 @@ describe('Font Editor API', () => {
                 descender: -200
             });
 
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
             // V is NOT added
             state.kerning = { 'AV': -50 };
 
@@ -2200,8 +2222,8 @@ describe('Font Editor API', () => {
                 descender: -200
             });
 
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('V', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('V', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
             state.kerning = { 'AV': -100 }; // Large negative value
 
             const builder = new FontBuilder(state, opentype);
@@ -2225,10 +2247,10 @@ describe('Font Editor API', () => {
                 descender: -200
             });
 
-            state.addGlyph('A', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('V', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('T', [[0, 0], [10, 0], [10, 10], [0, 10]]);
-            state.addGlyph('o', [[0, 0], [10, 0], [10, 10], [0, 10]]);
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('V', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('T', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('o', contours([[0, 0], [400, 0], [400, 500], [0, 500]]));
             state.kerning = {
                 'AV': -50,
                 'To': -30,

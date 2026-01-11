@@ -1497,11 +1497,11 @@
                     </div>
                     <div class="toolbar-group">
                         <label>Zoom:</label>
-                        <input type="number" id="zoom" value="20" min="5" max="100" step="5">
+                        <input type="number" id="zoom" value="0.5" min="0.1" max="2" step="0.1">
                     </div>
                     <div class="toolbar-group">
                         <label>Grid:</label>
-                        <input type="number" id="grid-size" value="1" min="0.5" max="10" step="0.5">
+                        <input type="number" id="grid-size" value="50" min="10" max="200" step="10">
                     </div>
                 </div>
 
@@ -1520,7 +1520,12 @@
                 </div>
 
                 <div class="preview-area">
-                    <input type="text" class="preview-input" id="preview-text" value="HAMBURGEVONS" placeholder="Preview text...">
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" class="preview-input" id="preview-text" value="HAMBURGEVONS" placeholder="Preview text..." style="flex: 1;">
+                        <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap;">
+                            <input type="checkbox" id="preview-ligatures" checked> Ligatures
+                        </label>
+                    </div>
                     <canvas id="preview-canvas"></canvas>
                 </div>
             </div>
@@ -1538,6 +1543,10 @@
                             <label>Width</label>
                             <input type="number" id="glyph-width" value="8" min="1" max="20" step="0.5">
                             <button id="clear-width" class="btn btn-small" title="Reset to auto-calculated width">Auto</button>
+                        </div>
+                        <div class="property-row">
+                            <label title="Padding around glyph (split left/right)">Sideb.</label>
+                            <input type="number" id="sidebearing" value="40" min="0" max="200" step="10" title="Sidebearing: padding applied half to left, half to right in auto-width mode">
                         </div>
                     </div>
 
@@ -1851,35 +1860,38 @@
         window.opentype = opentype;
 
         // State
+        // Note: All coordinates are in font units (unitsPerEm = 800)
+        // The default glyphs below use coordinates in the 0-800 range
         const state = {
             glyphs: {
-                // Now using nested arrays: each glyph is an array of shapes, each shape is an array of points
-                'A': [[[0, 0], [4, 10], [8, 0]]],
-                'B': [[[0, 0], [0, 10], [5, 10], [5, 5], [7, 5], [7, 0]]],
-                'C': [[[0, 0], [0, 10], [8, 10], [8, 6], [3, 6], [3, 4], [8, 4], [8, 0]]],
-                'D': [[[0, 0], [0, 3], [2, 3], [2, 7], [0, 7], [0, 10], [8, 10], [8, 0]]],
-                'E': [[[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [3, 7], [3, 6], [5, 6], [5, 4], [3, 4], [3, 3], [8, 3], [8, 0]]],
-                'F': [[[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [3, 7], [3, 6], [5, 6], [5, 3], [3, 3], [3, 0]]],
-                'G': [[[0, 0], [0, 3], [0, 10], [8, 10], [8, 7], [3, 7], [3, 3], [5, 3], [5, 5], [8, 5], [8, 0]]],
-                'H': [[[0, 0], [0, 3], [0, 7], [0, 10], [3, 10], [3, 7], [5, 7], [5, 10], [8, 10], [8, 0], [5, 0], [5, 3], [3, 3], [3, 0]]],
-                'I': [[[0, 0], [0, 10], [3, 10], [3, 0]]],
-                'J': [[[0, 0], [0, 3], [4, 3], [4, 10], [7, 10], [7, 0]]],
-                'K': [[[0, 0], [0, 10], [3, 10], [3, 7], [5, 10], [8, 10], [5, 5], [8, 0], [5, 0], [3, 3], [3, 0]]],
-                'L': [[[0, 0], [0, 10], [3, 10], [3, 3], [7, 3], [7, 0]]],
-                'M': [[[0, 0], [0, 10], [3, 10], [4, 8], [5, 10], [8, 10], [8, 0], [5, 0], [5, 4], [4, 3], [3, 4], [3, 0]]],
-                'N': [[[0, 0], [0, 10], [3, 10], [3, 9], [5, 7], [5, 10], [8, 10], [8, 0], [5, 0], [5, 3], [3, 5], [3, 0]]],
-                'O': [[[0, 0], [0, 10], [7, 10], [7, 0]]],
-                'P': [[[0, 0], [0, 10], [7, 10], [7, 4], [3, 4], [3, 0]]],
-                'Q': [[[0, 0], [0, 10], [7, 10], [7, 0], [6, 0], [7, -1], [4, -1], [3, 0]]],
-                'R': [[[0, 0], [0, 10], [7, 10], [7, 4], [5, 4], [7, 0], [4, 0], [3, 2], [3, 0]]],
-                'S': [[[7, 10], [7, 7], [3, 7], [3, 6], [7, 6], [7, 0], [0, 0], [0, 3], [4, 3], [4, 4], [0, 4], [0, 10]]],
-                'T': [[[2, 0], [2, 7], [0, 7], [0, 10], [7, 10], [7, 7], [5, 7], [5, 0]]],
-                'U': [[[0, 0], [0, 10], [3, 10], [3, 3], [5, 3], [5, 10], [8, 10], [8, 0]]],
-                'V': [[[0, 10], [3, 10], [4, 0], [5, 10], [8, 10], [5, 0], [3, 0]]],
-                'W': [[[0, 10], [2, 10], [3, 3], [4, 7], [5, 3], [6, 10], [8, 10], [6, 0], [5, 0], [4, 4], [3, 0], [2, 0]]],
-                'X': [[[0, 10], [2, 10], [4, 6], [6, 10], [8, 10], [5, 5], [8, 0], [6, 0], [4, 4], [2, 0], [0, 0], [3, 5]]],
-                'Y': [[[0, 10], [2, 10], [4, 6], [6, 10], [8, 10], [5, 4], [5, 0], [3, 0], [3, 4]]],
-                'Z': [[[0, 10], [8, 10], [8, 7], [3, 3], [8, 3], [8, 0], [0, 0], [0, 3], [5, 7], [0, 7]]],
+                // Each glyph is an array of shapes (contours), each shape is an array of [x, y] points
+                // Coordinates are in font units (0-800 for 800 unitsPerEm)
+                'A': [[[0, 0], [320, 800], [640, 0]]],
+                'B': [[[0, 0], [0, 800], [400, 800], [400, 400], [560, 400], [560, 0]]],
+                'C': [[[0, 0], [0, 800], [640, 800], [640, 480], [240, 480], [240, 320], [640, 320], [640, 0]]],
+                'D': [[[0, 0], [0, 240], [160, 240], [160, 560], [0, 560], [0, 800], [640, 800], [640, 0]]],
+                'E': [[[0, 0], [0, 240], [0, 800], [640, 800], [640, 560], [240, 560], [240, 480], [400, 480], [400, 320], [240, 320], [240, 240], [640, 240], [640, 0]]],
+                'F': [[[0, 0], [0, 240], [0, 800], [640, 800], [640, 560], [240, 560], [240, 480], [400, 480], [400, 240], [240, 240], [240, 0]]],
+                'G': [[[0, 0], [0, 240], [0, 800], [640, 800], [640, 560], [240, 560], [240, 240], [400, 240], [400, 400], [640, 400], [640, 0]]],
+                'H': [[[0, 0], [0, 240], [0, 560], [0, 800], [240, 800], [240, 560], [400, 560], [400, 800], [640, 800], [640, 0], [400, 0], [400, 240], [240, 240], [240, 0]]],
+                'I': [[[0, 0], [0, 800], [240, 800], [240, 0]]],
+                'J': [[[0, 0], [0, 240], [320, 240], [320, 800], [560, 800], [560, 0]]],
+                'K': [[[0, 0], [0, 800], [240, 800], [240, 560], [400, 800], [640, 800], [400, 400], [640, 0], [400, 0], [240, 240], [240, 0]]],
+                'L': [[[0, 0], [0, 800], [240, 800], [240, 240], [560, 240], [560, 0]]],
+                'M': [[[0, 0], [0, 800], [240, 800], [320, 640], [400, 800], [640, 800], [640, 0], [400, 0], [400, 320], [320, 240], [240, 320], [240, 0]]],
+                'N': [[[0, 0], [0, 800], [240, 800], [240, 720], [400, 560], [400, 800], [640, 800], [640, 0], [400, 0], [400, 240], [240, 400], [240, 0]]],
+                'O': [[[0, 0], [0, 800], [560, 800], [560, 0]]],
+                'P': [[[0, 0], [0, 800], [560, 800], [560, 320], [240, 320], [240, 0]]],
+                'Q': [[[0, 0], [0, 800], [560, 800], [560, 0], [480, 0], [560, -80], [320, -80], [240, 0]]],
+                'R': [[[0, 0], [0, 800], [560, 800], [560, 320], [400, 320], [560, 0], [320, 0], [240, 160], [240, 0]]],
+                'S': [[[560, 800], [560, 560], [240, 560], [240, 480], [560, 480], [560, 0], [0, 0], [0, 240], [320, 240], [320, 320], [0, 320], [0, 800]]],
+                'T': [[[160, 0], [160, 560], [0, 560], [0, 800], [560, 800], [560, 560], [400, 560], [400, 0]]],
+                'U': [[[0, 0], [0, 800], [240, 800], [240, 240], [400, 240], [400, 800], [640, 800], [640, 0]]],
+                'V': [[[0, 800], [240, 800], [320, 0], [400, 800], [640, 800], [400, 0], [240, 0]]],
+                'W': [[[0, 800], [160, 800], [240, 240], [320, 560], [400, 240], [480, 800], [640, 800], [480, 0], [400, 0], [320, 320], [240, 0], [160, 0]]],
+                'X': [[[0, 800], [160, 800], [320, 480], [480, 800], [640, 800], [400, 400], [640, 0], [480, 0], [320, 320], [160, 0], [0, 0], [240, 400]]],
+                'Y': [[[0, 800], [160, 800], [320, 480], [480, 800], [640, 800], [400, 320], [400, 0], [240, 0], [240, 320]]],
+                'Z': [[[0, 800], [640, 800], [640, 560], [240, 240], [640, 240], [640, 0], [0, 0], [0, 240], [400, 560], [0, 560]]],
             },
             // Explicit glyph widths (advance widths). If not set, computed from rightmost point + 1
             glyphWidths: {},
@@ -1887,10 +1899,13 @@
             selectedGlyphs: new Set(), // Multi-select: glyphs selected for batch operations
             selectedShape: 0, // Index of currently selected shape within the glyph
             selectedPoint: -1,
-            zoom: 20,
-            gridSize: 1,
+            zoom: 0.5,
+            gridSize: 50,
             panX: 100,
             panY: 50,
+            // Sidebearing: padding added around glyphs in auto-width mode
+            // Applied as half on left, half on right to center the glyph
+            sidebearing: 40, // In font units (800 unitsPerEm)
             isDragging: false,
             isDraggingShape: false, // Dragging entire shape
             isDraggingEdge: false, // Dragging an edge (two points)
@@ -2166,6 +2181,13 @@
                 draw();
             });
 
+            document.getElementById('sidebearing').addEventListener('input', e => {
+                state.sidebearing = parseFloat(e.target.value) || 0;
+                updateGlyphProperties();
+                draw();
+                drawPreview();
+            });
+
             document.getElementById('add-point').addEventListener('click', addPoint);
             document.getElementById('delete-point').addEventListener('click', deleteSelectedPoint);
             document.getElementById('download-font').addEventListener('click', downloadFont);
@@ -2187,6 +2209,7 @@
             document.getElementById('import-confirm').addEventListener('click', confirmImport);
 
             document.getElementById('preview-text').addEventListener('input', drawPreview);
+            document.getElementById('preview-ligatures').addEventListener('change', drawPreview);
 
             document.getElementById('point-x').addEventListener('input', updatePointFromInput);
             document.getElementById('point-y').addEventListener('input', updatePointFromInput);
@@ -2362,6 +2385,11 @@
                         refreshKerningWords();
                         updateKerningTable();
                     }
+                    
+                    // Special handling when switching to ligatures tab
+                    if (targetTab === 'ligatures') {
+                        renderLigatureList();
+                    }
                 });
             });
             
@@ -2464,8 +2492,8 @@
             }
             
             // Create an empty glyph for the ligature
-            // Start with a basic shape - user can edit it
-            state.glyphs[finalName] = [[[0, 0], [0, 7], [5, 7], [5, 0]]];
+            // Start with a basic shape - user can edit it (aligned to grid)
+            state.glyphs[finalName] = [[[0, 0], [0, 560], [400, 560], [400, 0]]];
             
             // Update the ligature result
             state.ligatures[index].result = finalName;
@@ -2685,7 +2713,9 @@
         }
         
         // Process ligatures in text and return array of glyph names/chars
-        function processLigatures(text) {
+        // Optional glyphsSource can override state.glyphs (e.g., for VF interpolated preview)
+        function processLigatures(text, glyphsSource = null) {
+            const glyphsObj = glyphsSource || state.glyphs;
             const result = [];
             let i = 0;
             
@@ -2701,7 +2731,7 @@
                 for (const lig of enabledLigatures) {
                     if (text.substring(i, i + lig.sequence.length) === lig.sequence) {
                         // Check if the result glyph exists
-                        if (state.glyphs.some(g => g.char === lig.result || g.name === lig.result)) {
+                        if (glyphsObj[lig.result]) {
                             result.push(lig.result);
                             i += lig.sequence.length;
                             matched = true;
@@ -2757,7 +2787,7 @@
             }
             
             // Fallback: return a simple placeholder box for missing glyphs
-            return [[[-0.5, 0], [4.5, 0], [4.5, 8], [-0.5, 8]]];
+            return [[[0, 0], [400, 0], [400, 640], [0, 640]]];
         }
         
         // Get glyph width for rendering, with fallback
@@ -2771,7 +2801,7 @@
             }
             
             // Fallback width for missing glyphs
-            return 5;
+            return 400;
         }
         
         // Create SVG path data for a glyph's shapes
@@ -2813,8 +2843,8 @@
                 refs = state.glyphReferences;
             }
             
-            // Calculate scale: font design is 10 units tall (roughly), we want height pixels
-            const designHeight = 10;
+            // Calculate scale: font design is 800 units tall (unitsPerEm), we want height pixels
+            const designHeight = 800;
             const scale = height / designHeight;
             
             // Calculate total width
@@ -2837,6 +2867,9 @@
             svg.setAttribute('viewBox', `0 0 ${Math.max(totalWidth, 10)} ${height}`);
             if (wrapperClass) svg.classList.add(wrapperClass);
             
+            // Calculate left side bearing offset (half of sidebearing for centering)
+            const lsbOffset = (state.sidebearing || 0) / 2;
+            
             let x = 0;
             chars.forEach((char, i) => {
                 // Apply kerning before this character (except first)
@@ -2847,7 +2880,8 @@
                 }
                 
                 const shapes = getGlyphShapesForRender(char, glyphs, refs);
-                const pathData = glyphShapesToPath(shapes, x, scale);
+                // Apply lsbOffset to center glyph within its advance width
+                const pathData = glyphShapesToPath(shapes, x + lsbOffset * scale, scale);
                 
                 const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
                 group.setAttribute('transform', `translate(0, ${height}) scale(1, -1)`);
@@ -2905,12 +2939,16 @@
                 return null;
             }
             
-            const designHeight = 10;
+            const designHeight = 800;
             const scale = height / designHeight;
+            
+            // Calculate left side bearing offset (half of sidebearing for centering)
+            const lsbOffset = (state.sidebearing || 0) / 2;
             
             // Get shapes for this glyph
             const shapes = getGlyphShapesForRender(glyphName, glyphs, refs);
-            const pathData = glyphShapesToPath(shapes, 0, scale);
+            // Apply lsbOffset to center glyph within its advance width
+            const pathData = glyphShapesToPath(shapes, lsbOffset * scale, scale);
             const glyphWidth = getGlyphWidthForRender(glyphName, glyphs, widths);
             const totalWidth = (glyphWidth + 1) * scale;
             
@@ -3918,8 +3956,8 @@
 
         function onEditorWheel(e) {
             e.preventDefault();
-            const delta = e.deltaY > 0 ? -2 : 2;
-            state.zoom = Math.max(5, Math.min(100, state.zoom + delta));
+            const delta = e.deltaY > 0 ? -0.05 : 0.05;
+            state.zoom = Math.max(0.1, Math.min(2, state.zoom + delta));
             document.getElementById('zoom').value = state.zoom;
             draw();
         }
@@ -4024,7 +4062,7 @@
             // Draw glyph bounds
             const shapes = getGlyphShapes();
             const glyphWidth = getCurrentGlyphWidth() + 1;
-            const capHeight = 10;
+            const capHeight = 800; // unitsPerEm
 
             ctx.strokeStyle = '#3a5060';
             ctx.lineWidth = 1;
@@ -4195,9 +4233,10 @@
             ctx.clearRect(0, 0, w, h);
 
             const text = document.getElementById('preview-text').value.toUpperCase();
-            const scale = 6;
+            const useLigatures = document.getElementById('preview-ligatures').checked;
+            const scale = 0.075; // Scale for 800 unitsPerEm to ~60px height
             let x = 20;
-            const y = 20;
+            const y = 10;
 
             // Use interpolated glyphs, widths, and references if VF is enabled
             let glyphs, widths, refs;
@@ -4211,29 +4250,36 @@
                 widths = state.glyphWidths;
                 refs = state.glyphReferences;
             }
+            
+            // Process ligatures if enabled
+            const glyphNames = useLigatures ? processLigatures(text, glyphs) : [...text];
 
             ctx.save();
             ctx.translate(0, h);
             ctx.scale(1, -1);
 
+            // Calculate left side bearing offset (half of sidebearing for centering)
+            const lsbOffset = (state.sidebearing || 0) / 2;
+            
             ctx.beginPath();
-            for (const char of text) {
-                const glyphData = glyphs[char];
+            for (const glyphName of glyphNames) {
+                const glyphData = glyphs[glyphName];
                 // Get all shapes including reference layers
                 // Pass glyphs and refs as source so component references use interpolated shapes and transforms
-                const allShapes = getGlyphShapesWithReferences(char, glyphData, glyphs, refs);
+                const allShapes = getGlyphShapesWithReferences(glyphName, glyphData, glyphs, refs);
                 
                 if (allShapes.length > 0) {
                     for (const points of allShapes) {
                         if (points.length > 0) {
-                            ctx.moveTo(x + points[0][0] * scale, y + points[0][1] * scale);
+                            // Apply lsbOffset to center glyph within advance width
+                            ctx.moveTo(x + (points[0][0] + lsbOffset) * scale, y + points[0][1] * scale);
                             for (let i = 1; i < points.length; i++) {
-                                ctx.lineTo(x + points[i][0] * scale, y + points[i][1] * scale);
+                                ctx.lineTo(x + (points[i][0] + lsbOffset) * scale, y + points[i][1] * scale);
                             }
                             ctx.closePath();
                         }
                     }
-                    x += (getGlyphWidthFromShapes(allShapes, char, widths) + 1) * scale;
+                    x += (getGlyphWidthFromShapes(allShapes, glyphName, widths) + 1) * scale;
                 } else {
                     x += 5 * scale;
                 }
@@ -4282,44 +4328,54 @@
         }
 
         // Get glyph width from shapes - uses stored width if available, otherwise computes from points
+        // When computing from shapes, includes sidebearing to center the glyph
         function getGlyphWidthFromShapes(shapes, char = null, widthsObj = null) {
             // Check for explicit stored width
             if (char && widthsObj && widthsObj[char] !== undefined) {
                 return widthsObj[char];
             }
-            // Fallback: compute from bounding box (maxX - minX) across all shapes
+            // Fallback: compute from bounding box (maxX - minX) across all shapes + sidebearing
             const allPoints = shapes.flat();
-            if (!allPoints || allPoints.length === 0) return 5;
+            if (!allPoints || allPoints.length === 0) return 400;
             const xCoords = allPoints.map(p => p[0]);
             const minX = Math.min(...xCoords);
             const maxX = Math.max(...xCoords);
-            return minX >= 0 ? maxX : maxX - minX;
+            const bboxWidth = minX >= 0 ? maxX : maxX - minX;
+            // Add sidebearing when computing auto-width
+            return bboxWidth + (state.sidebearing || 0);
         }
         
         // Get auto-calculated width including reference shapes
+        // Width = (maxX - minX) + sidebearing (applied as half left, half right)
+        // The glyph's left edge should start at sidebearing/2
         function getAutoWidth(char) {
             const glyphData = state.glyphs[char] || [];
             const allShapes = getGlyphShapesWithReferences(char, glyphData);
-            if (allShapes.length === 0) return 5;
+            if (allShapes.length === 0) return 400;
             
             const allPoints = allShapes.flat();
-            if (!allPoints || allPoints.length === 0) return 5;
+            if (!allPoints || allPoints.length === 0) return 400;
             const xCoords = allPoints.map(p => p[0]);
             const minX = Math.min(...xCoords);
             const maxX = Math.max(...xCoords);
-            return minX >= 0 ? maxX : maxX - minX;
+            // Width is bounding box width plus total sidebearing
+            // Sidebearing is applied half to left, half to right
+            const glyphBBoxWidth = maxX - minX;
+            return glyphBBoxWidth + state.sidebearing;
         }
         
         // Legacy: Get glyph width - uses stored width if available, otherwise computes from points
+        // NOTE: This returns bounding box width WITHOUT sidebearing (used for VF delta calculation)
+        // For display purposes, use getGlyphWidthFromShapes or getAutoWidth which include sidebearing
         function getGlyphWidth(pointsOrShapes, char = null, widthsObj = null) {
-            // Check for explicit stored width
+            // Check for explicit stored width (stored widths are bounding box widths for masters)
             if (char && widthsObj && widthsObj[char] !== undefined) {
                 return widthsObj[char];
             }
             // Handle both nested and flat formats
             const allPoints = (pointsOrShapes[0] && Array.isArray(pointsOrShapes[0]) && Array.isArray(pointsOrShapes[0][0]))
                 ? pointsOrShapes.flat() : pointsOrShapes;
-            if (!allPoints || allPoints.length === 0) return 5;
+            if (!allPoints || allPoints.length === 0) return 400;
             const xCoords = allPoints.map(p => p[0]);
             const minX = Math.min(...xCoords);
             const maxX = Math.max(...xCoords);
@@ -4598,7 +4654,7 @@
             
             if (!state.glyphs[name]) {
                 // Create new component with empty shape (components are just glyphs)
-                state.glyphs[name] = [[[0, 0], [4, 10], [8, 0]]]; // Default triangle shape
+                state.glyphs[name] = [[[0, 0], [320, 800], [640, 0]]]; // Default triangle shape in font units
             }
             
             hideModal('component-modal');
@@ -4806,7 +4862,7 @@
                 content.appendChild(fallbackSpan);
             } else {
                 const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                svg.setAttribute('viewBox', '-2 -2 14 14');
+                svg.setAttribute('viewBox', '-50 -50 750 750');
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 
                 // Handle both nested and flat formats
@@ -4816,7 +4872,7 @@
                 let d = '';
                 for (const points of shapes) {
                     if (points && points.length > 0) {
-                        d += 'M' + points.map(p => p[0] + ' ' + (10 - p[1])).join(' L') + ' Z ';
+                        d += 'M' + points.map(p => p[0] + ' ' + (700 - p[1])).join(' L') + ' Z ';
                     }
                 }
                 path.setAttribute('d', d.trim());
@@ -5006,9 +5062,9 @@
         
         function addShape() {
             const shapes = getGlyphShapes();
-            // Add a small triangle shape offset from existing shapes
-            const offset = shapes.length * 2;
-            const newShape = [[offset, 0], [offset + 4, 10], [offset + 8, 0]];
+            // Add a triangle shape offset from existing shapes (in 800 font units scale)
+            const offset = shapes.length * 160;
+            const newShape = [[offset, 0], [offset + 160, 560], [offset + 320, 0]];
             shapes.push(newShape);
             setGlyphShapes(shapes);
             state.selectedShape = shapes.length - 1;
@@ -5093,8 +5149,8 @@
             if (char && char.length === 1) {
                 const upperChar = char.toUpperCase();
                 if (!state.glyphs[upperChar]) {
-                    // Initialize with nested shape array
-                    state.glyphs[upperChar] = [[[0, 0], [4, 10], [8, 0]]];
+                    // Initialize with nested shape array using font units (0-800 range)
+                    state.glyphs[upperChar] = [[[0, 0], [320, 800], [640, 0]]];
                     selectGlyph(upperChar);
                     renderGlyphGrid();
                 }
@@ -5213,7 +5269,6 @@
                 
                 // Import glyphs
                 let importedCount = 0;
-                const scale = 10 / font.unitsPerEm * 1.2;
                 for (const code of charCodes) {
                     const char = String.fromCharCode(code);
                     const glyph = font.charToGlyph(char);
@@ -5221,15 +5276,14 @@
                         if (!overwrite && state.glyphs[char]) {
                             continue; // Skip existing
                         }
-                        const points = extractPathPoints(glyph.path, font.unitsPerEm);
+                        const points = extractPathPoints(glyph.path);
                         if (points.length > 0) {
-                            // Wrap points in shape array for nested format
-                            state.glyphs[char] = [points];
-                            // Compute proper width from path bounds (handles bezier curves)
+                            // Convert to contour format: [[{x, y, onCurve}, ...]]
+                            state.glyphs[char] = [points.map(p => ({ x: p[0], y: p[1], onCurve: true }))];
+                            // Compute width from path bounds (in font units)
                             const bounds = getPathBounds(glyph.path);
-                            const glyphWidth = bounds.maxX * scale;
-                            if (glyphWidth > 0) {
-                                state.glyphWidths[char] = Math.round(glyphWidth * 10) / 10;
+                            if (bounds.maxX > 0) {
+                                state.glyphWidths[char] = Math.round(bounds.maxX);
                             }
                             importedCount++;
                         }
@@ -5276,12 +5330,11 @@
                                 // Get transform at default coords to get the base points
                                 const transform = font.variation.getTransform(glyph.index, defaultCoords);
                                 if (transform && transform.points) {
-                                    const transformedPoints = extractTransformedPoints(transform.points, font.unitsPerEm);
+                                    const transformedPoints = extractTransformedPoints(transform.points);
                                     if (transformedPoints.length > 0) {
                                         defaultGlyphs[char] = transformedPoints;
-                                        // Capture advanceWidth (convert from unitsPerEm to editor units)
-                                        const editorScale = 10 / font.unitsPerEm;
-                                        defaultWidths[char] = Math.round(transform.advanceWidth * editorScale) - 1;
+                                        // Capture advanceWidth in font units
+                                        defaultWidths[char] = Math.round(transform.advanceWidth);
                                     }
                                 }
                             }
@@ -5310,7 +5363,6 @@
                                 const minCoords = { ...defaultCoords, [axis.tag]: axis.minValue };
                                 const minGlyphs = {};
                                 const minWidths = {};
-                                const editorScale = 10 / font.unitsPerEm;
                                 
                                 for (const code of charCodes) {
                                     const char = String.fromCharCode(code);
@@ -5321,17 +5373,17 @@
                                             coordsObj[axis.tag] = axis.minValue;
                                             const transform = font.variation.getTransform(glyph.index, coordsObj);
                                             if (transform && transform.points) {
-                                                const transformedPoints = extractTransformedPoints(transform.points, font.unitsPerEm);
+                                                const transformedPoints = extractTransformedPoints(transform.points);
                                                 if (transformedPoints.length > 0) {
                                                     minGlyphs[char] = transformedPoints;
-                                                    minWidths[char] = Math.round(transform.advanceWidth * editorScale) - 1;
+                                                    minWidths[char] = Math.round(transform.advanceWidth);
                                                 }
                                             } else {
-                                                minGlyphs[char] = defaultGlyphs[char] ? [...defaultGlyphs[char].map(p => [...p])] : [];
+                                                minGlyphs[char] = defaultGlyphs[char] ? JSON.parse(JSON.stringify(defaultGlyphs[char])) : [];
                                             }
                                         } catch (e) {
                                             if (defaultGlyphs[char]) {
-                                                minGlyphs[char] = defaultGlyphs[char].map(p => [...p]);
+                                                minGlyphs[char] = JSON.parse(JSON.stringify(defaultGlyphs[char]));
                                             }
                                         }
                                     }
@@ -5353,7 +5405,6 @@
                                 const maxCoords = { ...defaultCoords, [axis.tag]: axis.maxValue };
                                 const maxGlyphs = {};
                                 const maxWidths = {};
-                                const editorScale = 10 / font.unitsPerEm;
                                 
                                 for (const code of charCodes) {
                                     const char = String.fromCharCode(code);
@@ -5365,19 +5416,19 @@
                                             coordsObj[axis.tag] = axis.maxValue;
                                             const transform = font.variation.getTransform(glyph.index, coordsObj);
                                             if (transform && transform.points) {
-                                                const transformedPoints = extractTransformedPoints(transform.points, font.unitsPerEm);
+                                                const transformedPoints = extractTransformedPoints(transform.points);
                                                 if (transformedPoints.length > 0) {
                                                     maxGlyphs[char] = transformedPoints;
-                                                    maxWidths[char] = Math.round(transform.advanceWidth * editorScale) - 1;
+                                                    maxWidths[char] = Math.round(transform.advanceWidth);
                                                 }
                                             } else {
                                                 // Fallback to default master glyph
-                                                maxGlyphs[char] = defaultGlyphs[char] ? [...defaultGlyphs[char].map(p => [...p])] : [];
+                                                maxGlyphs[char] = defaultGlyphs[char] ? JSON.parse(JSON.stringify(defaultGlyphs[char])) : [];
                                             }
                                         } catch (e) {
                                             // Use default master glyph if transform fails
                                             if (defaultGlyphs[char]) {
-                                                maxGlyphs[char] = defaultGlyphs[char].map(p => [...p]);
+                                                maxGlyphs[char] = JSON.parse(JSON.stringify(defaultGlyphs[char]));
                                             }
                                         }
                                     }
@@ -5418,6 +5469,31 @@
                     updateVFUI();
                 }
                 
+                // Import kerning pairs from the font
+                console.log('=== Importing kerning and ligatures ===');
+                console.log('Font tables:', Object.keys(font.tables || {}));
+                console.log('Has GPOS:', !!font.tables.gpos);
+                console.log('Has GSUB:', !!font.tables.gsub);
+                console.log('kerningPairs before import:', Object.keys(font.kerningPairs || {}).length);
+                
+                // Create a temporary FontImporter to use its kerning/ligature import methods
+                const tempImporter = new FontImporter(opentype);
+                const tempState = { 
+                    glyphs: state.glyphs, 
+                    kerning: state.kerning || {}, 
+                    ligatures: state.ligatures || [] 
+                };
+                tempImporter._importKerningData(tempState, font, true);
+                tempImporter._importLigatureData(tempState, font, true);
+                state.kerning = tempState.kerning;
+                state.ligatures = tempState.ligatures;
+                
+                console.log('Kerning pairs imported:', Object.keys(state.kerning).length);
+                console.log('Ligatures imported:', state.ligatures.length);
+                if (state.ligatures.length > 0) {
+                    console.log('Ligatures:', state.ligatures.map(l => l.sequence).join(', '));
+                }
+                
                 state.currentGlyph = Object.keys(state.glyphs)[0] || 'A';
                 state.selectedPoint = -1;
                 state.selectedShape = 0;
@@ -5425,8 +5501,15 @@
                 updateShapeList();
                 draw();
                 
+                // Update kerning and ligature UI if on those tabs
+                if (typeof refreshKerningPairs === 'function') refreshKerningPairs();
+                if (typeof updateKerningTable === 'function') updateKerningTable();
+                if (typeof renderLigatureList === 'function') renderLigatureList();
+                
                 const vfStatus = state.vf.enabled ? ` (Variable font: ${state.vf.axes.length} axes)` : '';
-                alert(`Imported ${importedCount} glyphs from ${file.name}${vfStatus}`);
+                const kernStatus = Object.keys(state.kerning).length > 0 ? `, ${Object.keys(state.kerning).length} kerning pairs` : '';
+                const ligaStatus = state.ligatures.length > 0 ? `, ${state.ligatures.length} ligatures` : '';
+                alert(`Imported ${importedCount} glyphs from ${file.name}${vfStatus}${kernStatus}${ligaStatus}`);
             } catch (err) {
                 console.error('Import error:', err);
                 alert('Error importing font: ' + err.message);
@@ -5436,33 +5519,31 @@
             fileInput.value = '';
         }
 
-        function extractTransformedPoints(transformPoints, unitsPerEm) {
-            const scale = 10 / unitsPerEm * 1.2;
-            
-            // Split points into shapes based on lastPointOfContour
-            const shapes = [];
-            let currentShape = [];
+        function extractTransformedPoints(transformPoints) {
+            // Split points into contours based on lastPointOfContour
+            // Returns contour format: [[{x, y, onCurve}, ...], ...]
+            const contours = [];
+            let currentContour = [];
             
             for (const pt of transformPoints) {
-                currentShape.push([
-                    Math.round(pt.x * scale * 10) / 10,
-                    Math.round(pt.y * scale * 10) / 10
-                ]);
+                currentContour.push({
+                    x: Math.round(pt.x),
+                    y: Math.round(pt.y),
+                    onCurve: pt.onCurve !== false
+                });
                 
                 if (pt.lastPointOfContour) {
-                    shapes.push(currentShape);
-                    currentShape = [];
+                    contours.push(currentContour);
+                    currentContour = [];
                 }
             }
             
-            // If there's a remaining shape (shouldn't happen normally), add it
-            if (currentShape.length > 0) {
-                shapes.push(currentShape);
+            // If there's a remaining contour (shouldn't happen normally), add it
+            if (currentContour.length > 0) {
+                contours.push(currentContour);
             }
             
-            // If there's only one shape, return it (nested format with single shape)
-            // If there are multiple shapes, return the nested format
-            return shapes.length === 1 ? shapes : shapes;
+            return contours;
         }
 
         async function importFont(e) {
@@ -5523,15 +5604,14 @@
             return extrema;
         }
 
-        function extractPathPoints(path, unitsPerEm) {
+        function extractPathPoints(path) {
             const points = [];
-            const scale = 10 / unitsPerEm * 1.2;
             
             for (const cmd of path.commands) {
                 if (cmd.type === 'M' || cmd.type === 'L') {
                     points.push([
-                        Math.round(cmd.x * scale * 10) / 10,
-                        Math.round(cmd.y * scale * 10) / 10
+                        Math.round(cmd.x),
+                        Math.round(cmd.y)
                     ]);
                 }
                 // Skip curves for now - this is a simplified import
@@ -5736,7 +5816,8 @@
                 styleName: state.vf.enabled ? 'Variable' : 'Regular',
                 unitsPerEm: 800,
                 ascender: 800,
-                descender: -200
+                descender: -200,
+                sidebearing: state.sidebearing || 0
             });
             apiState.glyphs = { ...state.glyphs };
             apiState.glyphWidths = { ...state.glyphWidths };
@@ -7055,8 +7136,12 @@
                 resultGlyphs[char] = resultGlyph;
                 
                 // Only set explicit width if there's a meaningful delta
+                // Add sidebearing to make it a full advance width (matching getGlyphWidthFromShapes semantics)
                 if (Math.abs(widthDelta) > 0.01) {
-                    resultWidths[char] = baseWidth + widthDelta;
+                    resultWidths[char] = baseWidth + widthDelta + (state.sidebearing || 0);
+                } else {
+                    // Even with no delta, store the full advance width for consistency
+                    resultWidths[char] = baseWidth + (state.sidebearing || 0);
                 }
             }
             
