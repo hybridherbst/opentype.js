@@ -2668,24 +2668,34 @@ export class FontImporter {
                                         
                                         if (valid && sequence.length >= 2) {
                                             const ligGlyph = font.glyphs.get(lig.ligGlyph);
-                                            const ligName = ligGlyph ? ligGlyph.name : null;
+                                            if (!ligGlyph) continue;
                                             
-                                            if (ligName) {
-                                                // Join sequence array to string for UI compatibility
-                                                const sequenceStr = sequence.join('');
-                                                
-                                                // Check if this ligature already exists
-                                                const existing = state.ligatures.find(
-                                                    l => l.sequence === sequenceStr
-                                                );
-                                                
-                                                if (!existing) {
-                                                    state.ligatures.push({
-                                                        sequence: sequenceStr,  // String, not array
-                                                        result: ligName,
-                                                        enabled: true
-                                                    });
-                                                }
+                                            // Compute the result key the same way glyphs are stored:
+                                            // - Unicode glyphs use the character as key
+                                            // - Non-unicode glyphs use '_' + name as key
+                                            let resultKey;
+                                            if (ligGlyph.unicodes && ligGlyph.unicodes.length > 0) {
+                                                resultKey = String.fromCharCode(ligGlyph.unicodes[0]);
+                                            } else if (ligGlyph.name) {
+                                                resultKey = '_' + ligGlyph.name;
+                                            } else {
+                                                continue; // Skip if no valid key
+                                            }
+                                            
+                                            // Join sequence array to string for UI compatibility
+                                            const sequenceStr = sequence.join('');
+                                            
+                                            // Check if this ligature already exists
+                                            const existing = state.ligatures.find(
+                                                l => l.sequence === sequenceStr
+                                            );
+                                            
+                                            if (!existing) {
+                                                state.ligatures.push({
+                                                    sequence: sequenceStr,  // String, not array
+                                                    result: resultKey,      // Key matching state.glyphs
+                                                    enabled: true
+                                                });
                                             }
                                         }
                                     }

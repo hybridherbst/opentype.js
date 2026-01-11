@@ -1895,9 +1895,11 @@
         
         // The default glyphs below use coordinates in the 0-800 range
         const state = {
+            // Font metrics - unitsPerEm defines the coordinate space
+            unitsPerEm: 800,
             glyphs: {
                 // Each glyph is an array of contours, each contour is an array of {x, y, onCurve} points
-                // Coordinates are in font units (0-800 for 800 unitsPerEm)
+                // Coordinates are in font units (0-unitsPerEm)
                 'A': [[pt(0, 0), pt(320, 800), pt(640, 0)]],
                 'B': [[pt(0, 0), pt(0, 800), pt(400, 800), pt(400, 400), pt(560, 400), pt(560, 0)]],
                 'C': [[pt(0, 0), pt(0, 800), pt(640, 800), pt(640, 480), pt(240, 480), pt(240, 320), pt(640, 320), pt(640, 0)]],
@@ -2801,17 +2803,17 @@
         };
         
         // Convert kerning units to pixels for display
-        // Kerning is in font units (unitsPerEm = 800), display font size varies
+        // Kerning is in font units (state.unitsPerEm), display font size varies
         function kernToPixels(kernValue, fontSize) {
             // kerning is in font units, fontSize is in pixels
             // pixels = kernValue * fontSize / unitsPerEm
-            return kernValue * fontSize / 800;
+            return kernValue * fontSize / state.unitsPerEm;
         }
         
         // Convert pixel drag distance to kerning units
         function pixelsToKern(pixels, fontSize) {
             // Inverse of above
-            return Math.round(pixels * 800 / fontSize);
+            return Math.round(pixels * state.unitsPerEm / fontSize);
         }
         
         // === SVG GLYPH RENDERING ===
@@ -2875,8 +2877,8 @@
                 refs = state.glyphReferences;
             }
             
-            // Calculate scale: font design is 800 units tall (unitsPerEm), we want height pixels
-            const designHeight = 800;
+            // Calculate scale: font design is unitsPerEm tall, we want height pixels
+            const designHeight = state.unitsPerEm;
             const scale = height / designHeight;
             
             // Calculate total width
@@ -2971,7 +2973,7 @@
                 return null;
             }
             
-            const designHeight = 800;
+            const designHeight = state.unitsPerEm || 800;
             const scale = height / designHeight;
             
             // Calculate left side bearing offset (half of sidebearing for centering)
@@ -4104,7 +4106,7 @@
             // Draw glyph bounds
             const shapes = getGlyphShapes();
             const glyphWidth = getCurrentGlyphWidth() + 1;
-            const capHeight = 800; // unitsPerEm
+            const capHeight = state.unitsPerEm; // Use dynamic unitsPerEm
 
             ctx.strokeStyle = '#3a5060';
             ctx.lineWidth = 1;
@@ -4280,7 +4282,8 @@
 
             const text = document.getElementById('preview-text').value.toUpperCase();
             const useLigatures = document.getElementById('preview-ligatures').checked;
-            const scale = 0.075; // Scale for 800 unitsPerEm to ~60px height
+            // Scale dynamically based on unitsPerEm to achieve ~60px height
+            const scale = 60 / state.unitsPerEm;
             let x = 20;
             const y = 10;
 
@@ -4906,11 +4909,14 @@
                 content.appendChild(fallbackSpan);
             } else {
                 const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                svg.setAttribute('viewBox', '-50 -50 750 750');
+                // Use state.unitsPerEm for proper scaling
+                const viewSize = state.unitsPerEm || 800;
+                const viewPad = Math.round(viewSize * 0.07);
+                svg.setAttribute('viewBox', `-${viewPad} -${viewPad} ${viewSize} ${viewSize}`);
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 
                 const shapes = getGlyphShapes(char);
-                const d = shapesToSvgPath(shapes, 700, 0, 1);
+                const d = shapesToSvgPath(shapes, viewSize - viewPad, 0, 1);
                 path.setAttribute('d', d.trim());
                 path.setAttribute('fill', isSelected ? '#ffb74d' : '#4a9eff');
                 path.setAttribute('stroke', isSelected ? '#ffd54f' : '#6ab0ff');
@@ -5274,13 +5280,24 @@
             const importVF = document.getElementById('import-vf-data').checked;
             const range = document.getElementById('import-range').value;
             
+            console.time('Total import');
+            
             try {
+                console.time('Font parsing');
                 const buffer = await file.arrayBuffer();
                 const font = opentype.parse(buffer);
+                console.timeEnd('Font parsing');
+                
+                // Use the font's unitsPerEm directly (no scaling)
+                const fontUnitsPerEm = font.unitsPerEm || 1000;
+                console.log(`Font unitsPerEm: ${fontUnitsPerEm}`);
                 
                 // Clear existing glyphs if overwrite is enabled
                 if (overwrite) {
+                    // Set unitsPerEm from imported font
+                    state.unitsPerEm = fontUnitsPerEm;
                     state.glyphs = {};
+                    state.glyphWidths = {};
                     state.vf = {
                         enabled: false,
                         axes: [],
@@ -5291,14 +5308,19 @@
                     };
                 }
                 
-                // Determine character range
+                console.time('Determine glyphs to import');
+                // Determine which glyphs to import
+                // First, collect glyph indices from unicode range
+                let glyphIndices = new Set();
                 let charCodes = [];
+                
                 switch (range) {
                     case 'font':
-                        // Import all characters defined in the font
+                        // Import all glyphs with unicodes
                         for (let i = 0; i < font.glyphs.length; i++) {
                             const g = font.glyphs.get(i);
                             if (g && g.unicodes && g.unicodes.length > 0) {
+                                glyphIndices.add(i);
                                 for (const unicode of g.unicodes) {
                                     if (!charCodes.includes(unicode)) {
                                         charCodes.push(unicode);
@@ -5325,30 +5347,105 @@
                         break;
                 }
                 
-                // Import glyphs
+                // For non-'font' ranges, get glyph indices
+                if (range !== 'font') {
+                    for (const code of charCodes) {
+                        const glyph = font.charToGlyph(String.fromCharCode(code));
+                        if (glyph && glyph.index !== 0) {
+                            glyphIndices.add(glyph.index);
+                        }
+                    }
+                }
+                
+                // Collect composite component glyph indices
+                const componentsToAdd = new Set();
+                for (const idx of glyphIndices) {
+                    const glyph = font.glyphs.get(idx);
+                    if (glyph && glyph.isComposite && glyph.components) {
+                        for (const comp of glyph.components) {
+                            if (!glyphIndices.has(comp.glyphIndex)) {
+                                componentsToAdd.add(comp.glyphIndex);
+                            }
+                        }
+                    }
+                }
+                componentsToAdd.forEach(idx => glyphIndices.add(idx));
+                
+                // Collect ligature result glyph indices from GSUB
+                // Only include ligatures where ALL component characters are in the imported set
+                if (font.tables.gsub) {
+                    const gsub = font.tables.gsub;
+                    for (const lookup of (gsub.lookups || [])) {
+                        if (lookup.lookupType !== 4) continue; // Ligature substitution
+                        for (const subtable of (lookup.subtables || [])) {
+                            if (!subtable.ligatureSets || !subtable.coverage) continue;
+                            const coverageGlyphs = subtable.coverage.glyphs || [];
+                            
+                            for (const [posStr, ligSet] of Object.entries(subtable.ligatureSets)) {
+                                const pos = parseInt(posStr);
+                                const firstGlyphIdx = coverageGlyphs[pos];
+                                if (firstGlyphIdx === undefined) continue;
+                                
+                                // Check if first glyph is in our import set
+                                if (!glyphIndices.has(firstGlyphIdx)) continue;
+                                
+                                for (const lig of ligSet) {
+                                    // Check if ALL component glyphs are in our import set
+                                    const allComponentsPresent = lig.components.every(compIdx => glyphIndices.has(compIdx));
+                                    if (allComponentsPresent && lig.ligGlyph !== undefined) {
+                                        glyphIndices.add(lig.ligGlyph);
+                                        // Also add any composites in the ligature glyph
+                                        const ligGlyph = font.glyphs.get(lig.ligGlyph);
+                                        if (ligGlyph && ligGlyph.isComposite && ligGlyph.components) {
+                                            for (const comp of ligGlyph.components) {
+                                                glyphIndices.add(comp.glyphIndex);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                console.log(`Importing ${glyphIndices.size} glyphs (${charCodes.length} with unicodes, ${glyphIndices.size - charCodes.length} components/ligatures)`);
+                console.timeEnd('Determine glyphs to import');
+                
+                console.time('Import glyphs');
+                // Import glyphs by index
                 let importedCount = 0;
-                for (const code of charCodes) {
-                    const char = String.fromCharCode(code);
-                    const glyph = font.charToGlyph(char);
-                    if (!glyph || glyph.index === 0) continue; // Skip missing glyphs (.notdef)
+                for (const glyphIdx of glyphIndices) {
+                    const glyph = font.glyphs.get(glyphIdx);
+                    if (!glyph) continue;
                     
-                    if (!overwrite && state.glyphs[char]) {
+                    // Determine the key for this glyph
+                    let key;
+                    if (glyph.unicodes && glyph.unicodes.length > 0) {
+                        // Use first unicode as character
+                        key = String.fromCharCode(glyph.unicodes[0]);
+                    } else if (glyph.name) {
+                        // Use glyph name with underscore prefix for non-unicode glyphs
+                        key = '_' + glyph.name;
+                    } else {
+                        // Use glyph index as fallback
+                        key = '_glyph' + glyphIdx;
+                    }
+                    
+                    if (!overwrite && state.glyphs[key]) {
                         continue; // Skip existing
                     }
                     
                     // Prefer TrueType points (glyph.points) over path commands
-                    // This preserves contours and on-curve info properly
                     if (glyph.points && glyph.points.length > 0) {
                         const contours = extractGlyphPoints(glyph.points);
                         if (contours.length > 0) {
-                            state.glyphs[char] = contours;
-                            // Use advanceWidth for width, or compute from bounds
+                            state.glyphs[key] = contours;
                             if (glyph.advanceWidth !== undefined) {
-                                state.glyphWidths[char] = Math.round(glyph.advanceWidth);
+                                state.glyphWidths[key] = Math.round(glyph.advanceWidth);
                             } else {
                                 const bounds = computeContourBounds(contours);
                                 if (bounds.maxX > 0) {
-                                    state.glyphWidths[char] = Math.round(bounds.maxX);
+                                    state.glyphWidths[key] = Math.round(bounds.maxX);
                                 }
                             }
                             importedCount++;
@@ -5360,26 +5457,27 @@
                     if (glyph.path && glyph.path.commands.length > 0) {
                         const contours = extractPathAsContours(glyph.path);
                         if (contours.length > 0) {
-                            state.glyphs[char] = contours;
-                            // Compute width from path bounds
+                            state.glyphs[key] = contours;
                             const bounds = getPathBounds(glyph.path);
                             if (bounds.maxX > 0) {
-                                state.glyphWidths[char] = Math.round(bounds.maxX);
+                                state.glyphWidths[key] = Math.round(bounds.maxX);
                             }
                             importedCount++;
                         }
                     }
                 }
+                console.timeEnd('Import glyphs');
                 
                 // Import variable font data
                 if (importVF && font.tables.fvar && font.tables.fvar.axes) {
+                    console.time('VF import');
                     state.vf.enabled = true;
                     state.vf.axes = [];
                     state.vf.masters = [];
                     state.vf.instances = [];
                     state.vf.previewCoords = {};
                     
-                    // Import axes
+                    // Import axes - scale axis values to target unitsPerEm
                     for (const axis of font.tables.fvar.axes) {
                         state.vf.axes.push({
                             tag: axis.tag.trim(),
@@ -5391,42 +5489,30 @@
                         state.vf.previewCoords[axis.tag.trim()] = axis.defaultValue;
                     }
                     
-                    // Create default master
-                    // For TrueType VFs, use extractTransformedPoints for consistency with min/max masters
-                    // For other fonts, use the already-imported state.glyphs
+                    // Build a mapping from glyph index to key for VF masters
+                    const glyphIndexToKey = new Map();
+                    for (const glyphIdx of glyphIndices) {
+                        const glyph = font.glyphs.get(glyphIdx);
+                        if (!glyph) continue;
+                        let key;
+                        if (glyph.unicodes && glyph.unicodes.length > 0) {
+                            key = String.fromCharCode(glyph.unicodes[0]);
+                        } else if (glyph.name) {
+                            key = '_' + glyph.name;
+                        } else {
+                            key = '_glyph' + glyphIdx;
+                        }
+                        glyphIndexToKey.set(glyphIdx, key);
+                    }
+                    
                     const defaultCoords = {};
                     for (const axis of state.vf.axes) {
                         defaultCoords[axis.tag] = axis.defaultValue;
                     }
                     
-                    let defaultGlyphs;
-                    let defaultWidths = {};
-                    if (font.tables.gvar && font.variation) {
-                        // TrueType VF: extract points at default coords for consistency
-                        defaultGlyphs = {};
-                        for (const code of charCodes) {
-                            const char = String.fromCharCode(code);
-                            const glyph = font.charToGlyph(char);
-                            if (glyph && glyph.points && glyph.points.length > 0) {
-                                // Get transform at default coords to get the base points
-                                const transform = font.variation.getTransform(glyph.index, defaultCoords);
-                                if (transform && transform.points) {
-                                    const transformedPoints = extractTransformedPoints(transform.points);
-                                    if (transformedPoints.length > 0) {
-                                        defaultGlyphs[char] = transformedPoints;
-                                        // Capture advanceWidth in font units
-                                        defaultWidths[char] = Math.round(transform.advanceWidth);
-                                    }
-                                }
-                            }
-                            // Fallback to path-based extraction for CFF or if points not available
-                            if (!defaultGlyphs[char] && state.glyphs[char]) {
-                                defaultGlyphs[char] = JSON.parse(JSON.stringify(state.glyphs[char]));
-                            }
-                        }
-                    } else {
-                        defaultGlyphs = JSON.parse(JSON.stringify(state.glyphs));
-                    }
+                    // Create default master using already-imported scaled glyphs
+                    const defaultGlyphs = JSON.parse(JSON.stringify(state.glyphs));
+                    const defaultWidths = JSON.parse(JSON.stringify(state.glyphWidths));
                     
                     state.vf.masters.push({
                         name: 'Default',
@@ -5437,95 +5523,43 @@
                     });
                     
                     // Import axis extremes as additional masters if we have gvar data
+                    // Store font reference for lazy master extraction
                     if (font.tables.gvar && font.variation) {
+                        console.time('VF masters setup (lazy)');
+                        // Store the source font and glyph index mapping for lazy extraction
+                        state.vf._sourceFont = font;
+                        state.vf._glyphIndexToKey = glyphIndexToKey;
+                        
+                        // Create placeholder masters for each axis extreme
+                        // Actual glyph data will be extracted lazily on first use
                         for (const axis of state.vf.axes) {
-                            // Create master at min value (if different from default)
                             if (axis.minValue !== axis.defaultValue) {
                                 const minCoords = { ...defaultCoords, [axis.tag]: axis.minValue };
-                                const minGlyphs = {};
-                                const minWidths = {};
-                                
-                                for (const code of charCodes) {
-                                    const char = String.fromCharCode(code);
-                                    const glyph = font.charToGlyph(char);
-                                    if (glyph && glyph.points && glyph.points.length > 0) {
-                                        try {
-                                            const coordsObj = {};
-                                            coordsObj[axis.tag] = axis.minValue;
-                                            const transform = font.variation.getTransform(glyph.index, coordsObj);
-                                            if (transform && transform.points) {
-                                                const transformedPoints = extractTransformedPoints(transform.points);
-                                                if (transformedPoints.length > 0) {
-                                                    minGlyphs[char] = transformedPoints;
-                                                    minWidths[char] = Math.round(transform.advanceWidth);
-                                                }
-                                            } else {
-                                                minGlyphs[char] = defaultGlyphs[char] ? JSON.parse(JSON.stringify(defaultGlyphs[char])) : [];
-                                            }
-                                        } catch (e) {
-                                            if (defaultGlyphs[char]) {
-                                                minGlyphs[char] = JSON.parse(JSON.stringify(defaultGlyphs[char]));
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                if (Object.keys(minGlyphs).length > 0) {
-                                    state.vf.masters.push({
-                                        name: `${axis.name || axis.tag} Min`,
-                                        coords: minCoords,
-                                        glyphs: minGlyphs,
-                                        glyphWidths: minWidths,
-                                        glyphReferences: JSON.parse(JSON.stringify(state.glyphReferences || {}))
-                                    });
-                                }
+                                state.vf.masters.push({
+                                    name: `${axis.name || axis.tag} Min`,
+                                    coords: minCoords,
+                                    glyphs: null,  // Lazy: extract on first use
+                                    glyphWidths: null,
+                                    glyphReferences: null,
+                                    _axisTag: axis.tag,
+                                    _axisValue: axis.minValue
+                                });
                             }
                             
-                            // Create master at max value (if different from default)
                             if (axis.maxValue !== axis.defaultValue) {
                                 const maxCoords = { ...defaultCoords, [axis.tag]: axis.maxValue };
-                                const maxGlyphs = {};
-                                const maxWidths = {};
-                                
-                                for (const code of charCodes) {
-                                    const char = String.fromCharCode(code);
-                                    const glyph = font.charToGlyph(char);
-                                    if (glyph && glyph.points && glyph.points.length > 0) {
-                                        // Get transformed path at max axis value
-                                        try {
-                                            const coordsObj = {};
-                                            coordsObj[axis.tag] = axis.maxValue;
-                                            const transform = font.variation.getTransform(glyph.index, coordsObj);
-                                            if (transform && transform.points) {
-                                                const transformedPoints = extractTransformedPoints(transform.points);
-                                                if (transformedPoints.length > 0) {
-                                                    maxGlyphs[char] = transformedPoints;
-                                                    maxWidths[char] = Math.round(transform.advanceWidth);
-                                                }
-                                            } else {
-                                                // Fallback to default master glyph
-                                                maxGlyphs[char] = defaultGlyphs[char] ? JSON.parse(JSON.stringify(defaultGlyphs[char])) : [];
-                                            }
-                                        } catch (e) {
-                                            // Use default master glyph if transform fails
-                                            if (defaultGlyphs[char]) {
-                                                maxGlyphs[char] = JSON.parse(JSON.stringify(defaultGlyphs[char]));
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                if (Object.keys(maxGlyphs).length > 0) {
-                                    state.vf.masters.push({
-                                        name: `${axis.name || axis.tag} Max`,
-                                        coords: maxCoords,
-                                        glyphs: maxGlyphs,
-                                        glyphWidths: maxWidths,
-                                        glyphReferences: JSON.parse(JSON.stringify(state.glyphReferences || {}))
-                                    });
-                                }
+                                state.vf.masters.push({
+                                    name: `${axis.name || axis.tag} Max`,
+                                    coords: maxCoords,
+                                    glyphs: null,  // Lazy: extract on first use
+                                    glyphWidths: null,
+                                    glyphReferences: null,
+                                    _axisTag: axis.tag,
+                                    _axisValue: axis.maxValue
+                                });
                             }
                         }
+                        console.timeEnd('VF masters setup (lazy)');
                     }
                     
                     // Import instances
@@ -5548,8 +5582,10 @@
                     document.getElementById('vf-content').style.display = 'block';
                     document.getElementById('vf-disabled').style.display = 'none';
                     updateVFUI();
+                    console.timeEnd('VF import');
                 }
                 
+                console.time('Kerning/ligature import');
                 // Import kerning pairs from the font
                 console.log('=== Importing kerning and ligatures ===');
                 console.log('Font tables:', Object.keys(font.tables || {}));
@@ -5566,6 +5602,8 @@
                 };
                 tempImporter._importKerningData(tempState, font, true);
                 tempImporter._importLigatureData(tempState, font, true);
+                
+                // No scaling - keep kerning values in font's original units
                 state.kerning = tempState.kerning;
                 state.ligatures = tempState.ligatures;
                 
@@ -5574,6 +5612,7 @@
                 if (state.ligatures.length > 0) {
                     console.log('Ligatures:', state.ligatures.map(l => l.sequence).join(', '));
                 }
+                console.timeEnd('Kerning/ligature import');
                 
                 state.currentGlyph = Object.keys(state.glyphs)[0] || 'A';
                 state.selectedPoint = -1;
@@ -5587,6 +5626,7 @@
                 if (typeof updateKerningTable === 'function') updateKerningTable();
                 if (typeof renderLigatureList === 'function') renderLigatureList();
                 
+                console.timeEnd('Total import');
                 const vfStatus = state.vf.enabled ? ` (Variable font: ${state.vf.axes.length} axes)` : '';
                 const kernStatus = Object.keys(state.kerning).length > 0 ? `, ${Object.keys(state.kerning).length} kerning pairs` : '';
                 const ligaStatus = state.ligatures.length > 0 ? `, ${state.ligatures.length} ligatures` : '';
@@ -5625,6 +5665,63 @@
             }
             
             return contours;
+        }
+
+        // Lazily extract master glyph data from source font
+        // Called on first use of each master during interpolation
+        function ensureMasterGlyphs(master) {
+            if (master.glyphs !== null) return; // Already extracted
+            
+            const font = state.vf._sourceFont;
+            const glyphIndexToKey = state.vf._glyphIndexToKey;
+            
+            if (!font || !glyphIndexToKey || !font.variation) {
+                // No source font - can't extract, use empty
+                master.glyphs = {};
+                master.glyphWidths = {};
+                master.glyphReferences = {};
+                return;
+            }
+            
+            const axisTag = master._axisTag;
+            const axisValue = master._axisValue;
+            const coordsObj = { [axisTag]: axisValue };
+            
+            const glyphs = {};
+            const widths = {};
+            const defaultMaster = state.vf.masters[0];
+            
+            console.time(`Lazy extract: ${master.name}`);
+            
+            for (const [glyphIdx, key] of glyphIndexToKey) {
+                const glyph = font.glyphs.get(glyphIdx);
+                if (glyph && glyph.points && glyph.points.length > 0) {
+                    try {
+                        const transform = font.variation.getTransform(glyphIdx, coordsObj);
+                        if (transform && transform.points) {
+                            const transformedPoints = extractTransformedPoints(transform.points);
+                            if (transformedPoints.length > 0) {
+                                glyphs[key] = transformedPoints;
+                                widths[key] = Math.round(transform.advanceWidth);
+                            }
+                        } else if (defaultMaster?.glyphs?.[key]) {
+                            glyphs[key] = JSON.parse(JSON.stringify(defaultMaster.glyphs[key]));
+                            widths[key] = defaultMaster.glyphWidths?.[key] || 0;
+                        }
+                    } catch (e) {
+                        if (defaultMaster?.glyphs?.[key]) {
+                            glyphs[key] = JSON.parse(JSON.stringify(defaultMaster.glyphs[key]));
+                            widths[key] = defaultMaster.glyphWidths?.[key] || 0;
+                        }
+                    }
+                }
+            }
+            
+            console.timeEnd(`Lazy extract: ${master.name}`);
+            
+            master.glyphs = glyphs;
+            master.glyphWidths = widths;
+            master.glyphReferences = JSON.parse(JSON.stringify(state.glyphReferences || {}));
         }
 
         async function importFont(e) {
@@ -5868,7 +5965,8 @@
 
         function saveJSON() {
             const data = {
-                version: 4, // Bumped version: added ligatures, kerning, and features
+                version: 5, // Bumped version: added unitsPerEm
+                unitsPerEm: state.unitsPerEm,
                 glyphs: state.glyphs,
                 glyphWidths: state.glyphWidths,
                 // components are now stored in glyphs with underscore prefix
@@ -5905,6 +6003,9 @@
             try {
                 const text = await file.text();
                 const data = JSON.parse(text);
+                
+                // Load unitsPerEm (default 800 for backward compatibility)
+                state.unitsPerEm = data.unitsPerEm || 800;
                 
                 if (data.glyphs) {
                     state.glyphs = data.glyphs;
@@ -6003,9 +6104,9 @@
             const apiState = new FontEditorState({
                 familyName: 'Custom Font',
                 styleName: state.vf.enabled ? 'Variable' : 'Regular',
-                unitsPerEm: 800,
-                ascender: 800,
-                descender: -200,
+                unitsPerEm: state.unitsPerEm,
+                ascender: state.unitsPerEm,
+                descender: Math.round(-state.unitsPerEm * 0.25),
                 sidebearing: state.sidebearing || 0
             });
             apiState.glyphs = { ...state.glyphs };
@@ -6142,9 +6243,9 @@
             const font = new opentype.Font({
                 familyName: 'Custom Font',
                 styleName: state.vf.enabled ? 'Variable' : 'Regular',
-                unitsPerEm: 800,
-                ascender: 800,
-                descender: -200,
+                unitsPerEm: state.unitsPerEm,
+                ascender: state.unitsPerEm,
+                descender: Math.round(-state.unitsPerEm * 0.25),
                 glyphs: otGlyphs
             });
 
@@ -7066,23 +7167,25 @@
             
             if (masters.length < 2) {
                 // Not enough masters to interpolate
+                if (masters.length === 1) {
+                    ensureMasterGlyphs(masters[0]);
+                    return { 
+                        glyphs: JSON.parse(JSON.stringify(masters[0].glyphs || {})),
+                        widths: JSON.parse(JSON.stringify(masters[0].glyphWidths || {}))
+                    };
+                }
                 return { 
-                    glyphs: masters.length === 1 
-                        ? JSON.parse(JSON.stringify(masters[0].glyphs)) 
-                        : JSON.parse(JSON.stringify(state.glyphs)),
-                    widths: masters.length === 1 && masters[0].glyphWidths
-                        ? JSON.parse(JSON.stringify(masters[0].glyphWidths))
-                        : JSON.parse(JSON.stringify(state.glyphWidths))
+                    glyphs: JSON.parse(JSON.stringify(state.glyphs)),
+                    widths: JSON.parse(JSON.stringify(state.glyphWidths))
                 };
             }
             
             const axis = state.vf.axes[0];
             if (!axis) {
+                ensureMasterGlyphs(masters[0]);
                 return { 
-                    glyphs: JSON.parse(JSON.stringify(masters[0].glyphs)), 
-                    widths: masters[0].glyphWidths 
-                        ? JSON.parse(JSON.stringify(masters[0].glyphWidths)) 
-                        : {} 
+                    glyphs: JSON.parse(JSON.stringify(masters[0].glyphs || {})), 
+                    widths: JSON.parse(JSON.stringify(masters[0].glyphWidths || {}))
                 };
             }
             
@@ -7122,8 +7225,13 @@
             }
             
             if (!m1 || !m2) {
-                return { glyphs: JSON.parse(JSON.stringify(masters[0].glyphs)), widths: {} };
+                ensureMasterGlyphs(masters[0]);
+                return { glyphs: JSON.parse(JSON.stringify(masters[0].glyphs || {})), widths: {} };
             }
+            
+            // Lazy extract master glyphs on first use
+            ensureMasterGlyphs(m1);
+            ensureMasterGlyphs(m2);
             
             const v1 = m1.coords[axis.tag] ?? axis.defaultValue;
             const v2 = m2.coords[axis.tag] ?? axis.defaultValue;
@@ -7267,6 +7375,10 @@
                         maxVal = v;
                     }
                 }
+                
+                // Lazy extract master glyphs on first use
+                if (minMaster) ensureMasterGlyphs(minMaster);
+                if (maxMaster) ensureMasterGlyphs(maxMaster);
                 
                 // Calculate the normalized position of the master (for delta scaling)
                 const minMasterNorm = minMaster ? normalizeAxisValue(minVal, axis) : -1;

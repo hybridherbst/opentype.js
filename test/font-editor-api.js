@@ -953,6 +953,39 @@ describe('Font Editor API', () => {
             assert.ok(result.importedCount >= 1);
             assert.ok(newState.glyphs['A'], 'Should have imported glyph A');
         });
+        
+        it('should import ligature data with correct glyph keys', () => {
+            // Import RobotoFlex which has ligatures
+            const buffer = readFileSync('./test/fonts/RobotoFlex-Variable.ttf');
+            const importer = new FontImporter(opentype);
+            const state = new FontEditorState();
+            
+            // Import lowercase (includes fi, fl, ff, ffi, ffl ligatures)
+            const result = importer.import(state, buffer.buffer, { range: 'lowercase' });
+            
+            // Should have imported some glyphs
+            assert.ok(result.importedCount > 20, 'Should import lowercase glyphs');
+            
+            // Should have imported ligatures
+            assert.ok(state.ligatures.length > 0, 'Should import ligatures');
+            
+            // Check that ligature result keys match glyph storage keys
+            for (const lig of state.ligatures) {
+                const resultKey = lig.result;
+                // If the result key exists in state.glyphs, the mapping is correct
+                // The result should either be a Unicode character or _name for non-unicode glyphs
+                if (state.glyphs[resultKey]) {
+                    // Ligature glyph found - mapping is correct
+                    assert.ok(true, `Ligature ${lig.sequence} -> ${resultKey} maps correctly`);
+                } else {
+                    // Ligature glyph not found - this is OK if it wasn't in the import range
+                    // But if the glyph exists under a different key, that's a bug
+                    const hasUnderscoredVersion = state.glyphs['_' + resultKey];
+                    assert.ok(!hasUnderscoredVersion, 
+                        `Ligature ${lig.sequence} result ${resultKey} should not need underscore prefix`);
+                }
+            }
+        });
     });
     
     describe('Export Validation', () => {
