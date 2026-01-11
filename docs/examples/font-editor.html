@@ -6176,7 +6176,9 @@ fi fl ff ffi ffl</textarea>
             e.target.value = '';
         }
 
-        function downloadFont() {
+        // Build font from current state - shared by downloadFont and Preview tab
+        // Returns { font, buffer, format } or null on error
+        function buildFont(format = 'ttf') {
             // Sync current edits to the current master (if VF mode)
             if (state.vf.enabled && state.vf.currentMaster < state.vf.masters.length) {
                 state.vf.masters[state.vf.currentMaster].glyphs = JSON.parse(JSON.stringify(state.glyphs));
@@ -6195,8 +6197,7 @@ fi fl ff ffi ffl</textarea>
             });
             apiState.glyphs = { ...state.glyphs };
             apiState.glyphWidths = { ...state.glyphWidths };
-            // Components are now in glyphs (underscore-prefixed names)
-            apiState.glyphReferences = JSON.parse(JSON.stringify(state.glyphReferences)); // Reference layers
+            apiState.glyphReferences = JSON.parse(JSON.stringify(state.glyphReferences));
             apiState.vfEnabled = state.vf.enabled;
             apiState.axes = state.vf.axes.map(a => ({ ...a }));
             apiState.masters = state.vf.masters.map(m => ({
@@ -6214,42 +6215,38 @@ fi fl ff ffi ffl</textarea>
             apiState.ligatures = [...state.ligatures];
             apiState.features = { ...state.features };
 
-            // Get selected export format
+            const builder = new FontBuilder(apiState, opentype);
+            const font = builder.build({ 
+                validate: true, 
+                validateRoundTrip: true,
+                format: format
+            });
+            
+            // For OTF format, convert to CFF if the font has glyf table
+            let outputFont = font;
+            if (format === 'otf' && font.tables.glyf) {
+                try {
+                    outputFont = opentype.convertFontFormat(font, 'cff');
+                } catch (convErr) {
+                    console.warn('CFF conversion failed, using TTF format:', convErr);
+                }
+            }
+            
+            const buffer = outputFont.toArrayBuffer();
+            return { font: outputFont, buffer, format };
+        }
+
+        function downloadFont() {
             const exportFormat = document.getElementById('export-format').value;
             const isVF = state.vf.enabled && state.vf.axes.length > 0;
-
             const exportStartTime = performance.now();
             
             try {
-                const builder = new FontBuilder(apiState, opentype);
-                console.log('[KERN DEBUG] apiState.kerning:', apiState.kerning);
-                console.log('[KERN DEBUG] apiState.features:', apiState.features);
-                // Build font - always creates TrueType outlines (glyf table)
-                // For OTF we would need CFF conversion (not yet implemented)
-                const font = builder.build({ 
-                    validate: true, 
-                    validateRoundTrip: true,
-                    format: exportFormat // Pass format to builder
-                });
-                console.log('[KERN DEBUG] font.tables.kern after build:', font.tables.kern);
+                const result = buildFont(exportFormat);
                 
-                // For OTF format, convert to CFF if the font has glyf table
-                let outputFont = font;
-                if (exportFormat === 'otf' && font.tables.glyf) {
-                    // Convert TTF to CFF using opentype.js conversion
-                    try {
-                        outputFont = opentype.convertFontFormat(font, 'cff');
-                        console.log('Converted to CFF format');
-                    } catch (convErr) {
-                        console.warn('CFF conversion failed, using TTF format:', convErr);
-                        // Fall back to TTF if CFF conversion fails
-                    }
-                }
-                
-                const buffer = outputFont.toArrayBuffer();
-                const ext = exportFormat === 'otf' ? 'otf' : 'ttf';
-                const mimeType = exportFormat === 'otf' ? 'font/otf' : 'font/ttf';
-                const blob = new Blob([buffer], { type: mimeType });
+                const ext = result.format === 'otf' ? 'otf' : 'ttf';
+                const mimeType = result.format === 'otf' ? 'font/otf' : 'font/ttf';
+                const blob = new Blob([result.buffer], { type: mimeType });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -6264,168 +6261,6 @@ fi fl ff ffi ffl</textarea>
                 console.error('Font export failed:', e);
                 alert('Font export failed: ' + e.message);
             }
-        }
-
-        // Legacy downloadFont logic kept for reference (now using FontBuilder API)
-        function downloadFontLegacy() {
-            const TTF_SCALE = 80;
-            const otGlyphs = [];
-            const glyphIndexMap = new Map();
-
-            otGlyphs.push(new opentype.Glyph({
-                name: '.notdef',
-                unicode: 0,
-                path: new opentype.Path(),
-                advanceWidth: 0
-            }));
-            glyphIndexMap.set('.notdef', 0);
-
-            otGlyphs.push(new opentype.Glyph({
-                name: 'space',
-                unicode: 32,
-                path: new opentype.Path(),
-                advanceWidth: 5 * TTF_SCALE
-            }));
-            glyphIndexMap.set('space', 1);
-
-            otGlyphs.push(new opentype.Glyph({
-                name: 'uni00A0',
-                unicode: 0x00A0,
-                path: new opentype.Path(),
-                advanceWidth: 5 * TTF_SCALE
-            }));
-            glyphIndexMap.set('uni00A0', 2);
-
-            const baseGlyphs = state.vf.enabled && state.vf.masters.length > 0
-                ? state.vf.masters[0].glyphs
-                : state.glyphs;
-            const baseWidths = state.vf.enabled && state.vf.masters.length > 0 && state.vf.masters[0].glyphWidths
-                ? state.vf.masters[0].glyphWidths
-                : state.glyphWidths;
-            
-            let glyphIndex = 3; // Start after .notdef(0), space(1), uni00A0(2)
-            for (const [char, points] of Object.entries(baseGlyphs)) {
-                const path = new opentype.Path();
-                if (points.length > 0) {
-                    path.moveTo(points[0][0] * TTF_SCALE, points[0][1] * TTF_SCALE);
-                    for (let i = 1; i < points.length; i++) {
-                        path.lineTo(points[i][0] * TTF_SCALE, points[i][1] * TTF_SCALE);
-                    }
-                    path.closePath();
-                }
-
-                const glyphName = char.length === 1 ? char : 'glyph' + char.charCodeAt(0);
-                otGlyphs.push(new opentype.Glyph({
-                    name: glyphName,
-                    unicode: char.charCodeAt(0),
-                    path: path,
-                    advanceWidth: (getGlyphWidth(points, char, baseWidths) + 1) * TTF_SCALE
-                }));
-                glyphIndexMap.set(glyphName, glyphIndex++);
-            }
-
-            const font = new opentype.Font({
-                familyName: 'Custom Font',
-                styleName: state.vf.enabled ? 'Variable' : 'Regular',
-                unitsPerEm: state.unitsPerEm,
-                ascender: state.unitsPerEm,
-                descender: Math.round(-state.unitsPerEm * 0.25),
-                glyphs: otGlyphs
-            });
-
-            // Add variable font data if enabled
-            const isVF = state.vf.enabled && state.vf.axes.length > 0;
-            if (isVF) {
-                try {
-                    // Ensure VariationManager is initialized
-                    if (!font.variation) {
-                        font.variation = new opentype.VariationManager(font);
-                    }
-                    
-                    // Build all delta maps first (now returns array of {peakTuple, deltas} per axis)
-                    const allDeltas = new Map();
-                    const axisCount = state.vf.axes.length;
-                    state.vf.axes.forEach((axis, axisIndex) => {
-                        const axisDeltaSets = buildMasterDeltas(axis, TTF_SCALE, axisIndex, axisCount);
-                        allDeltas.set(axis.tag, axisDeltaSets);
-                    });
-                    
-                    // Add axes with their delta generators
-                    for (const axis of state.vf.axes) {
-                        const axisDeltaSets = allDeltas.get(axis.tag);
-                        
-                        font.variation.addAxis({
-                            tag: axis.tag,
-                            name: axis.name,
-                            minValue: axis.minValue,
-                            defaultValue: axis.defaultValue,
-                            maxValue: axis.maxValue,
-                            deltaGenerator: (glyph) => {
-                                // Return array of delta results with peakTuples
-                                const results = [];
-                                for (const deltaSet of axisDeltaSets) {
-                                    const glyphDeltas = deltaSet.deltas.get(glyph.name);
-                                    if (glyphDeltas) {
-                                        results.push({
-                                            peakTuple: deltaSet.peakTuple,
-                                            deltas: glyphDeltas.deltas,
-                                            deltasY: glyphDeltas.deltasY,
-                                            advanceWidthDelta: glyphDeltas.advanceWidthDelta  // Include width delta
-                                        });
-                                    }
-                                }
-                                if (results.length > 0) {
-                                    console.log(`Delta for ${glyph.name} on axis ${axis.tag}:`, results.length, 'variations');
-                                }
-                                return results.length > 0 ? results : null;
-                            }
-                        });
-                    }
-                    
-                    // Add instances - always include at least a "Regular" instance at defaults
-                    const allInstances = state.vf.instances.length > 0 ? state.vf.instances : [{
-                        name: 'Regular',
-                        coords: Object.fromEntries(state.vf.axes.map(a => [a.tag, a.defaultValue]))
-                    }];
-                    for (const instance of allInstances) {
-                        font.variation.addInstance({
-                            name: instance.name,
-                            coordinates: instance.coords
-                        });
-                    }
-                    
-                    console.log('Variable font created with axes:', state.vf.axes);
-                    console.log('fvar table:', font.tables.fvar);
-                    console.log('gvar table:', font.tables.gvar);
-                } catch (e) {
-                    console.error('Could not add variable font data:', e);
-                    alert('Warning: Variable font data could not be added: ' + e.message);
-                }
-            }
-
-            const buffer = font.toArrayBuffer();
-            
-            // Verify the exported font has VF tables
-            if (isVF) {
-                try {
-                    const verifyFont = opentype.parse(buffer);
-                    if (!verifyFont.tables.fvar) {
-                        console.warn('Exported font is missing fvar table!');
-                    } else {
-                        console.log('Verified fvar axes:', verifyFont.tables.fvar.axes.length);
-                    }
-                } catch (e) {
-                    console.warn('Could not verify exported font:', e);
-                }
-            }
-            
-            const blob = new Blob([buffer], { type: 'font/otf' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = isVF ? 'custom-font-VF.otf' : 'custom-font.otf';
-            a.click();
-            URL.revokeObjectURL(url);
         }
 
         // Build delta data for an axis from masters
@@ -7697,14 +7532,9 @@ fi fl ff ffi ffl</textarea>
         // Build the font as a byte array and load it
         async function buildPreviewFont() {
             try {
-                // Use the existing downloadFont logic but don't trigger download
+                // Use the shared buildFont function (same code path as Download Font)
                 const format = document.getElementById('export-format').value;
-                const fontBytes = buildFontBytes(format);
-                
-                if (!fontBytes) {
-                    console.error('Failed to build font bytes');
-                    return;
-                }
+                const result = buildFont(format);
                 
                 // Revoke previous font URL if exists
                 if (previewFontUrl) {
@@ -7712,7 +7542,7 @@ fi fl ff ffi ffl</textarea>
                 }
                 
                 // Create blob and object URL
-                const blob = new Blob([fontBytes], { type: format === 'otf' ? 'font/otf' : 'font/ttf' });
+                const blob = new Blob([result.buffer], { type: result.format === 'otf' ? 'font/otf' : 'font/ttf' });
                 previewFontUrl = URL.createObjectURL(blob);
                 
                 // Load font with FontFace API
@@ -7728,14 +7558,8 @@ fi fl ff ffi ffl</textarea>
                 
                 document.fonts.add(fontFace);
                 
-                // Also parse with opentype.js to get axis info
-                try {
-                    const arrayBuffer = fontBytes instanceof ArrayBuffer ? fontBytes : fontBytes.buffer;
-                    previewFont = opentype.parse(arrayBuffer);
-                } catch (parseErr) {
-                    console.warn('Could not parse font for axis info:', parseErr);
-                    previewFont = null;
-                }
+                // Use the parsed font from buildFont result
+                previewFont = result.font;
                 
                 // Update CSS variable for preview font
                 document.documentElement.style.setProperty('--preview-font-loaded', 'PreviewFont');
@@ -7746,35 +7570,6 @@ fi fl ff ffi ffl</textarea>
             } catch (err) {
                 console.error('Error building preview font:', err);
             }
-        }
-        
-        // Build font bytes without downloading (extracted from downloadFont logic)
-        function buildFontBytes(format) {
-            // Create a FontEditorState from current state (same as downloadFont)
-            const apiState = new FontEditorState({
-                unitsPerEm: state.unitsPerEm,
-                ascender: state.ascender,
-                descender: state.descender
-            });
-            apiState.glyphs = { ...state.glyphs };
-            apiState.glyphWidths = { ...state.glyphWidths };
-            apiState.sidebearing = state.sidebearing;
-            apiState.ligatures = [...state.ligatures];
-            apiState.kerning = { ...state.kerning };
-            apiState.glyphReferences = JSON.parse(JSON.stringify(state.glyphReferences));
-            if (state.vf.enabled) {
-                apiState.vf = JSON.parse(JSON.stringify(state.vf));
-            }
-            
-            const builder = new FontBuilder(apiState);
-            const font = builder.build({
-                familyName: 'CustomFont',
-                styleName: 'Regular',
-                format: format
-            });
-            
-            if (!font) return null;
-            return font.toArrayBuffer();
         }
         
         // Render axis sliders based on loaded font
