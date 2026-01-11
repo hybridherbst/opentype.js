@@ -1546,38 +1546,26 @@
             flex-wrap: wrap;
         }
 
-        .preview-text-container {
-            background: var(--bg-tertiary);
-            border-radius: 8px;
-            padding: 12px;
-        }
-
-        .preview-text-container textarea {
-            width: 100%;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 12px;
-            color: var(--text-primary);
-            font-size: 14px;
-            resize: vertical;
-            min-height: 80px;
-        }
-
-        .preview-render-area {
+        .preview-editable-area {
             flex: 1;
             background: var(--bg-tertiary);
             border-radius: 8px;
             padding: 20px;
             overflow: auto;
             min-height: 200px;
-        }
-
-        .preview-render-content {
-            font-family: var(--preview-font, sans-serif);
+            font-family: PreviewFont, sans-serif;
             line-height: 1.4;
             word-wrap: break-word;
             white-space: pre-wrap;
+            outline: none;
+            cursor: text;
+            color: var(--text-primary);
+        }
+
+        .preview-editable-area:empty::before {
+            content: 'Type to preview your font...';
+            color: var(--text-secondary);
+            opacity: 0.5;
         }
 
         .preview-delta-section {
@@ -1921,15 +1909,10 @@
                         <button class="btn btn-small" data-sample="numbers">Numbers</button>
                     </div>
                 </div>
-                <div class="preview-text-container">
-                    <textarea id="preview-text-input" placeholder="Type to preview your font..." rows="4">HAMBURGEVONS
+                <div class="preview-editable-area" id="preview-editable-area" contenteditable="true">HAMBURGEVONS
 The quick brown fox jumps over the lazy dog.
-0123456789 !@#$%^&amp;*()
-fi fl ff ffi ffl</textarea>
-                </div>
-                <div class="preview-render-area" id="preview-render-area">
-                    <!-- Font preview will be rendered here -->
-                </div>
+0123456789 !@#$%^&amp;*()_+-=[]{}|;:'",.<>?/
+fi fl ff ffi ffl</div>
                 <div class="preview-delta-section" id="preview-delta-section" style="display: none;">
                     <h3>Intermediate Master Deltas</h3>
                     <div class="preview-delta-info" id="preview-delta-info">
@@ -2120,6 +2103,7 @@ fi fl ff ffi ffl</textarea>
             glyphs: {
                 // Each glyph is an array of contours, each contour is an array of {x, y, onCurve} points
                 // Coordinates are in font units (0-unitsPerEm)
+                // UPPERCASE A-Z
                 'A': [[pt(0, 0), pt(320, 800), pt(640, 0)]],
                 'B': [[pt(0, 0), pt(0, 800), pt(400, 800), pt(400, 400), pt(560, 400), pt(560, 0)]],
                 'C': [[pt(0, 0), pt(0, 800), pt(640, 800), pt(640, 480), pt(240, 480), pt(240, 320), pt(640, 320), pt(640, 0)]],
@@ -2146,6 +2130,82 @@ fi fl ff ffi ffl</textarea>
                 'X': [[pt(0, 800), pt(160, 800), pt(320, 480), pt(480, 800), pt(640, 800), pt(400, 400), pt(640, 0), pt(480, 0), pt(320, 320), pt(160, 0), pt(0, 0), pt(240, 400)]],
                 'Y': [[pt(0, 800), pt(160, 800), pt(320, 480), pt(480, 800), pt(640, 800), pt(400, 320), pt(400, 0), pt(240, 0), pt(240, 320)]],
                 'Z': [[pt(0, 800), pt(640, 800), pt(640, 560), pt(240, 240), pt(640, 240), pt(640, 0), pt(0, 0), pt(0, 240), pt(400, 560), pt(0, 560)]],
+                // LOWERCASE a-z (x-height ~560, smaller than caps)
+                'a': [[pt(0, 0), pt(0, 400), pt(160, 560), pt(400, 560), pt(560, 400), pt(560, 0), pt(320, 0), pt(320, 160), pt(240, 160), pt(240, 0)]],
+                'b': [[pt(0, 0), pt(0, 800), pt(240, 800), pt(240, 560), pt(400, 560), pt(560, 400), pt(560, 0)]],
+                'c': [[pt(560, 0), pt(0, 0), pt(0, 560), pt(560, 560), pt(560, 360), pt(240, 360), pt(240, 200), pt(560, 200)]],
+                'd': [[pt(0, 0), pt(0, 400), pt(160, 560), pt(320, 560), pt(320, 800), pt(560, 800), pt(560, 0)]],
+                'e': [[pt(0, 0), pt(0, 560), pt(560, 560), pt(560, 200), pt(240, 200), pt(240, 0)], [pt(240, 280), pt(240, 360), pt(400, 360), pt(400, 280)]],
+                'f': [[pt(0, 0), pt(0, 360), pt(80, 360), pt(80, 560), pt(0, 560), pt(0, 800), pt(400, 800), pt(400, 560), pt(240, 560), pt(240, 360), pt(400, 360), pt(400, 160), pt(240, 160), pt(240, 0)]],
+                'g': [[pt(0, -160), pt(0, 560), pt(560, 560), pt(560, -160), pt(320, -160), pt(320, 0), pt(240, 0), pt(240, 360), pt(320, 360), pt(320, 200), pt(240, 200), pt(240, -160)]],
+                'h': [[pt(0, 0), pt(0, 800), pt(240, 800), pt(240, 560), pt(320, 560), pt(320, 360), pt(560, 360), pt(560, 0), pt(320, 0), pt(320, 200), pt(240, 200), pt(240, 0)]],
+                'i': [[pt(0, 0), pt(0, 560), pt(240, 560), pt(240, 0)], [pt(0, 640), pt(0, 800), pt(240, 800), pt(240, 640)]],
+                'j': [[pt(0, -160), pt(0, 0), pt(160, 0), pt(160, 560), pt(400, 560), pt(400, -160)], [pt(160, 640), pt(160, 800), pt(400, 800), pt(400, 640)]],
+                'k': [[pt(0, 0), pt(0, 800), pt(240, 800), pt(240, 400), pt(320, 560), pt(560, 560), pt(360, 280), pt(560, 0), pt(320, 0), pt(240, 160), pt(240, 0)]],
+                'l': [[pt(0, 0), pt(0, 800), pt(240, 800), pt(240, 240), pt(320, 240), pt(320, 0)]],
+                'm': [[pt(0, 0), pt(0, 560), pt(160, 560), pt(240, 400), pt(320, 560), pt(480, 560), pt(560, 400), pt(640, 560), pt(800, 560), pt(800, 0), pt(560, 0), pt(560, 240), pt(480, 160), pt(400, 240), pt(400, 0), pt(240, 0), pt(240, 240), pt(160, 160), pt(80, 240), pt(80, 0)]],
+                'n': [[pt(0, 0), pt(0, 560), pt(240, 560), pt(400, 400), pt(560, 560), pt(560, 0), pt(320, 0), pt(320, 200), pt(240, 200), pt(240, 0)]],
+                'o': [[pt(0, 0), pt(0, 560), pt(560, 560), pt(560, 0)], [pt(200, 200), pt(200, 360), pt(360, 360), pt(360, 200)]],
+                'p': [[pt(0, -200), pt(0, 560), pt(560, 560), pt(560, 0), pt(240, 0), pt(240, -200)]],
+                'q': [[pt(0, 0), pt(0, 560), pt(560, 560), pt(560, -200), pt(320, -200), pt(320, 0)]],
+                'r': [[pt(0, 0), pt(0, 560), pt(560, 560), pt(560, 360), pt(240, 360), pt(240, 0)]],
+                's': [[pt(480, 560), pt(480, 360), pt(160, 360), pt(160, 280), pt(480, 280), pt(480, 0), pt(0, 0), pt(0, 200), pt(320, 200), pt(320, 280), pt(0, 280), pt(0, 560)]],
+                't': [[pt(0, 360), pt(80, 360), pt(80, 0), pt(400, 0), pt(400, 360), pt(480, 360), pt(480, 560), pt(0, 560), pt(0, 800), pt(320, 800), pt(320, 560)]],
+                'u': [[pt(0, 0), pt(0, 560), pt(240, 560), pt(240, 200), pt(320, 200), pt(320, 560), pt(560, 560), pt(560, 0)]],
+                'v': [[pt(0, 560), pt(160, 560), pt(280, 0), pt(400, 560), pt(560, 560), pt(360, 0), pt(200, 0)]],
+                'w': [[pt(0, 560), pt(120, 560), pt(200, 200), pt(280, 400), pt(360, 200), pt(440, 560), pt(560, 560), pt(440, 0), pt(360, 0), pt(280, 240), pt(200, 0), pt(120, 0)]],
+                'x': [[pt(0, 560), pt(120, 560), pt(280, 360), pt(440, 560), pt(560, 560), pt(360, 280), pt(560, 0), pt(440, 0), pt(280, 200), pt(120, 0), pt(0, 0), pt(200, 280)]],
+                'y': [[pt(0, 560), pt(160, 560), pt(280, 280), pt(400, 560), pt(560, 560), pt(360, 80), pt(280, -200), pt(120, -200), pt(200, 80)]],
+                'z': [[pt(0, 560), pt(560, 560), pt(560, 360), pt(200, 200), pt(560, 200), pt(560, 0), pt(0, 0), pt(0, 200), pt(360, 360), pt(0, 360)]],
+                // DIGITS 0-9
+                '0': [[pt(0, 0), pt(0, 800), pt(480, 800), pt(480, 0)], [pt(160, 160), pt(160, 640), pt(320, 640), pt(320, 160)]],
+                '1': [[pt(0, 560), pt(160, 800), pt(320, 800), pt(320, 0), pt(80, 0), pt(80, 240), pt(0, 240)]],
+                '2': [[pt(0, 0), pt(0, 240), pt(320, 480), pt(0, 480), pt(0, 800), pt(480, 800), pt(480, 480), pt(160, 240), pt(480, 240), pt(480, 0)]],
+                '3': [[pt(0, 0), pt(0, 240), pt(240, 240), pt(240, 320), pt(0, 320), pt(0, 480), pt(240, 480), pt(240, 560), pt(0, 560), pt(0, 800), pt(480, 800), pt(480, 0)]],
+                '4': [[pt(320, 0), pt(320, 320), pt(0, 320), pt(0, 560), pt(320, 560), pt(320, 800), pt(560, 800), pt(560, 560), pt(480, 560), pt(480, 0)]],
+                '5': [[pt(0, 0), pt(0, 240), pt(240, 240), pt(240, 320), pt(0, 320), pt(0, 800), pt(480, 800), pt(480, 560), pt(160, 560), pt(160, 480), pt(480, 480), pt(480, 0)]],
+                '6': [[pt(0, 0), pt(0, 800), pt(480, 800), pt(480, 560), pt(160, 560), pt(160, 400), pt(480, 400), pt(480, 0)], [pt(160, 160), pt(160, 240), pt(320, 240), pt(320, 160)]],
+                '7': [[pt(0, 800), pt(480, 800), pt(480, 560), pt(240, 560), pt(240, 0), pt(0, 0), pt(0, 240), pt(80, 240), pt(80, 560), pt(0, 560)]],
+                '8': [[pt(0, 0), pt(0, 800), pt(480, 800), pt(480, 0)], [pt(160, 160), pt(160, 320), pt(320, 320), pt(320, 160)], [pt(160, 480), pt(160, 640), pt(320, 640), pt(320, 480)]],
+                '9': [[pt(0, 0), pt(0, 240), pt(320, 240), pt(320, 400), pt(0, 400), pt(0, 800), pt(480, 800), pt(480, 0)], [pt(160, 560), pt(160, 640), pt(320, 640), pt(320, 560)]],
+                // PUNCTUATION
+                '.': [[pt(0, 0), pt(0, 160), pt(160, 160), pt(160, 0)]],
+                ',': [[pt(80, -80), pt(0, 0), pt(0, 160), pt(160, 160), pt(160, 0), pt(80, 0)]],
+                '!': [[pt(40, 0), pt(40, 160), pt(200, 160), pt(200, 0)], [pt(40, 280), pt(40, 800), pt(200, 800), pt(200, 280)]],
+                '?': [[pt(40, 0), pt(40, 160), pt(200, 160), pt(200, 0)], [pt(40, 280), pt(40, 400), pt(200, 400), pt(200, 560), pt(400, 560), pt(400, 800), pt(0, 800), pt(0, 560), pt(40, 560), pt(40, 280)]],
+                ':': [[pt(0, 0), pt(0, 160), pt(160, 160), pt(160, 0)], [pt(0, 320), pt(0, 480), pt(160, 480), pt(160, 320)]],
+                ';': [[pt(80, -80), pt(0, 0), pt(0, 160), pt(160, 160), pt(160, 0), pt(80, 0)], [pt(0, 320), pt(0, 480), pt(160, 480), pt(160, 320)]],
+                "'": [[pt(0, 560), pt(0, 800), pt(120, 800), pt(120, 560)]],
+                '"': [[pt(0, 560), pt(0, 800), pt(120, 800), pt(120, 560)], [pt(200, 560), pt(200, 800), pt(320, 800), pt(320, 560)]],
+                '-': [[pt(0, 320), pt(0, 480), pt(400, 480), pt(400, 320)]],
+                '_': [[pt(0, -40), pt(0, 80), pt(560, 80), pt(560, -40)]],
+                '(': [[pt(160, -100), pt(0, 100), pt(0, 700), pt(160, 900), pt(320, 900), pt(160, 700), pt(160, 100), pt(320, -100)]],
+                ')': [[pt(0, -100), pt(160, 100), pt(160, 700), pt(0, 900), pt(160, 900), pt(320, 700), pt(320, 100), pt(160, -100)]],
+                '[': [[pt(0, -100), pt(0, 900), pt(320, 900), pt(320, 740), pt(160, 740), pt(160, 60), pt(320, 60), pt(320, -100)]],
+                ']': [[pt(0, -100), pt(0, 60), pt(160, 60), pt(160, 740), pt(0, 740), pt(0, 900), pt(320, 900), pt(320, -100)]],
+                '{': [[pt(320, -100), pt(160, -100), pt(160, 300), pt(0, 400), pt(160, 500), pt(160, 900), pt(320, 900), pt(320, 740), pt(240, 740), pt(240, 480), pt(160, 400), pt(240, 320), pt(240, 60), pt(320, 60)]],
+                '}': [[pt(0, -100), pt(160, -100), pt(160, 300), pt(320, 400), pt(160, 500), pt(160, 900), pt(0, 900), pt(0, 740), pt(80, 740), pt(80, 480), pt(160, 400), pt(80, 320), pt(80, 60), pt(0, 60)]],
+                '/': [[pt(0, 0), pt(320, 800), pt(480, 800), pt(160, 0)]],
+                '\\': [[pt(0, 800), pt(160, 800), pt(480, 0), pt(320, 0)]],
+                '|': [[pt(80, -100), pt(80, 900), pt(240, 900), pt(240, -100)]],
+                '+': [[pt(200, 200), pt(200, 360), pt(40, 360), pt(40, 480), pt(200, 480), pt(200, 640), pt(320, 640), pt(320, 480), pt(480, 480), pt(480, 360), pt(320, 360), pt(320, 200)]],
+                '=': [[pt(0, 240), pt(0, 360), pt(480, 360), pt(480, 240)], [pt(0, 440), pt(0, 560), pt(480, 560), pt(480, 440)]],
+                '<': [[pt(400, 160), pt(80, 400), pt(400, 640), pt(480, 560), pt(240, 400), pt(480, 240)]],
+                '>': [[pt(80, 160), pt(80, 240), pt(320, 400), pt(80, 560), pt(80, 640), pt(480, 400)]],
+                '@': [[pt(560, 0), pt(0, 0), pt(0, 800), pt(640, 800), pt(640, 200), pt(320, 200), pt(320, 560), pt(480, 560), pt(480, 360), pt(400, 360), pt(400, 480), pt(400, 200), pt(560, 200)]],
+                '#': [[pt(80, 0), pt(120, 240), pt(0, 240), pt(0, 360), pt(160, 360), pt(200, 560), pt(0, 560), pt(0, 680), pt(240, 680), pt(280, 800), pt(400, 800), pt(360, 680), pt(480, 680), pt(520, 800), pt(640, 800), pt(600, 680), pt(720, 680), pt(720, 560), pt(560, 560), pt(520, 360), pt(720, 360), pt(720, 240), pt(480, 240), pt(440, 0), pt(320, 0), pt(360, 240), pt(240, 240), pt(200, 0)], [pt(280, 360), pt(320, 560), pt(440, 560), pt(400, 360)]],
+                '$': [[pt(200, -80), pt(200, 80), pt(0, 80), pt(0, 400), pt(200, 400), pt(200, 560), pt(0, 560), pt(0, 800), pt(400, 800), pt(400, 560), pt(200, 560), pt(200, 400), pt(400, 400), pt(400, 80), pt(200, 80), pt(200, -80)], [pt(120, 160), pt(120, 320), pt(280, 320), pt(280, 160)], [pt(120, 480), pt(120, 640), pt(280, 640), pt(280, 480)]],
+                '%': [[pt(0, 0), pt(400, 800), pt(560, 800), pt(160, 0)], [pt(0, 480), pt(0, 800), pt(200, 800), pt(200, 480)], [pt(360, 0), pt(360, 320), pt(560, 320), pt(560, 0)]],
+                '^': [[pt(0, 480), pt(240, 800), pt(480, 480), pt(360, 480), pt(240, 640), pt(120, 480)]],
+                '&': [[pt(560, 0), pt(400, 0), pt(240, 160), pt(80, 0), pt(0, 80), pt(160, 240), pt(0, 400), pt(0, 720), pt(80, 800), pt(400, 800), pt(480, 720), pt(480, 480), pt(320, 480), pt(320, 640), pt(160, 640), pt(160, 480), pt(320, 320), pt(560, 560), pt(560, 0)]],
+                '*': [[pt(200, 400), pt(80, 320), pt(40, 400), pt(160, 480), pt(40, 560), pt(80, 640), pt(200, 560), pt(200, 720), pt(280, 720), pt(280, 560), pt(400, 640), pt(440, 560), pt(320, 480), pt(440, 400), pt(400, 320), pt(280, 400), pt(280, 240), pt(200, 240)]],
+                // SPECIAL CHARACTERS
+                'ß': [[pt(0, 0), pt(0, 800), pt(400, 800), pt(480, 720), pt(480, 560), pt(400, 480), pt(560, 400), pt(560, 0), pt(320, 0), pt(320, 280), pt(240, 280), pt(240, 0)], [pt(240, 560), pt(240, 640), pt(320, 640), pt(320, 560)]],
+                '€': [[pt(560, 0), pt(0, 0), pt(0, 800), pt(560, 800), pt(560, 560), pt(240, 560), pt(240, 480), pt(400, 480), pt(400, 320), pt(240, 320), pt(240, 240), pt(560, 240)], [pt(80, 360), pt(80, 440), pt(320, 440), pt(320, 360)]],
+                '§': [[pt(0, 0), pt(0, 160), pt(240, 160), pt(240, 280), pt(0, 280), pt(0, 520), pt(240, 520), pt(240, 640), pt(0, 640), pt(0, 800), pt(400, 800), pt(400, 640), pt(160, 640), pt(160, 520), pt(400, 520), pt(400, 280), pt(160, 280), pt(160, 160), pt(400, 160), pt(400, 0)]],
+                '°': [[pt(0, 480), pt(0, 800), pt(320, 800), pt(320, 480)], [pt(120, 560), pt(120, 720), pt(200, 720), pt(200, 560)]],
+                '`': [[pt(0, 640), pt(80, 800), pt(200, 800), pt(120, 640)]],
+                '´': [[pt(80, 640), pt(0, 800), pt(120, 800), pt(200, 640)]],
             },
             // Explicit glyph widths (advance widths). If not set, computed from rightmost point + 1
             glyphWidths: {},
@@ -7499,33 +7559,46 @@ fi fl ff ffi ffl</textarea>
         };
         
         // OpenType features list
-        const OT_FEATURES = [
-            { tag: 'liga', name: 'Standard Ligatures' },
-            { tag: 'kern', name: 'Kerning' },
-            { tag: 'dlig', name: 'Discretionary Ligatures' },
-            { tag: 'smcp', name: 'Small Caps' },
-            { tag: 'c2sc', name: 'Caps to Small Caps' },
-            { tag: 'onum', name: 'Oldstyle Figures' },
-            { tag: 'lnum', name: 'Lining Figures' },
-            { tag: 'tnum', name: 'Tabular Figures' },
-            { tag: 'pnum', name: 'Proportional Figures' },
-            { tag: 'frac', name: 'Fractions' },
-            { tag: 'sups', name: 'Superscript' },
-            { tag: 'subs', name: 'Subscript' },
-            { tag: 'swsh', name: 'Swash' },
-            { tag: 'calt', name: 'Contextual Alternates' },
-            { tag: 'salt', name: 'Stylistic Alternates' },
-            { tag: 'ss01', name: 'Stylistic Set 1' },
-            { tag: 'ss02', name: 'Stylistic Set 2' },
-            { tag: 'ss03', name: 'Stylistic Set 3' }
-        ];
+        // Feature name lookup for display
+        const OT_FEATURE_NAMES = {
+            'liga': 'Standard Ligatures',
+            'kern': 'Kerning',
+            'dlig': 'Discretionary Ligatures',
+            'smcp': 'Small Caps',
+            'c2sc': 'Caps to Small Caps',
+            'onum': 'Oldstyle Figures',
+            'lnum': 'Lining Figures',
+            'tnum': 'Tabular Figures',
+            'pnum': 'Proportional Figures',
+            'frac': 'Fractions',
+            'sups': 'Superscript',
+            'subs': 'Subscript',
+            'swsh': 'Swash',
+            'calt': 'Contextual Alternates',
+            'salt': 'Stylistic Alternates',
+            'ss01': 'Stylistic Set 1',
+            'ss02': 'Stylistic Set 2',
+            'ss03': 'Stylistic Set 3',
+            'aalt': 'Access All Alternates',
+            'ccmp': 'Glyph Composition',
+            'locl': 'Localized Forms',
+            'rlig': 'Required Ligatures',
+            'clig': 'Contextual Ligatures',
+            'hlig': 'Historical Ligatures',
+            'ordn': 'Ordinals',
+            'zero': 'Slashed Zero',
+            'case': 'Case-Sensitive Forms',
+            'cpsp': 'Capital Spacing',
+            'titl': 'Titling',
+            'mark': 'Mark Positioning',
+            'mkmk': 'Mark to Mark',
+        };
         
         // Initialize preview tab when switching to it
-        function initPreviewTab() {
-            buildPreviewFont();
-            renderPreviewAxes();
-            renderPreviewFeatures();
+        async function initPreviewTab() {
             setupPreviewEventListeners();
+            await buildPreviewFont();
+            // renderPreviewAxes and renderPreviewFeatures are called by buildPreviewFont after font is ready
             renderPreview();
         }
         
@@ -7564,8 +7637,9 @@ fi fl ff ffi ffl</textarea>
                 // Update CSS variable for preview font
                 document.documentElement.style.setProperty('--preview-font-loaded', 'PreviewFont');
                 
-                // Re-render axes if VF
+                // Re-render axes and features based on actual font data
                 renderPreviewAxes();
+                renderPreviewFeatures();
                 
             } catch (err) {
                 console.error('Error building preview font:', err);
@@ -7613,30 +7687,56 @@ fi fl ff ffi ffl</textarea>
             });
         }
         
-        // Render feature toggles
+        // Render feature toggles - only show features the font actually supports
         function renderPreviewFeatures() {
             const container = document.getElementById('preview-features');
             container.innerHTML = '';
             
-            OT_FEATURES.forEach(feature => {
+            // Get features actually supported by the font
+            const fontFeatures = new Set();
+            if (previewFont) {
+                // Check GSUB features (substitutions like ligatures)
+                if (previewFont.tables.gsub && previewFont.tables.gsub.features) {
+                    previewFont.tables.gsub.features.forEach(f => {
+                        if (f.tag) fontFeatures.add(f.tag);
+                    });
+                }
+                // Check GPOS features (positioning like kerning)
+                if (previewFont.tables.gpos && previewFont.tables.gpos.features) {
+                    previewFont.tables.gpos.features.forEach(f => {
+                        if (f.tag) fontFeatures.add(f.tag);
+                    });
+                }
+                // Check kern table (old-style kerning)
+                if (previewFont.tables.kern) {
+                    fontFeatures.add('kern');
+                }
+            }
+            
+            if (fontFeatures.size === 0) {
+                container.innerHTML = '<span style="color: var(--text-secondary); font-size: 12px;">No OpenType features.</span>';
+                return;
+            }
+            
+            fontFeatures.forEach(tag => {
                 const toggle = document.createElement('label');
                 toggle.className = 'preview-feature-toggle';
                 
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
-                checkbox.dataset.feature = feature.tag;
+                checkbox.dataset.feature = tag;
                 // Enable liga and kern by default
-                checkbox.checked = feature.tag === 'liga' || feature.tag === 'kern';
+                checkbox.checked = tag === 'liga' || tag === 'kern';
                 
                 checkbox.addEventListener('change', renderPreview);
                 
                 const tagSpan = document.createElement('span');
                 tagSpan.className = 'tag';
-                tagSpan.textContent = feature.tag;
+                tagSpan.textContent = tag;
                 
                 toggle.appendChild(checkbox);
                 toggle.appendChild(tagSpan);
-                toggle.title = feature.name;
+                toggle.title = OT_FEATURE_NAMES[tag] || tag;
                 
                 container.appendChild(toggle);
             });
@@ -7656,11 +7756,11 @@ fi fl ff ffi ffl</textarea>
                 fontSizeSlider._listenerAdded = true;
             }
             
-            // Text input
-            const textInput = document.getElementById('preview-text-input');
-            if (!textInput._listenerAdded) {
-                textInput.addEventListener('input', renderPreview);
-                textInput._listenerAdded = true;
+            // Editable preview area input listener
+            const editableArea = document.getElementById('preview-editable-area');
+            if (editableArea && !editableArea._listenerAdded) {
+                // No need for input listener since we type directly in the styled area
+                editableArea._listenerAdded = true;
             }
             
             // Sample text buttons
@@ -7669,8 +7769,7 @@ fi fl ff ffi ffl</textarea>
                     btn.addEventListener('click', () => {
                         const sample = btn.dataset.sample;
                         if (SAMPLE_TEXTS[sample]) {
-                            textInput.value = SAMPLE_TEXTS[sample];
-                            renderPreview();
+                            editableArea.textContent = SAMPLE_TEXTS[sample];
                         }
                     });
                     btn._listenerAdded = true;
@@ -7683,10 +7782,9 @@ fi fl ff ffi ffl</textarea>
             renderPreview();
         }
         
-        // Render the preview
+        // Render the preview (apply styles to the editable area)
         function renderPreview() {
-            const renderArea = document.getElementById('preview-render-area');
-            const textInput = document.getElementById('preview-text-input');
+            const editableArea = document.getElementById('preview-editable-area');
             const fontSize = document.getElementById('preview-font-size').value;
             
             // Build font-variation-settings
@@ -7701,21 +7799,18 @@ fi fl ff ffi ffl</textarea>
                 featureSettings.push(`"${checkbox.dataset.feature}" ${checkbox.checked ? 1 : 0}`);
             });
             
-            // Create preview content
-            const content = document.createElement('div');
-            content.className = 'preview-render-content';
-            content.style.fontFamily = 'PreviewFont, sans-serif';
-            content.style.fontSize = fontSize + 'px';
+            // Apply styles directly to the editable area
+            editableArea.style.fontSize = fontSize + 'px';
             if (variationSettings.length > 0) {
-                content.style.fontVariationSettings = variationSettings.join(', ');
+                editableArea.style.fontVariationSettings = variationSettings.join(', ');
+            } else {
+                editableArea.style.fontVariationSettings = '';
             }
             if (featureSettings.length > 0) {
-                content.style.fontFeatureSettings = featureSettings.join(', ');
+                editableArea.style.fontFeatureSettings = featureSettings.join(', ');
+            } else {
+                editableArea.style.fontFeatureSettings = '';
             }
-            content.textContent = textInput.value;
-            
-            renderArea.innerHTML = '';
-            renderArea.appendChild(content);
             
             // Update delta visualization if VF with sparse masters
             updateDeltaVisualization();
