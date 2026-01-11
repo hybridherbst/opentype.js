@@ -1825,6 +1825,7 @@
             <div class="form-row">
                 <label>Character range:</label>
                 <select id="import-range">
+                    <option value="font">All characters in font</option>
                     <option value="uppercase">A-Z (uppercase)</option>
                     <option value="lowercase">a-z (lowercase)</option>
                     <option value="both">A-Z and a-z</option>
@@ -1861,37 +1862,68 @@
 
         // State
         // Note: All coordinates are in font units (unitsPerEm = 800)
+        // Helper to create a point in contour format
+        function pt(x, y, onCurve = true) {
+            return { x, y, onCurve };
+        }
+        
+        // Convert shapes (array of contours) to SVG path data
+        // shapes: [[{x,y,onCurve},...], ...]
+        // flipY: if set, y is flipped as (flipY - y) - used for SVG where y increases downward
+        // offsetX: x offset added to all points
+        // scale: scale factor applied to all coordinates
+        function shapesToSvgPath(shapes, flipY = 0, offsetX = 0, scale = 1) {
+            let d = '';
+            for (const contour of shapes) {
+                if (contour && contour.length > 0) {
+                    const p0 = contour[0];
+                    const x0 = p0.x * scale + offsetX;
+                    const y0 = flipY ? (flipY - p0.y * scale) : p0.y * scale;
+                    d += `M${x0.toFixed(2)} ${y0.toFixed(2)}`;
+                    for (let i = 1; i < contour.length; i++) {
+                        const p = contour[i];
+                        const x = p.x * scale + offsetX;
+                        const y = flipY ? (flipY - p.y * scale) : p.y * scale;
+                        // For now, all line segments (curves can be added later based on onCurve)
+                        d += ` L${x.toFixed(2)} ${y.toFixed(2)}`;
+                    }
+                    d += ' Z ';
+                }
+            }
+            return d;
+        }
+        
         // The default glyphs below use coordinates in the 0-800 range
         const state = {
             glyphs: {
-                // Each glyph is an array of shapes (contours), each shape is an array of [x, y] points
+                // Each glyph is an array of contours, each contour is an array of {x, y, onCurve} points
                 // Coordinates are in font units (0-800 for 800 unitsPerEm)
-                'A': [[[0, 0], [320, 800], [640, 0]]],
-                'B': [[[0, 0], [0, 800], [400, 800], [400, 400], [560, 400], [560, 0]]],
-                'C': [[[0, 0], [0, 800], [640, 800], [640, 480], [240, 480], [240, 320], [640, 320], [640, 0]]],
-                'D': [[[0, 0], [0, 240], [160, 240], [160, 560], [0, 560], [0, 800], [640, 800], [640, 0]]],
-                'E': [[[0, 0], [0, 240], [0, 800], [640, 800], [640, 560], [240, 560], [240, 480], [400, 480], [400, 320], [240, 320], [240, 240], [640, 240], [640, 0]]],
-                'F': [[[0, 0], [0, 240], [0, 800], [640, 800], [640, 560], [240, 560], [240, 480], [400, 480], [400, 240], [240, 240], [240, 0]]],
-                'G': [[[0, 0], [0, 240], [0, 800], [640, 800], [640, 560], [240, 560], [240, 240], [400, 240], [400, 400], [640, 400], [640, 0]]],
-                'H': [[[0, 0], [0, 240], [0, 560], [0, 800], [240, 800], [240, 560], [400, 560], [400, 800], [640, 800], [640, 0], [400, 0], [400, 240], [240, 240], [240, 0]]],
-                'I': [[[0, 0], [0, 800], [240, 800], [240, 0]]],
-                'J': [[[0, 0], [0, 240], [320, 240], [320, 800], [560, 800], [560, 0]]],
-                'K': [[[0, 0], [0, 800], [240, 800], [240, 560], [400, 800], [640, 800], [400, 400], [640, 0], [400, 0], [240, 240], [240, 0]]],
-                'L': [[[0, 0], [0, 800], [240, 800], [240, 240], [560, 240], [560, 0]]],
-                'M': [[[0, 0], [0, 800], [240, 800], [320, 640], [400, 800], [640, 800], [640, 0], [400, 0], [400, 320], [320, 240], [240, 320], [240, 0]]],
-                'N': [[[0, 0], [0, 800], [240, 800], [240, 720], [400, 560], [400, 800], [640, 800], [640, 0], [400, 0], [400, 240], [240, 400], [240, 0]]],
-                'O': [[[0, 0], [0, 800], [560, 800], [560, 0]]],
-                'P': [[[0, 0], [0, 800], [560, 800], [560, 320], [240, 320], [240, 0]]],
-                'Q': [[[0, 0], [0, 800], [560, 800], [560, 0], [480, 0], [560, -80], [320, -80], [240, 0]]],
-                'R': [[[0, 0], [0, 800], [560, 800], [560, 320], [400, 320], [560, 0], [320, 0], [240, 160], [240, 0]]],
-                'S': [[[560, 800], [560, 560], [240, 560], [240, 480], [560, 480], [560, 0], [0, 0], [0, 240], [320, 240], [320, 320], [0, 320], [0, 800]]],
-                'T': [[[160, 0], [160, 560], [0, 560], [0, 800], [560, 800], [560, 560], [400, 560], [400, 0]]],
-                'U': [[[0, 0], [0, 800], [240, 800], [240, 240], [400, 240], [400, 800], [640, 800], [640, 0]]],
-                'V': [[[0, 800], [240, 800], [320, 0], [400, 800], [640, 800], [400, 0], [240, 0]]],
-                'W': [[[0, 800], [160, 800], [240, 240], [320, 560], [400, 240], [480, 800], [640, 800], [480, 0], [400, 0], [320, 320], [240, 0], [160, 0]]],
-                'X': [[[0, 800], [160, 800], [320, 480], [480, 800], [640, 800], [400, 400], [640, 0], [480, 0], [320, 320], [160, 0], [0, 0], [240, 400]]],
-                'Y': [[[0, 800], [160, 800], [320, 480], [480, 800], [640, 800], [400, 320], [400, 0], [240, 0], [240, 320]]],
-                'Z': [[[0, 800], [640, 800], [640, 560], [240, 240], [640, 240], [640, 0], [0, 0], [0, 240], [400, 560], [0, 560]]],
+                'A': [[pt(0, 0), pt(320, 800), pt(640, 0)]],
+                'B': [[pt(0, 0), pt(0, 800), pt(400, 800), pt(400, 400), pt(560, 400), pt(560, 0)]],
+                'C': [[pt(0, 0), pt(0, 800), pt(640, 800), pt(640, 480), pt(240, 480), pt(240, 320), pt(640, 320), pt(640, 0)]],
+                'D': [[pt(0, 0), pt(0, 240), pt(160, 240), pt(160, 560), pt(0, 560), pt(0, 800), pt(640, 800), pt(640, 0)]],
+                'E': [[pt(0, 0), pt(0, 240), pt(0, 800), pt(640, 800), pt(640, 560), pt(240, 560), pt(240, 480), pt(400, 480), pt(400, 320), pt(240, 320), pt(240, 240), pt(640, 240), pt(640, 0)]],
+                'F': [[pt(0, 0), pt(0, 240), pt(0, 800), pt(640, 800), pt(640, 560), pt(240, 560), pt(240, 480), pt(400, 480), pt(400, 240), pt(240, 240), pt(240, 0)]],
+                'G': [[pt(0, 0), pt(0, 240), pt(0, 800), pt(640, 800), pt(640, 560), pt(240, 560), pt(240, 240), pt(400, 240), pt(400, 400), pt(640, 400), pt(640, 0)]],
+                'H': [[pt(0, 0), pt(0, 240), pt(0, 560), pt(0, 800), pt(240, 800), pt(240, 560), pt(400, 560), pt(400, 800), pt(640, 800), pt(640, 0), pt(400, 0), pt(400, 240), pt(240, 240), pt(240, 0)]],
+                'I': [[pt(0, 0), pt(0, 800), pt(240, 800), pt(240, 0)]],
+                'J': [[pt(0, 0), pt(0, 240), pt(320, 240), pt(320, 800), pt(560, 800), pt(560, 0)]],
+                'K': [[pt(0, 0), pt(0, 800), pt(240, 800), pt(240, 560), pt(400, 800), pt(640, 800), pt(400, 400), pt(640, 0), pt(400, 0), pt(240, 240), pt(240, 0)]],
+                'L': [[pt(0, 0), pt(0, 800), pt(240, 800), pt(240, 240), pt(560, 240), pt(560, 0)]],
+                'M': [[pt(0, 0), pt(0, 800), pt(240, 800), pt(320, 640), pt(400, 800), pt(640, 800), pt(640, 0), pt(400, 0), pt(400, 320), pt(320, 240), pt(240, 320), pt(240, 0)]],
+                'N': [[pt(0, 0), pt(0, 800), pt(240, 800), pt(240, 720), pt(400, 560), pt(400, 800), pt(640, 800), pt(640, 0), pt(400, 0), pt(400, 240), pt(240, 400), pt(240, 0)]],
+                'O': [[pt(0, 0), pt(0, 800), pt(560, 800), pt(560, 0)]],
+                'P': [[pt(0, 0), pt(0, 800), pt(560, 800), pt(560, 320), pt(240, 320), pt(240, 0)]],
+                'Q': [[pt(0, 0), pt(0, 800), pt(560, 800), pt(560, 0), pt(480, 0), pt(560, -80), pt(320, -80), pt(240, 0)]],
+                'R': [[pt(0, 0), pt(0, 800), pt(560, 800), pt(560, 320), pt(400, 320), pt(560, 0), pt(320, 0), pt(240, 160), pt(240, 0)]],
+                'S': [[pt(560, 800), pt(560, 560), pt(240, 560), pt(240, 480), pt(560, 480), pt(560, 0), pt(0, 0), pt(0, 240), pt(320, 240), pt(320, 320), pt(0, 320), pt(0, 800)]],
+                'T': [[pt(160, 0), pt(160, 560), pt(0, 560), pt(0, 800), pt(560, 800), pt(560, 560), pt(400, 560), pt(400, 0)]],
+                'U': [[pt(0, 0), pt(0, 800), pt(240, 800), pt(240, 240), pt(400, 240), pt(400, 800), pt(640, 800), pt(640, 0)]],
+                'V': [[pt(0, 800), pt(240, 800), pt(320, 0), pt(400, 800), pt(640, 800), pt(400, 0), pt(240, 0)]],
+                'W': [[pt(0, 800), pt(160, 800), pt(240, 240), pt(320, 560), pt(400, 240), pt(480, 800), pt(640, 800), pt(480, 0), pt(400, 0), pt(320, 320), pt(240, 0), pt(160, 0)]],
+                'X': [[pt(0, 800), pt(160, 800), pt(320, 480), pt(480, 800), pt(640, 800), pt(400, 400), pt(640, 0), pt(480, 0), pt(320, 320), pt(160, 0), pt(0, 0), pt(240, 400)]],
+                'Y': [[pt(0, 800), pt(160, 800), pt(320, 480), pt(480, 800), pt(640, 800), pt(400, 320), pt(400, 0), pt(240, 0), pt(240, 320)]],
+                'Z': [[pt(0, 800), pt(640, 800), pt(640, 560), pt(240, 240), pt(640, 240), pt(640, 0), pt(0, 0), pt(0, 240), pt(400, 560), pt(0, 560)]],
             },
             // Explicit glyph widths (advance widths). If not set, computed from rightmost point + 1
             glyphWidths: {},
@@ -2003,17 +2035,19 @@
             updateTransformMenuButtons();
         }
         
-        // Helper: Get all shapes for current glyph (handles legacy flat format)
+        // Helper: Get all shapes for current glyph
+        // Glyph data is always in contour format: [[{x,y,onCurve},...], ...]
         // Optional glyphsSource can override state.glyphs (e.g., for VF interpolated preview)
         function getGlyphShapes(char = state.currentGlyph, glyphsSource = null) {
             const source = glyphsSource || state.glyphs;
             const data = source[char];
             if (!data || data.length === 0) return [];
-            // Check if nested (array of shapes) or flat (single shape as array of points)
-            if (data[0] && Array.isArray(data[0]) && Array.isArray(data[0][0])) {
-                return data; // Already nested
+            // Check if nested (array of contours)
+            const first = data[0];
+            if (first && Array.isArray(first)) {
+                return data; // Already nested [[{x,y,onCurve},...], ...]
             }
-            // Legacy flat format - wrap in array
+            // Flat format (single contour) - wrap in array
             return [data];
         }
         
@@ -2024,7 +2058,8 @@
         }
         
         // Helper: Transform a point by reference transform (dx, dy, scaleX, scaleY, rotation, skewX, skewY)
-        function transformPoint(x, y, ref) {
+        // Returns a point in contour format {x, y, onCurve}
+        function transformPoint(x, y, ref, onCurve = true) {
             // Apply transforms in order: scale -> skew -> rotate -> translate
             let px = x * (ref.scaleX || 1);
             let py = y * (ref.scaleY || 1);
@@ -2052,7 +2087,7 @@
             px += ref.dx || 0;
             py += ref.dy || 0;
             
-            return [px, py];
+            return { x: px, y: py, onCurve };
         }
         
         // Helper: Get transformed shapes for a reference
@@ -2062,7 +2097,7 @@
             if (!sourceShapes || sourceShapes.length === 0) return [];
             
             return sourceShapes.map(shape => 
-                shape.map(point => transformPoint(point[0], point[1], ref))
+                shape.map(point => transformPoint(point.x, point.y, ref, point.onCurve !== false))
             );
         }
         
@@ -2075,11 +2110,11 @@
             if (allPoints.length === 0) return null;
             
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-            for (const [x, y] of allPoints) {
-                minX = Math.min(minX, x);
-                minY = Math.min(minY, y);
-                maxX = Math.max(maxX, x);
-                maxY = Math.max(maxY, y);
+            for (const p of allPoints) {
+                minX = Math.min(minX, p.x);
+                minY = Math.min(minY, p.y);
+                maxX = Math.max(maxX, p.x);
+                maxY = Math.max(maxY, p.y);
             }
             
             return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
@@ -2136,14 +2171,16 @@
         }
         
         // Helper: Flatten shapes to flat point array (for VF interpolation)
-        function flattenShapesToPoints(shapesOrPoints) {
-            if (!shapesOrPoints || shapesOrPoints.length === 0) return [];
-            // Check if already flat (first element is a point [x, y])
-            if (Array.isArray(shapesOrPoints[0]) && typeof shapesOrPoints[0][0] === 'number') {
-                return shapesOrPoints; // Already flat
+        // Glyph shapes are always [[{x,y,onCurve},...], ...]
+        function flattenShapesToPoints(shapes) {
+            if (!shapes || shapes.length === 0) return [];
+            const first = shapes[0];
+            // Already flat (single contour of points)
+            if (first && typeof first === 'object' && !Array.isArray(first) && 'x' in first) {
+                return shapes;
             }
-            // Nested format - flatten
-            return shapesOrPoints.flat();
+            // Nested - flatten
+            return shapes.flat();
         }
 
         // DOM elements
@@ -2493,7 +2530,10 @@
             
             // Create an empty glyph for the ligature
             // Start with a basic shape - user can edit it (aligned to grid)
-            state.glyphs[finalName] = [[[0, 0], [0, 560], [400, 560], [400, 0]]];
+            const initialShapes = [[pt(0, 0), pt(0, 560), pt(400, 560), pt(400, 0)]];
+            state.glyphs[finalName] = initialShapes;
+            // Sync to all VF masters if VF is enabled
+            syncNewGlyphToMasters(finalName, initialShapes);
             
             // Update the ligature result
             state.ligatures[index].result = finalName;
@@ -2787,7 +2827,7 @@
             }
             
             // Fallback: return a simple placeholder box for missing glyphs
-            return [[[0, 0], [400, 0], [400, 640], [0, 640]]];
+            return [[pt(0, 0), pt(400, 0), pt(400, 640), pt(0, 640)]];
         }
         
         // Get glyph width for rendering, with fallback
@@ -2804,17 +2844,9 @@
             return 400;
         }
         
-        // Create SVG path data for a glyph's shapes
+        // Create SVG path data for a glyph's shapes (no Y flip, for use in preview SVGs)
         function glyphShapesToPath(shapes, offsetX = 0, scale = 1) {
-            let pathData = '';
-            for (const shape of shapes) {
-                if (shape && shape.length > 0) {
-                    pathData += 'M' + shape.map(p => 
-                        `${(p[0] * scale + offsetX).toFixed(2)},${(p[1] * scale).toFixed(2)}`
-                    ).join('L') + 'Z ';
-                }
-            }
-            return pathData;
+            return shapesToSvgPath(shapes, 0, offsetX, scale);
         }
         
         // Create an SVG element displaying text using actual font glyphs
@@ -3792,11 +3824,13 @@
                 const shapes = getGlyphShapes();
                 const points = shapes[state.selectedShape];
                 if (points && state.selectedPoint < points.length) {
-                    // Snap to grid
-                    points[state.selectedPoint] = [
-                        Math.round(world.x / state.gridSize) * state.gridSize,
-                        Math.round(world.y / state.gridSize) * state.gridSize
-                    ];
+                    // Snap to grid - preserve onCurve property
+                    const oldPt = points[state.selectedPoint];
+                    points[state.selectedPoint] = {
+                        x: Math.round(world.x / state.gridSize) * state.gridSize,
+                        y: Math.round(world.y / state.gridSize) * state.gridSize,
+                        onCurve: oldPt.onCurve !== false
+                    };
                     draw();
                     updatePointProperties();
                     updateShapeList();
@@ -3809,8 +3843,12 @@
                 const points = shapes[state.selectedShape];
                 if (points) {
                     for (const idx of state.dragEdgeIndices) {
-                        points[idx][0] = Math.round((points[idx][0] + dx) / state.gridSize) * state.gridSize;
-                        points[idx][1] = Math.round((points[idx][1] + dy) / state.gridSize) * state.gridSize;
+                        const oldPt = points[idx];
+                        points[idx] = {
+                            x: Math.round((oldPt.x + dx) / state.gridSize) * state.gridSize,
+                            y: Math.round((oldPt.y + dy) / state.gridSize) * state.gridSize,
+                            onCurve: oldPt.onCurve !== false
+                        };
                     }
                     state.lastMousePos = { x: mx, y: my };
                     draw();
@@ -3823,9 +3861,13 @@
                 const shapes = getGlyphShapes();
                 const points = shapes[state.selectedShape];
                 if (points) {
-                    for (const pt of points) {
-                        pt[0] = Math.round((pt[0] + dx) / state.gridSize) * state.gridSize;
-                        pt[1] = Math.round((pt[1] + dy) / state.gridSize) * state.gridSize;
+                    for (let i = 0; i < points.length; i++) {
+                        const oldPt = points[i];
+                        points[i] = {
+                            x: Math.round((oldPt.x + dx) / state.gridSize) * state.gridSize,
+                            y: Math.round((oldPt.y + dy) / state.gridSize) * state.gridSize,
+                            onCurve: oldPt.onCurve !== false
+                        };
                     }
                     state.lastMousePos = { x: mx, y: my };
                     draw();
@@ -3862,8 +3904,8 @@
             
             // Check each edge (including closing edge from last to first)
             for (let i = 0; i < points.length; i++) {
-                const p1 = worldToScreen(points[i][0], points[i][1]);
-                const p2 = worldToScreen(points[(i + 1) % points.length][0], points[(i + 1) % points.length][1]);
+                const p1 = worldToScreen(points[i].x, points[i].y);
+                const p2 = worldToScreen(points[(i + 1) % points.length].x, points[(i + 1) % points.length].y);
                 
                 // Calculate distance from point to line segment
                 const dist = pointToSegmentDistance(mx, my, p1.x, p1.y, p2.x, p2.y);
@@ -3977,10 +4019,10 @@
                 ctx.beginPath();
                 for (const points of shapes) {
                     if (points.length === 0) continue;
-                    const first = worldToScreen(points[0][0], points[0][1]);
+                    const first = worldToScreen(points[0].x, points[0].y);
                     ctx.moveTo(first.x, first.y);
                     for (let i = 1; i < points.length; i++) {
-                        const p = worldToScreen(points[i][0], points[i][1]);
+                        const p = worldToScreen(points[i].x, points[i].y);
                         ctx.lineTo(p.x, p.y);
                     }
                     ctx.closePath();
@@ -4093,10 +4135,10 @@
                 for (let si = 0; si < shapes.length; si++) {
                     const points = shapes[si];
                     if (points.length === 0) continue;
-                    const first = worldToScreen(points[0][0], points[0][1]);
+                    const first = worldToScreen(points[0].x, points[0].y);
                     ctx.moveTo(first.x, first.y);
                     for (let i = 1; i < points.length; i++) {
-                        const p = worldToScreen(points[i][0], points[i][1]);
+                        const p = worldToScreen(points[i].x, points[i].y);
                         ctx.lineTo(p.x, p.y);
                     }
                     ctx.closePath();
@@ -4107,10 +4149,10 @@
                     const refShapes = getTransformedReferenceShapes(ref);
                     for (const points of refShapes) {
                         if (points.length === 0) continue;
-                        const first = worldToScreen(points[0][0], points[0][1]);
+                        const first = worldToScreen(points[0].x, points[0].y);
                         ctx.moveTo(first.x, first.y);
                         for (let i = 1; i < points.length; i++) {
-                            const p = worldToScreen(points[i][0], points[i][1]);
+                            const p = worldToScreen(points[i].x, points[i].y);
                             ctx.lineTo(p.x, p.y);
                         }
                         ctx.closePath();
@@ -4129,10 +4171,10 @@
                 
                 // In edit mode, draw filled shapes; in preview mode just draw outline
                 ctx.beginPath();
-                const first = worldToScreen(points[0][0], points[0][1]);
+                const first = worldToScreen(points[0].x, points[0].y);
                 ctx.moveTo(first.x, first.y);
                 for (let i = 1; i < points.length; i++) {
-                    const p = worldToScreen(points[i][0], points[i][1]);
+                    const p = worldToScreen(points[i].x, points[i].y);
                     ctx.lineTo(p.x, p.y);
                 }
                 ctx.closePath();
@@ -4147,7 +4189,7 @@
 
                 // Draw points (only for selected shape in detail)
                 for (let i = 0; i < points.length; i++) {
-                    const p = worldToScreen(points[i][0], points[i][1]);
+                    const p = worldToScreen(points[i].x, points[i].y);
                     ctx.beginPath();
                     const isSelectedPoint = (isSelected && i === state.selectedPoint);
                     ctx.arc(p.x, p.y, isSelectedPoint ? 8 : (isSelected ? 5 : 3), 0, Math.PI * 2);
@@ -4177,8 +4219,12 @@
                 
                 // Add the glyph's own interpolated shapes
                 if (interpShapes && interpShapes.length > 0) {
-                    if (interpShapes.length > 0 && typeof interpShapes[0][0] === 'number') {
-                        shapesToDraw.push(interpShapes);
+                    const firstEl = interpShapes[0];
+                    // Check if flat (first element is a point) or nested (first element is an array)
+                    if (firstEl && typeof firstEl === 'object' && !Array.isArray(firstEl) && 'x' in firstEl) {
+                        shapesToDraw.push(interpShapes); // flat contour format
+                    } else if (Array.isArray(firstEl) && typeof firstEl[0] === 'number') {
+                        shapesToDraw.push(interpShapes); // flat legacy format
                     } else {
                         for (const shape of interpShapes) {
                             if (shape && shape.length > 0) shapesToDraw.push(shape);
@@ -4205,10 +4251,10 @@
                         if (!points || points.length === 0) continue;
                         
                         ctx.beginPath();
-                        const first = worldToScreen(points[0][0], points[0][1]);
+                        const first = worldToScreen(points[0].x, points[0].y);
                         ctx.moveTo(first.x, first.y);
                         for (let i = 1; i < points.length; i++) {
-                            const p = worldToScreen(points[i][0], points[i][1]);
+                            const p = worldToScreen(points[i].x, points[i].y);
                             ctx.lineTo(p.x, p.y);
                         }
                         ctx.closePath();
@@ -4272,9 +4318,9 @@
                     for (const points of allShapes) {
                         if (points.length > 0) {
                             // Apply lsbOffset to center glyph within advance width
-                            ctx.moveTo(x + (points[0][0] + lsbOffset) * scale, y + points[0][1] * scale);
+                            ctx.moveTo(x + (points[0].x + lsbOffset) * scale, y + points[0].y * scale);
                             for (let i = 1; i < points.length; i++) {
-                                ctx.lineTo(x + (points[i][0] + lsbOffset) * scale, y + points[i][1] * scale);
+                                ctx.lineTo(x + (points[i].x + lsbOffset) * scale, y + points[i].y * scale);
                             }
                             ctx.closePath();
                         }
@@ -4297,7 +4343,10 @@
             
             // First add the glyph's own shapes
             if (glyphData && glyphData.length > 0) {
-                const isNested = Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0]);
+                // Check if nested (array of contours) or flat (single contour)
+                const first = glyphData[0];
+                const isNested = Array.isArray(first) && first.length > 0 && 
+                    (typeof first[0] === 'object' || Array.isArray(first[0]));
                 if (isNested) {
                     for (const shape of glyphData) {
                         if (shape && shape.length > 0) {
@@ -4337,7 +4386,7 @@
             // Fallback: compute from bounding box (maxX - minX) across all shapes + sidebearing
             const allPoints = shapes.flat();
             if (!allPoints || allPoints.length === 0) return 400;
-            const xCoords = allPoints.map(p => p[0]);
+            const xCoords = allPoints.map(p => p.x);
             const minX = Math.min(...xCoords);
             const maxX = Math.max(...xCoords);
             const bboxWidth = minX >= 0 ? maxX : maxX - minX;
@@ -4355,7 +4404,7 @@
             
             const allPoints = allShapes.flat();
             if (!allPoints || allPoints.length === 0) return 400;
-            const xCoords = allPoints.map(p => p[0]);
+            const xCoords = allPoints.map(p => p.x);
             const minX = Math.min(...xCoords);
             const maxX = Math.max(...xCoords);
             // Width is bounding box width plus total sidebearing
@@ -4364,7 +4413,7 @@
             return glyphBBoxWidth + state.sidebearing;
         }
         
-        // Legacy: Get glyph width - uses stored width if available, otherwise computes from points
+        // Get glyph width - uses stored width if available, otherwise computes from points
         // NOTE: This returns bounding box width WITHOUT sidebearing (used for VF delta calculation)
         // For display purposes, use getGlyphWidthFromShapes or getAutoWidth which include sidebearing
         function getGlyphWidth(pointsOrShapes, char = null, widthsObj = null) {
@@ -4372,11 +4421,10 @@
             if (char && widthsObj && widthsObj[char] !== undefined) {
                 return widthsObj[char];
             }
-            // Handle both nested and flat formats
-            const allPoints = (pointsOrShapes[0] && Array.isArray(pointsOrShapes[0]) && Array.isArray(pointsOrShapes[0][0]))
-                ? pointsOrShapes.flat() : pointsOrShapes;
+            // Flatten if nested
+            const allPoints = flattenShapesToPoints(pointsOrShapes);
             if (!allPoints || allPoints.length === 0) return 400;
-            const xCoords = allPoints.map(p => p[0]);
+            const xCoords = allPoints.map(p => p.x);
             const minX = Math.min(...xCoords);
             const maxX = Math.max(...xCoords);
             return minX >= 0 ? maxX : maxX - minX;
@@ -4561,15 +4609,8 @@
             svg.setAttribute('viewBox', '-2 -2 14 14');
             const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             
-            const shapes = (glyphData && glyphData[0] && Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0])) 
-                ? glyphData : (glyphData && glyphData.length > 0 ? [glyphData] : []);
-            
-            let d = '';
-            for (const points of shapes) {
-                if (points && points.length > 0) {
-                    d += 'M' + points.map(p => p[0] + ' ' + (10 - p[1])).join(' L') + ' Z ';
-                }
-            }
+            const shapes = getGlyphShapes(name);
+            const d = shapesToSvgPath(shapes, 10, 0, 10/800);
             path.setAttribute('d', d.trim());
             path.setAttribute('fill', '#4a9eff');  // Same blue as glyphs
             path.setAttribute('stroke', '#6ab0ff');
@@ -4654,7 +4695,10 @@
             
             if (!state.glyphs[name]) {
                 // Create new component with empty shape (components are just glyphs)
-                state.glyphs[name] = [[[0, 0], [320, 800], [640, 0]]]; // Default triangle shape in font units
+                const initialShapes = [[pt(0, 0), pt(320, 800), pt(640, 0)]]; // Default triangle shape in font units
+                state.glyphs[name] = initialShapes;
+                // Sync to all VF masters if VF is enabled
+                syncNewGlyphToMasters(name, initialShapes);
             }
             
             hideModal('component-modal');
@@ -4865,16 +4909,8 @@
                 svg.setAttribute('viewBox', '-50 -50 750 750');
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 
-                // Handle both nested and flat formats
-                const shapes = (glyphData && glyphData[0] && Array.isArray(glyphData[0]) && Array.isArray(glyphData[0][0])) 
-                    ? glyphData : (glyphData && glyphData.length > 0 ? [glyphData] : []);
-                
-                let d = '';
-                for (const points of shapes) {
-                    if (points && points.length > 0) {
-                        d += 'M' + points.map(p => p[0] + ' ' + (700 - p[1])).join(' L') + ' Z ';
-                    }
-                }
+                const shapes = getGlyphShapes(char);
+                const d = shapesToSvgPath(shapes, 700, 0, 1);
                 path.setAttribute('d', d.trim());
                 path.setAttribute('fill', isSelected ? '#ffb74d' : '#4a9eff');
                 path.setAttribute('stroke', isSelected ? '#ffd54f' : '#6ab0ff');
@@ -4933,13 +4969,14 @@
                     }
                 }
             } else {
-                // Create default triangle glyph
-                state.glyphs[char] = [[[0, 0], [4, 10], [8, 0]]];
+                // Create default triangle glyph (in 800-unit font space)
+                const defaultGlyph = [[pt(0, 0), pt(320, 800), pt(640, 0)]];
+                state.glyphs[char] = defaultGlyph;
                 
                 if (state.vf.enabled) {
                     for (const master of state.vf.masters) {
                         if (master.glyphs) {
-                            master.glyphs[char] = [[[0, 0], [4, 10], [8, 0]]];
+                            master.glyphs[char] = JSON.parse(JSON.stringify(defaultGlyph));
                         }
                     }
                 }
@@ -5064,7 +5101,7 @@
             const shapes = getGlyphShapes();
             // Add a triangle shape offset from existing shapes (in 800 font units scale)
             const offset = shapes.length * 160;
-            const newShape = [[offset, 0], [offset + 160, 560], [offset + 320, 0]];
+            const newShape = [pt(offset, 0), pt(offset + 160, 560), pt(offset + 320, 0)];
             shapes.push(newShape);
             setGlyphShapes(shapes);
             state.selectedShape = shapes.length - 1;
@@ -5096,8 +5133,9 @@
         function updatePointProperties() {
             const points = getCurrentShapePoints();
             if (state.selectedPoint >= 0 && state.selectedPoint < points.length) {
-                document.getElementById('point-x').value = points[state.selectedPoint][0];
-                document.getElementById('point-y').value = points[state.selectedPoint][1];
+                const p = points[state.selectedPoint];
+                document.getElementById('point-x').value = p.x;
+                document.getElementById('point-y').value = p.y;
             } else {
                 document.getElementById('point-x').value = '';
                 document.getElementById('point-y').value = '';
@@ -5107,8 +5145,12 @@
         function updatePointFromInput() {
             const points = getCurrentShapePoints();
             if (state.selectedPoint >= 0 && state.selectedPoint < points.length) {
-                points[state.selectedPoint][0] = parseFloat(document.getElementById('point-x').value) || 0;
-                points[state.selectedPoint][1] = parseFloat(document.getElementById('point-y').value) || 0;
+                const oldPt = points[state.selectedPoint];
+                points[state.selectedPoint] = {
+                    x: parseFloat(document.getElementById('point-x').value) || 0,
+                    y: parseFloat(document.getElementById('point-y').value) || 0,
+                    onCurve: oldPt.onCurve !== false
+                };
                 updateShapeList();
                 draw();
             }
@@ -5127,8 +5169,8 @@
 
         function addPoint() {
             const points = getCurrentShapePoints();
-            const lastPoint = points[points.length - 1] || [0, 0];
-            points.push([lastPoint[0] + 1, lastPoint[1]]);
+            const lastPoint = points[points.length - 1] || { x: 0, y: 0, onCurve: true };
+            points.push({ x: lastPoint.x + 1, y: lastPoint.y, onCurve: true });
             state.selectedPoint = points.length - 1;
             updateShapeList();
             draw();
@@ -5149,8 +5191,11 @@
             if (char && char.length === 1) {
                 const upperChar = char.toUpperCase();
                 if (!state.glyphs[upperChar]) {
-                    // Initialize with nested shape array using font units (0-800 range)
-                    state.glyphs[upperChar] = [[[0, 0], [320, 800], [640, 0]]];
+                    // Initialize with contour format using font units (0-800 range)
+                    const initialShapes = [[pt(0, 0), pt(320, 800), pt(640, 0)]];
+                    state.glyphs[upperChar] = initialShapes;
+                    // Sync to all VF masters if VF is enabled
+                    syncNewGlyphToMasters(upperChar, initialShapes);
                     selectGlyph(upperChar);
                     renderGlyphGrid();
                 }
@@ -5249,6 +5294,19 @@
                 // Determine character range
                 let charCodes = [];
                 switch (range) {
+                    case 'font':
+                        // Import all characters defined in the font
+                        for (let i = 0; i < font.glyphs.length; i++) {
+                            const g = font.glyphs.get(i);
+                            if (g && g.unicodes && g.unicodes.length > 0) {
+                                for (const unicode of g.unicodes) {
+                                    if (!charCodes.includes(unicode)) {
+                                        charCodes.push(unicode);
+                                    }
+                                }
+                            }
+                        }
+                        break;
                     case 'uppercase':
                         for (let i = 65; i <= 90; i++) charCodes.push(i);
                         break;
@@ -5272,15 +5330,38 @@
                 for (const code of charCodes) {
                     const char = String.fromCharCode(code);
                     const glyph = font.charToGlyph(char);
-                    if (glyph && glyph.path && glyph.path.commands.length > 0) {
-                        if (!overwrite && state.glyphs[char]) {
-                            continue; // Skip existing
+                    if (!glyph || glyph.index === 0) continue; // Skip missing glyphs (.notdef)
+                    
+                    if (!overwrite && state.glyphs[char]) {
+                        continue; // Skip existing
+                    }
+                    
+                    // Prefer TrueType points (glyph.points) over path commands
+                    // This preserves contours and on-curve info properly
+                    if (glyph.points && glyph.points.length > 0) {
+                        const contours = extractGlyphPoints(glyph.points);
+                        if (contours.length > 0) {
+                            state.glyphs[char] = contours;
+                            // Use advanceWidth for width, or compute from bounds
+                            if (glyph.advanceWidth !== undefined) {
+                                state.glyphWidths[char] = Math.round(glyph.advanceWidth);
+                            } else {
+                                const bounds = computeContourBounds(contours);
+                                if (bounds.maxX > 0) {
+                                    state.glyphWidths[char] = Math.round(bounds.maxX);
+                                }
+                            }
+                            importedCount++;
+                            continue;
                         }
-                        const points = extractPathPoints(glyph.path);
-                        if (points.length > 0) {
-                            // Convert to contour format: [[{x, y, onCurve}, ...]]
-                            state.glyphs[char] = [points.map(p => ({ x: p[0], y: p[1], onCurve: true }))];
-                            // Compute width from path bounds (in font units)
+                    }
+                    
+                    // Fallback to path extraction for CFF fonts
+                    if (glyph.path && glyph.path.commands.length > 0) {
+                        const contours = extractPathAsContours(glyph.path);
+                        if (contours.length > 0) {
+                            state.glyphs[char] = contours;
+                            // Compute width from path bounds
                             const bounds = getPathBounds(glyph.path);
                             if (bounds.maxX > 0) {
                                 state.glyphWidths[char] = Math.round(bounds.maxX);
@@ -5604,20 +5685,128 @@
             return extrema;
         }
 
-        function extractPathPoints(path) {
-            const points = [];
+        // Extract TrueType glyph points into contour format
+        // Similar to extractTransformedPoints but for direct glyph.points
+        function extractGlyphPoints(glyphPoints) {
+            const contours = [];
+            let currentContour = [];
             
-            for (const cmd of path.commands) {
-                if (cmd.type === 'M' || cmd.type === 'L') {
-                    points.push([
-                        Math.round(cmd.x),
-                        Math.round(cmd.y)
-                    ]);
+            for (const pt of glyphPoints) {
+                currentContour.push({
+                    x: Math.round(pt.x),
+                    y: Math.round(pt.y),
+                    onCurve: pt.onCurve !== false
+                });
+                
+                if (pt.lastPointOfContour) {
+                    contours.push(currentContour);
+                    currentContour = [];
                 }
-                // Skip curves for now - this is a simplified import
             }
             
-            return points;
+            // If there's a remaining contour, add it
+            if (currentContour.length > 0) {
+                contours.push(currentContour);
+            }
+            
+            return contours;
+        }
+        
+        // Extract path commands into contour format (for CFF fonts)
+        // Handles M, L, Q, C, Z commands
+        function extractPathAsContours(path) {
+            const contours = [];
+            let currentContour = [];
+            
+            for (const cmd of path.commands) {
+                switch (cmd.type) {
+                    case 'M':
+                        // Start new contour
+                        if (currentContour.length > 0) {
+                            contours.push(currentContour);
+                        }
+                        currentContour = [{
+                            x: Math.round(cmd.x),
+                            y: Math.round(cmd.y),
+                            onCurve: true
+                        }];
+                        break;
+                    case 'L':
+                        currentContour.push({
+                            x: Math.round(cmd.x),
+                            y: Math.round(cmd.y),
+                            onCurve: true
+                        });
+                        break;
+                    case 'Q':
+                        // Quadratic curve: add control point then on-curve point
+                        currentContour.push({
+                            x: Math.round(cmd.x1),
+                            y: Math.round(cmd.y1),
+                            onCurve: false
+                        });
+                        currentContour.push({
+                            x: Math.round(cmd.x),
+                            y: Math.round(cmd.y),
+                            onCurve: true
+                        });
+                        break;
+                    case 'C':
+                        // Cubic curve: add two control points then on-curve point
+                        currentContour.push({
+                            x: Math.round(cmd.x1),
+                            y: Math.round(cmd.y1),
+                            onCurve: false
+                        });
+                        currentContour.push({
+                            x: Math.round(cmd.x2),
+                            y: Math.round(cmd.y2),
+                            onCurve: false
+                        });
+                        currentContour.push({
+                            x: Math.round(cmd.x),
+                            y: Math.round(cmd.y),
+                            onCurve: true
+                        });
+                        break;
+                    case 'Z':
+                        // Close path - save contour
+                        if (currentContour.length > 0) {
+                            contours.push(currentContour);
+                            currentContour = [];
+                        }
+                        break;
+                }
+            }
+            
+            // If there's a remaining contour, add it
+            if (currentContour.length > 0) {
+                contours.push(currentContour);
+            }
+            
+            return contours;
+        }
+        
+        // Compute bounding box from contours
+        function computeContourBounds(contours) {
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            
+            for (const contour of contours) {
+                for (const p of contour) {
+                    if (p.x < minX) minX = p.x;
+                    if (p.x > maxX) maxX = p.x;
+                    if (p.y < minY) minY = p.y;
+                    if (p.y > maxY) maxY = p.y;
+                }
+            }
+            
+            return {
+                minX: minX === Infinity ? 0 : minX,
+                maxX: maxX === -Infinity ? 0 : maxX,
+                minY: minY === Infinity ? 0 : minY,
+                maxY: maxY === -Infinity ? 0 : maxY
+            };
         }
         
         // Compute glyph bounding box from path commands (handles beziers)
@@ -6791,6 +6980,38 @@
             drawPreview();
         }
         
+        // Helper: Add a new glyph to all VF masters (when VF is enabled)
+        // This ensures new glyphs are available for editing in all masters
+        function syncNewGlyphToMasters(glyphName, shapes, width = null) {
+            if (!state.vf.enabled || state.vf.masters.length === 0) return;
+            
+            // Save current glyph to current master first
+            if (state.vf.currentMaster < state.vf.masters.length) {
+                state.vf.masters[state.vf.currentMaster].glyphs[glyphName] = JSON.parse(JSON.stringify(shapes));
+                if (width !== null) {
+                    if (!state.vf.masters[state.vf.currentMaster].glyphWidths) {
+                        state.vf.masters[state.vf.currentMaster].glyphWidths = {};
+                    }
+                    state.vf.masters[state.vf.currentMaster].glyphWidths[glyphName] = width;
+                }
+            }
+            
+            // Add to all OTHER masters (they'll get the same initial shapes)
+            for (let i = 0; i < state.vf.masters.length; i++) {
+                if (i === state.vf.currentMaster) continue; // Already added above
+                if (!state.vf.masters[i].glyphs) state.vf.masters[i].glyphs = {};
+                if (!state.vf.masters[i].glyphs[glyphName]) {
+                    state.vf.masters[i].glyphs[glyphName] = JSON.parse(JSON.stringify(shapes));
+                }
+                if (width !== null) {
+                    if (!state.vf.masters[i].glyphWidths) state.vf.masters[i].glyphWidths = {};
+                    if (state.vf.masters[i].glyphWidths[glyphName] === undefined) {
+                        state.vf.masters[i].glyphWidths[glyphName] = width;
+                    }
+                }
+            }
+        }
+        
         // Select an instance - set axis sliders to instance coordinates and update preview
         function selectInstance(index) {
             const instance = state.vf.instances[index];
@@ -6921,8 +7142,10 @@
                     continue;
                 }
                 
-                // Handle nested shape format
-                const isNested = p1[0] && Array.isArray(p1[0]) && Array.isArray(p1[0][0]);
+                // Handle nested shape format (contour format)
+                const first = p1[0];
+                const isNested = Array.isArray(first) && first.length > 0 && 
+                    (typeof first[0] === 'object' || Array.isArray(first[0]));
                 
                 if (isNested) {
                     if (p1.length !== p2.length) {
@@ -6937,24 +7160,32 @@
                         if (!shape1 || !shape2 || shape1.length !== shape2.length) {
                             extrapolatedShapes.push(JSON.parse(JSON.stringify(shape1 || shape2 || [])));
                         } else {
-                            const extrapolatedShape = shape1.map((pt, i) => [
-                                pt[0] + (shape2[i][0] - pt[0]) * t,
-                                pt[1] + (shape2[i][1] - pt[1]) * t
-                            ]);
+                            const extrapolatedShape = shape1.map((pt1, i) => {
+                                const pt2 = shape2[i];
+                                return {
+                                    x: pt1.x + (pt2.x - pt1.x) * t,
+                                    y: pt1.y + (pt2.y - pt1.y) * t,
+                                    onCurve: pt1.onCurve !== false
+                                };
+                            });
                             extrapolatedShapes.push(extrapolatedShape);
                         }
                     }
                     resultGlyphs[char] = extrapolatedShapes;
                 } else {
-                    // Flat format
+                    // Flat format (single contour)
                     if (p1.length !== p2.length) {
                         resultGlyphs[char] = JSON.parse(JSON.stringify(p1));
                         continue;
                     }
-                    const extrapolatedPoints = p1.map((pt, i) => [
-                        pt[0] + (p2[i][0] - pt[0]) * t,
-                        pt[1] + (p2[i][1] - pt[1]) * t
-                    ]);
+                    const extrapolatedPoints = p1.map((pt1, i) => {
+                        const pt2 = p2[i];
+                        return {
+                            x: pt1.x + (pt2.x - pt1.x) * t,
+                            y: pt1.y + (pt2.y - pt1.y) * t,
+                            onCurve: pt1.onCurve !== false
+                        };
+                    });
                     resultGlyphs[char] = extrapolatedPoints;
                 }
                 
@@ -7055,14 +7286,20 @@
                 }
                 
                 // Get base points (handle nested vs flat format)
-                const isNested = baseGlyph[0] && Array.isArray(baseGlyph[0]) && Array.isArray(baseGlyph[0][0]);
+                const first = baseGlyph[0];
+                const isNested = Array.isArray(first) && first.length > 0 && 
+                    (typeof first[0] === 'object' || Array.isArray(first[0]));
                 
-                // Start with a deep copy of the base glyph
+                // Start with a deep copy of the base glyph in contour format
                 let resultGlyph;
                 if (isNested) {
-                    resultGlyph = baseGlyph.map(shape => shape.map(pt => [pt[0], pt[1]]));
+                    resultGlyph = baseGlyph.map(shape => shape.map(p => ({ 
+                        x: p.x, y: p.y, onCurve: p.onCurve !== false 
+                    })));
                 } else {
-                    resultGlyph = baseGlyph.map(pt => [pt[0], pt[1]]);
+                    resultGlyph = baseGlyph.map(p => ({ 
+                        x: p.x, y: p.y, onCurve: p.onCurve !== false 
+                    }));
                 }
                 
                 // Track width delta
@@ -7112,19 +7349,19 @@
                             if (!baseShape || !deltaShape || baseShape.length !== deltaShape.length) continue;
                             
                             for (let ptIdx = 0; ptIdx < resultGlyph[shapeIdx].length && ptIdx < deltaShape.length; ptIdx++) {
-                                const dx = deltaShape[ptIdx][0] - baseShape[ptIdx][0];
-                                const dy = deltaShape[ptIdx][1] - baseShape[ptIdx][1];
-                                resultGlyph[shapeIdx][ptIdx][0] += dx * deltaSign;
-                                resultGlyph[shapeIdx][ptIdx][1] += dy * deltaSign;
+                                const dx = deltaShape[ptIdx].x - baseShape[ptIdx].x;
+                                const dy = deltaShape[ptIdx].y - baseShape[ptIdx].y;
+                                resultGlyph[shapeIdx][ptIdx].x += dx * deltaSign;
+                                resultGlyph[shapeIdx][ptIdx].y += dy * deltaSign;
                             }
                         }
                     } else {
                         const baseFlat = defaultMaster.glyphs[char];
                         for (let ptIdx = 0; ptIdx < resultGlyph.length && ptIdx < deltaGlyph.length; ptIdx++) {
-                            const dx = deltaGlyph[ptIdx][0] - baseFlat[ptIdx][0];
-                            const dy = deltaGlyph[ptIdx][1] - baseFlat[ptIdx][1];
-                            resultGlyph[ptIdx][0] += dx * deltaSign;
-                            resultGlyph[ptIdx][1] += dy * deltaSign;
+                            const dx = deltaGlyph[ptIdx].x - baseFlat[ptIdx].x;
+                            const dy = deltaGlyph[ptIdx].y - baseFlat[ptIdx].y;
+                            resultGlyph[ptIdx].x += dx * deltaSign;
+                            resultGlyph[ptIdx].y += dy * deltaSign;
                         }
                     }
                     
