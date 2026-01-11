@@ -986,6 +986,296 @@ describe('Font Editor API', () => {
                 }
             }
         });
+        
+        it('should import font metrics (ascender, descender, unitsPerEm)', () => {
+            // Import RobotoFlex and verify metrics are preserved
+            const buffer = readFileSync('./test/fonts/RobotoFlex-Variable.ttf');
+            const importer = new FontImporter(opentype);
+            const state = new FontEditorState();
+            
+            importer.import(state, buffer.buffer, { range: 'lowercase' });
+            
+            // RobotoFlex has unitsPerEm=2048, ascender=1900, descender=-500
+            assert.strictEqual(state.unitsPerEm, 2048, 'unitsPerEm should be 2048');
+            assert.strictEqual(state.ascender, 1900, 'ascender should be 1900');
+            assert.strictEqual(state.descender, -500, 'descender should be -500');
+        });
+    });
+    
+    describe('Font Metrics Roundtrip', () => {
+        it('should preserve font metrics through import-export-import cycle', () => {
+            // Step 1: Import RobotoFlex lowercase subset
+            const buffer = readFileSync('./test/fonts/RobotoFlex-Variable.ttf');
+            const importer = new FontImporter(opentype);
+            const state = new FontEditorState();
+            
+            importer.import(state, buffer.buffer, { range: 'lowercase', importVF: false });
+            
+            // Verify original metrics
+            const originalMetrics = {
+                unitsPerEm: state.unitsPerEm,
+                ascender: state.ascender,
+                descender: state.descender
+            };
+            
+            assert.strictEqual(originalMetrics.unitsPerEm, 2048);
+            assert.strictEqual(originalMetrics.ascender, 1900);
+            assert.strictEqual(originalMetrics.descender, -500);
+            
+            // Step 2: Export the font
+            const builder = new FontBuilder(state, opentype);
+            const exportedBuffer = builder.toArrayBuffer();
+            
+            // Step 3: Re-import the exported font
+            const reimportState = new FontEditorState();
+            importer.import(reimportState, exportedBuffer, { range: 'lowercase' });
+            
+            // Step 4: Verify metrics are preserved
+            assert.strictEqual(reimportState.unitsPerEm, originalMetrics.unitsPerEm, 'unitsPerEm should be preserved');
+            assert.strictEqual(reimportState.ascender, originalMetrics.ascender, 'ascender should be preserved');
+            assert.strictEqual(reimportState.descender, originalMetrics.descender, 'descender should be preserved');
+        });
+        
+        it('should preserve glyph advance widths through roundtrip', () => {
+            // Import RobotoFlex lowercase
+            const buffer = readFileSync('./test/fonts/RobotoFlex-Variable.ttf');
+            const importer = new FontImporter(opentype);
+            const state = new FontEditorState();
+            
+            importer.import(state, buffer.buffer, { range: 'lowercase', importVF: false });
+            
+            // Record original widths for a few glyphs
+            const originalWidths = {};
+            for (const char of ['a', 'b', 'c', 'm', 'w']) {
+                if (state.glyphWidths[char]) {
+                    originalWidths[char] = state.glyphWidths[char];
+                }
+            }
+            
+            // Export
+            const builder = new FontBuilder(state, opentype);
+            const exportedBuffer = builder.toArrayBuffer();
+            
+            // Re-import
+            const reimportState = new FontEditorState();
+            importer.import(reimportState, exportedBuffer, { range: 'lowercase' });
+            
+            // Verify widths are preserved (within 1 unit tolerance for rounding)
+            for (const [char, origWidth] of Object.entries(originalWidths)) {
+                const reimportedWidth = reimportState.glyphWidths[char];
+                assert.ok(reimportedWidth, `Glyph ${char} should have width after reimport`);
+                const diff = Math.abs(reimportedWidth - origWidth);
+                assert.ok(diff <= 1, `Glyph ${char} width should be preserved: original=${origWidth}, reimported=${reimportedWidth}`);
+            }
+        });
+        
+        it('should preserve kerning through roundtrip', () => {
+            // Import RobotoFlex which has kerning
+            const buffer = readFileSync('./test/fonts/RobotoFlex-Variable.ttf');
+            const importer = new FontImporter(opentype);
+            const state = new FontEditorState();
+            
+            // Import both uppercase and lowercase for kerning pairs
+            importer.import(state, buffer.buffer, { range: 'both', importVF: false });
+            
+            const originalKerning = { ...state.kerning };
+            const kernPairCount = Object.keys(originalKerning).length;
+            
+            // Skip if no kerning
+            if (kernPairCount === 0) {
+                console.log('No kerning pairs found in import, skipping roundtrip test');
+                return;
+            }
+            
+            // Export
+            const builder = new FontBuilder(state, opentype);
+            const exportedBuffer = builder.toArrayBuffer();
+            
+            // Re-import
+            const reimportState = new FontEditorState();
+            importer.import(reimportState, exportedBuffer, { range: 'both' });
+            
+            // Verify kerning pairs are preserved
+            const reimportedKernCount = Object.keys(reimportState.kerning).length;
+            
+            // Not all kerning pairs can be preserved if they involve glyphs not in our range
+            // Just verify we have at least some kerning preserved
+            assert.ok(reimportedKernCount > 0, 
+                `Should have some kerning pairs after roundtrip: original=${kernPairCount}, reimported=${reimportedKernCount}`);
+            
+            // Verify specific kerning pairs that should definitely exist (if they were in original)
+            // Common letter pairs that should be in A-Z a-z range
+            let matchedPairs = 0;
+            for (const [pair, value] of Object.entries(originalKerning)) {
+                if (reimportState.kerning[pair] !== undefined) {
+                    matchedPairs++;
+                    // Check value is close (within rounding)
+                    const diff = Math.abs(reimportState.kerning[pair] - value);
+                    assert.ok(diff <= 1, `Kerning for ${pair} should be preserved: original=${value}, reimported=${reimportState.kerning[pair]}`);
+                }
+            }
+            assert.ok(matchedPairs > 10, `Should have matched at least 10 kerning pairs, got ${matchedPairs}`);
+        });
+        
+        it('should preserve ligatures through roundtrip', () => {
+            // Import RobotoFlex which has ligatures
+            const buffer = readFileSync('./test/fonts/RobotoFlex-Variable.ttf');
+            const importer = new FontImporter(opentype);
+            const state = new FontEditorState();
+            
+            importer.import(state, buffer.buffer, { range: 'lowercase', importVF: false });
+            
+            const originalLigatures = [...state.ligatures];
+            const ligCount = originalLigatures.length;
+            
+            // Skip if no ligatures
+            if (ligCount === 0) {
+                console.log('No ligatures found in import, skipping roundtrip test');
+                return;
+            }
+            
+            // Verify all ligature result glyphs are imported
+            for (const lig of originalLigatures) {
+                assert.ok(state.glyphs[lig.result] !== undefined, 
+                    `Ligature result glyph '${lig.result}' should be imported`);
+            }
+            
+            // Export
+            const builder = new FontBuilder(state, opentype);
+            const exportedBuffer = builder.toArrayBuffer();
+            
+            // Re-import
+            const reimportState = new FontEditorState();
+            importer.import(reimportState, exportedBuffer, { range: 'lowercase' });
+            
+            // Verify ligatures are preserved
+            const reimportedLigCount = reimportState.ligatures.length;
+            // All ligatures should be preserved
+            assert.ok(reimportedLigCount >= ligCount, 
+                `Ligatures should be preserved: original=${ligCount}, reimported=${reimportedLigCount}. ` +
+                `Original: ${originalLigatures.map(l => l.sequence + '->' + l.result).join(', ')}. ` +
+                `Reimported: ${reimportState.ligatures.map(l => l.sequence + '->' + l.result).join(', ')}`);
+            
+            
+            // Check that specific common ligatures exist
+            const sequences = reimportState.ligatures.map(l => l.sequence);
+            for (const lig of originalLigatures) {
+                assert.ok(sequences.includes(lig.sequence), 
+                    `Ligature sequence ${lig.sequence} should be preserved`);
+                
+                // Also verify the result glyph exists
+                const reimportedLig = reimportState.ligatures.find(l => l.sequence === lig.sequence);
+                assert.ok(reimportedLig, `Should find ligature for sequence ${lig.sequence}`);
+                assert.ok(reimportState.glyphs[reimportedLig.result], 
+                    `Ligature result glyph ${reimportedLig.result} should exist in state.glyphs`);
+            }
+        });
+        
+        it('should preserve JSON state through serialization cycle', () => {
+            // Create state with various metrics
+            const state = new FontEditorState({
+                unitsPerEm: 2048,
+                ascender: 1900,
+                descender: -500,
+                sidebearing: 50
+            });
+            state.addGlyph('a', contours([[0, 0], [500, 0], [500, 800], [0, 800]]), 600);
+            state.addGlyph('b', contours([[0, 0], [450, 0], [450, 900], [0, 900]]), 550);
+            state.kerning = { 'ab': -20 };
+            state.ligatures = [{ sequence: 'ab', result: 'a', enabled: true }];
+            
+            // Serialize to JSON
+            const json = state.toJSON();
+            
+            // Verify all metrics are in JSON
+            assert.strictEqual(json.unitsPerEm, 2048);
+            assert.strictEqual(json.ascender, 1900);
+            assert.strictEqual(json.descender, -500);
+            assert.strictEqual(json.sidebearing, 50);
+            
+            // Deserialize
+            const restoredState = new FontEditorState();
+            restoredState.fromJSON(json);
+            
+            // Verify metrics restored
+            assert.strictEqual(restoredState.unitsPerEm, 2048);
+            assert.strictEqual(restoredState.ascender, 1900);
+            assert.strictEqual(restoredState.descender, -500);
+            assert.strictEqual(restoredState.sidebearing, 50);
+            
+            // Verify glyphs restored
+            assert.ok(restoredState.glyphs['a']);
+            assert.ok(restoredState.glyphs['b']);
+            assert.strictEqual(restoredState.glyphWidths['a'], 600);
+            assert.strictEqual(restoredState.glyphWidths['b'], 550);
+            
+            // Verify kerning and ligatures
+            assert.strictEqual(restoredState.kerning['ab'], -20);
+            assert.strictEqual(restoredState.ligatures.length, 1);
+            assert.strictEqual(restoredState.ligatures[0].sequence, 'ab');
+        });
+        
+        it('should import ligature result glyphs when calling _importLigatureData directly', () => {
+            // This tests the browser flow where the HTML calls _importLigatureData
+            // separately from the main import (which is what happens during confirmImport)
+            const buffer = readFileSync('./test/fonts/RobotoFlex-Variable.ttf');
+            const font = opentype.parse(buffer.buffer);
+            
+            // Create state with just glyphs (simulating HTML's confirmImport flow)
+            const state = {
+                glyphs: {},
+                glyphWidths: {},
+                kerning: {},
+                ligatures: []
+            };
+            
+            // Import a-z glyphs manually (like the HTML does)
+            const extractGlyphContours = (glyph) => {
+                if (!glyph || !glyph.points || glyph.points.length === 0) return [];
+                const contours = [];
+                let currentContour = [];
+                for (const point of glyph.points) {
+                    if (point.lastPointOfContour) {
+                        currentContour.push({ x: point.x, y: point.y, onCurve: point.onCurve !== false });
+                        contours.push(currentContour);
+                        currentContour = [];
+                    } else {
+                        currentContour.push({ x: point.x, y: point.y, onCurve: point.onCurve !== false });
+                    }
+                }
+                return contours;
+            };
+            
+            for (let i = 97; i <= 122; i++) { // a-z
+                const char = String.fromCharCode(i);
+                const glyph = font.charToGlyph(char);
+                if (glyph && glyph.index !== 0 && glyph.points) {
+                    const contours = extractGlyphContours(glyph);
+                    if (contours.length > 0) {
+                        state.glyphs[char] = contours;
+                        state.glyphWidths[char] = glyph.advanceWidth;
+                    }
+                }
+            }
+            
+            // Now call _importLigatureData directly (like HTML does)
+            const importer = new FontImporter(opentype);
+            importer._importLigatureData(state, font, false);
+            
+            // Verify ligatures were imported
+            assert.ok(state.ligatures.length > 0, 'Should have imported ligatures');
+            
+            // Verify ligature result glyphs were also imported
+            const underscoreGlyphs = Object.keys(state.glyphs).filter(k => k.startsWith('_'));
+            assert.ok(underscoreGlyphs.length > 0, 
+                'Should have imported underscore-prefixed ligature result glyphs');
+            
+            // Verify each ligature has its result glyph
+            for (const lig of state.ligatures) {
+                assert.ok(state.glyphs[lig.result] !== undefined, 
+                    `Ligature '${lig.sequence}' result glyph '${lig.result}' should exist in state.glyphs`);
+            }
+        });
     });
     
     describe('Export Validation', () => {

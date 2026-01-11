@@ -83,6 +83,47 @@ if (typeof window !== 'undefined' && window.opentype) {
 // ============================================================================
 
 /**
+ * Transform a point by reference transform (dx, dy, scaleX, scaleY, rotation, skewX, skewY)
+ * Order: scale -> skew -> rotate -> translate
+ * 
+ * @param {number} x - X coordinate
+ * @param {number} y - Y coordinate
+ * @param {Object} ref - Transform reference with dx, dy, scaleX, scaleY, rotation, skewX, skewY
+ * @param {boolean} [onCurve=true] - Whether the point is on curve (for glyph contours)
+ * @returns {{x: number, y: number, onCurve: boolean}} Transformed point
+ */
+export function transformPoint(x, y, ref, onCurve = true) {
+    // Apply transforms in order: scale -> skew -> rotate -> translate
+    let px = x * (ref.scaleX || 1);
+    let py = y * (ref.scaleY || 1);
+    
+    // Skew
+    if (ref.skewX) {
+        px += py * Math.tan((ref.skewX || 0) * Math.PI / 180);
+    }
+    if (ref.skewY) {
+        py += px * Math.tan((ref.skewY || 0) * Math.PI / 180);
+    }
+    
+    // Rotate
+    if (ref.rotation) {
+        const angle = (ref.rotation || 0) * Math.PI / 180;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const rx = px * cos - py * sin;
+        const ry = px * sin + py * cos;
+        px = rx;
+        py = ry;
+    }
+    
+    // Translate
+    px += ref.dx || 0;
+    py += ref.dy || 0;
+    
+    return { x: px, y: py, onCurve };
+}
+
+/**
  * Calculate extrema (min/max X values) for a cubic bezier curve.
  * Uses the derivative to find critical points where dx/dt = 0.
  *
@@ -738,8 +779,10 @@ export class FontEditorState {
             unitsPerEm: this.unitsPerEm,
             ascender: this.ascender,
             descender: this.descender,
+            sidebearing: this.sidebearing,
             glyphs: this.glyphs,
             glyphWidths: this.glyphWidths,
+            glyphReferences: this.glyphReferences,
             vfEnabled: this.vfEnabled,
             axes: this.axes,
             masters: this.masters,
@@ -757,8 +800,10 @@ export class FontEditorState {
         this.unitsPerEm = json.unitsPerEm || 800;
         this.ascender = json.ascender || 800;
         this.descender = json.descender || 0;
+        this.sidebearing = json.sidebearing || 0;
         this.glyphs = json.glyphs || {};
         this.glyphWidths = json.glyphWidths || {};
+        this.glyphReferences = json.glyphReferences || {};
         this.vfEnabled = json.vfEnabled || false;
         this.axes = json.axes || [];
         this.masters = json.masters || [];
@@ -1198,6 +1243,18 @@ export class FontBuilder {
                 for (const refs of Object.values(state.glyphReferences)) {
                     for (const ref of refs) {
                         referencedGlyphs.add(ref.name);
+                    }
+                }
+            }
+            
+            // Also include ligature result glyphs (underscore-prefixed non-unicode glyphs)
+            if (state.ligatures && state.features?.liga !== false) {
+                for (const lig of state.ligatures) {
+                    if (lig.enabled && lig.result && lig.result.startsWith('_')) {
+                        // This is an underscore-prefixed ligature result glyph
+                        if (state.glyphs[lig.result]) {
+                            referencedGlyphs.add(lig.result);
+                        }
                     }
                 }
             }
@@ -2253,8 +2310,10 @@ export class FontImporter {
 
         const font = this.opentype.parse(buffer);
         
-        // Store unitsPerEm in state
+        // Store font metrics in state
         state.unitsPerEm = font.unitsPerEm;
+        state.ascender = font.ascender;
+        state.descender = font.descender;
         
         if (verbose) {
             console.log('=== FontImporter: Parsing font ===');
@@ -2299,25 +2358,8 @@ export class FontImporter {
                 continue;
             }
             
-            // Prefer using glyph.points for TrueType fonts (more accurate than path reconstruction)
-            // This handles both VF and non-VF TrueType fonts
-            if (glyph.points && glyph.points.length > 0) {
-                const contours = extractGlyphContours(glyph);
-                if (contours.length > 0) {
-                    state.glyphs[char] = contours;
-                    state.glyphWidths[char] = glyph.advanceWidth;
-                    importedCount++;
-                }
-            } else if (glyph.path && glyph.path.commands.length > 0) {
-                // For CFF fonts (no points, only path), extract from path
-                const points = extractPathPoints(glyph.path);
-                if (points.length > 0) {
-                    // Wrap in array for single contour
-                    state.glyphs[char] = [points.map(p => ({ x: p[0], y: p[1], onCurve: true }))];
-                    const bounds = getPathBounds(glyph.path);
-                    state.glyphWidths[char] = bounds.maxX;
-                    importedCount++;
-                }
+            if (this._importGlyphToState(state, char, glyph)) {
+                importedCount++;
             }
         }
         
@@ -2327,6 +2369,113 @@ export class FontImporter {
 
         if (importVF && font.tables.fvar && font.tables.fvar.axes) {
             this._importVariableFontData(state, font, verbose);
+            if (verbose) {
+                console.log('Imported VF axes:', state.axes?.length);
+                console.log('Imported VF masters:', state.masters?.length);
+            }
+        }
+
+        // Import kerning pairs from kern table or GPOS table
+        const importKerning = options.importKerning !== false;
+        if (importKerning) {
+            this._importKerningData(state, font, verbose);
+            if (verbose) {
+                console.log('Imported kerning pairs:', Object.keys(state.kerning || {}).length);
+            }
+        }
+
+        // Import ligatures from GSUB table
+        const importLigatures = options.importLigatures !== false;
+        if (importLigatures) {
+            this._importLigatureData(state, font, verbose);
+            if (verbose) {
+                console.log('Imported ligatures:', state.ligatures?.length);
+            }
+        }
+
+        if (importedCount > 0 && !state.currentGlyph) {
+            state.currentGlyph = Object.keys(state.glyphs)[0];
+        }
+
+        return { importedCount, font };
+    }
+
+    /**
+     * Import font data asynchronously with progress callback
+     * Same as import() but VF data is imported asynchronously for better UI responsiveness
+     * @param {Object} state - Font editor state
+     * @param {ArrayBuffer} buffer - Font file data
+     * @param {Object} options - Import options
+     * @param {string} options.range - Character range to import
+     * @param {boolean} options.importVF - Whether to import variable font data
+     * @param {boolean} options.importKerning - Whether to import kerning
+     * @param {boolean} options.importLigatures - Whether to import ligatures
+     * @param {boolean} options.verbose - Enable verbose logging
+     * @param {Function} options.onProgress - Progress callback(current, total, message)
+     * @param {number} options.chunkSize - Glyphs per chunk for async VF import
+     * @returns {Promise<{importedCount: number, font: Object}>}
+     */
+    async importAsync(state, buffer, options = {}) {
+        const range = options.range || 'all';
+        const verbose = options.verbose || false;
+        const importVF = options.importVF !== false;
+        const onProgress = options.onProgress || (() => {});
+        const chunkSize = options.chunkSize || 10;
+
+        if (verbose) {
+            console.log('=== Starting async font import ===');
+            console.log('Range:', range);
+            console.log('Import VF:', importVF);
+        }
+
+        // Parse the font
+        const font = opentype.parse(buffer, { lowMemory: true });
+        if (!font) {
+            throw new Error('Failed to parse font');
+        }
+
+        if (verbose) {
+            console.log('Font parsed:', font.names?.fullName);
+            console.log('Glyph count:', font.numGlyphs);
+            console.log('Tables:', Object.keys(font.tables).join(', '));
+        }
+
+        // Import font metrics
+        state.unitsPerEm = font.unitsPerEm || 1000;
+        state.ascender = font.ascender || state.unitsPerEm;
+        state.descender = font.descender || 0;
+        if (verbose) {
+            console.log('Units per Em:', state.unitsPerEm);
+            console.log('Ascender:', state.ascender);
+            console.log('Descender:', state.descender);
+        }
+
+        // Import glyphs
+        const charCodes = this._getCharCodes(range, font);
+        let importedCount = 0;
+
+        for (const code of charCodes) {
+            const char = String.fromCharCode(code);
+            const glyph = font.charToGlyph(char);
+            
+            if (!glyph || glyph.index === 0) continue;
+            
+            if (this._importGlyphToState(state, char, glyph)) {
+                importedCount++;
+            }
+        }
+        
+        if (verbose) {
+            console.log('Imported glyphs:', importedCount);
+        }
+
+        // Import VF data asynchronously
+        if (importVF && font.tables.fvar && font.tables.fvar.axes) {
+            await this.importVariableFontDataAsync(state, font, {
+                verbose,
+                onProgress,
+                chunkSize
+            });
             if (verbose) {
                 console.log('Imported VF axes:', state.axes?.length);
                 console.log('Imported VF masters:', state.masters?.length);
@@ -2524,6 +2673,172 @@ export class FontImporter {
     }
 
     /**
+     * Import variable font data asynchronously with progress callback
+     * This allows the UI to remain responsive during large VF imports
+     * @param {Object} state - Font editor state
+     * @param {Object} font - Parsed opentype font
+     * @param {Object} options - Import options
+     * @param {boolean} options.verbose - Enable verbose logging
+     * @param {Function} options.onProgress - Progress callback(current, total, message)
+     * @param {number} options.chunkSize - Number of glyphs to process per chunk (default 10)
+     * @returns {Promise<void>}
+     */
+    async importVariableFontDataAsync(state, font, options = {}) {
+        const verbose = options.verbose || false;
+        const onProgress = options.onProgress || (() => {});
+        const chunkSize = options.chunkSize || 10;
+
+        state.vfEnabled = true;
+        state.axes = font.tables.fvar.axes.map(a => ({
+            tag: a.tag,
+            name: a.axisName || a.tag,
+            minValue: a.minValue,
+            defaultValue: a.defaultValue,
+            maxValue: a.maxValue
+        }));
+
+        const defaultCoords = state.axes.reduce((acc, axis) => {
+            acc[axis.tag] = axis.defaultValue;
+            return acc;
+        }, {});
+
+        // For VF fonts with gvar, we need to import masters at axis extremes
+        // The default master uses the glyphs already imported
+        state.masters = [{
+            name: 'Default',
+            coords: { ...defaultCoords },
+            glyphs: JSON.parse(JSON.stringify(state.glyphs)),
+            glyphWidths: { ...state.glyphWidths }
+        }];
+
+        // Import masters at axis extremes if we have gvar
+        if (font.tables.gvar && font.variation) {
+            const importedChars = Object.keys(state.glyphs);
+            const totalAxes = state.axes.length;
+            const totalWork = totalAxes * 2 * importedChars.length; // min + max for each axis
+            let workDone = 0;
+            
+            for (let axisIdx = 0; axisIdx < state.axes.length; axisIdx++) {
+                const axis = state.axes[axisIdx];
+                
+                // Import min master (if different from default)
+                if (axis.minValue !== axis.defaultValue) {
+                    const minCoords = { ...defaultCoords, [axis.tag]: axis.minValue };
+                    const minGlyphs = {};
+                    const minWidths = {};
+                    
+                    // Process in chunks
+                    for (let i = 0; i < importedChars.length; i += chunkSize) {
+                        const chunk = importedChars.slice(i, i + chunkSize);
+                        
+                        for (const char of chunk) {
+                            const glyph = font.charToGlyph(char);
+                            if (glyph && glyph.points && glyph.points.length > 0) {
+                                try {
+                                    const transform = font.variation.getTransform(glyph.index, { [axis.tag]: axis.minValue });
+                                    if (transform && transform.points) {
+                                        minGlyphs[char] = extractTransformContours(transform.points);
+                                        minWidths[char] = transform.advanceWidth;
+                                    }
+                                } catch (e) {
+                                    if (verbose) console.log(`Error getting min transform for ${char}:`, e.message);
+                                }
+                            }
+                            workDone++;
+                        }
+                        
+                        // Yield to UI after each chunk
+                        onProgress(workDone, totalWork, `Importing ${axis.name || axis.tag} min...`);
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
+                    
+                    if (Object.keys(minGlyphs).length > 0) {
+                        state.masters.push({
+                            name: `${axis.name || axis.tag} Min`,
+                            coords: minCoords,
+                            glyphs: minGlyphs,
+                            glyphWidths: minWidths
+                        });
+                    }
+                } else {
+                    workDone += importedChars.length;
+                }
+                
+                // Import max master (if different from default)
+                if (axis.maxValue !== axis.defaultValue) {
+                    const maxCoords = { ...defaultCoords, [axis.tag]: axis.maxValue };
+                    const maxGlyphs = {};
+                    const maxWidths = {};
+                    
+                    // Process in chunks
+                    for (let i = 0; i < importedChars.length; i += chunkSize) {
+                        const chunk = importedChars.slice(i, i + chunkSize);
+                        
+                        for (const char of chunk) {
+                            const glyph = font.charToGlyph(char);
+                            if (glyph && glyph.points && glyph.points.length > 0) {
+                                try {
+                                    const transform = font.variation.getTransform(glyph.index, { [axis.tag]: axis.maxValue });
+                                    if (transform && transform.points) {
+                                        maxGlyphs[char] = extractTransformContours(transform.points);
+                                        maxWidths[char] = transform.advanceWidth;
+                                    }
+                                } catch (e) {
+                                    if (verbose) console.log(`Error getting max transform for ${char}:`, e.message);
+                                }
+                            }
+                            workDone++;
+                        }
+                        
+                        // Yield to UI after each chunk
+                        onProgress(workDone, totalWork, `Importing ${axis.name || axis.tag} max...`);
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
+                    
+                    if (Object.keys(maxGlyphs).length > 0) {
+                        state.masters.push({
+                            name: `${axis.name || axis.tag} Max`,
+                            coords: maxCoords,
+                            glyphs: maxGlyphs,
+                            glyphWidths: maxWidths
+                        });
+                    }
+                } else {
+                    workDone += importedChars.length;
+                }
+            }
+        }
+        
+        if (verbose) {
+            console.log('Imported', state.masters.length, 'masters');
+        }
+
+        state.instances = (font.tables.fvar.instances || []).map(inst => ({
+            name: inst.name?.en || Object.values(inst.name)[0] || 'Instance',
+            coords: inst.coordinates
+        }));
+
+        // Import avar table if present (for non-linear axis mapping)
+        if (font.tables.avar && font.tables.avar.axisSegmentMaps) {
+            state.avarTable = {
+                version: font.tables.avar.version || [1, 0],
+                axisSegmentMaps: font.tables.avar.axisSegmentMaps.map(sm => ({
+                    axisValueMaps: (sm.axisValueMaps || []).map(m => ({
+                        fromCoordinate: m.fromCoordinate,
+                        toCoordinate: m.toCoordinate
+                    }))
+                }))
+            };
+        }
+
+        for (const axis of state.axes) {
+            state.previewCoords[axis.tag] = axis.defaultValue;
+        }
+        
+        onProgress(1, 1, 'VF import complete');
+    }
+
+    /**
      * Import kerning data from the font
      * Checks both the kern table and GPOS kern feature
      */
@@ -2670,16 +2985,14 @@ export class FontImporter {
                                             const ligGlyph = font.glyphs.get(lig.ligGlyph);
                                             if (!ligGlyph) continue;
                                             
-                                            // Compute the result key the same way glyphs are stored:
-                                            // - Unicode glyphs use the character as key
-                                            // - Non-unicode glyphs use '_' + name as key
-                                            let resultKey;
-                                            if (ligGlyph.unicodes && ligGlyph.unicodes.length > 0) {
-                                                resultKey = String.fromCharCode(ligGlyph.unicodes[0]);
-                                            } else if (ligGlyph.name) {
-                                                resultKey = '_' + ligGlyph.name;
-                                            } else {
-                                                continue; // Skip if no valid key
+                                            // Compute the result key using consistent method
+                                            const resultKey = this._getLigatureGlyphKey(ligGlyph, firstGlyphIdx, lig.components, font);
+                                            if (!resultKey) continue;
+                                            
+                                            // Import the ligature result glyph if it doesn't exist
+                                            // This ensures roundtrip works correctly
+                                            if (!state.glyphs[resultKey]) {
+                                                this._importGlyphToState(state, resultKey, ligGlyph);
                                             }
                                             
                                             // Join sequence array to string for UI compatibility
@@ -2711,6 +3024,41 @@ export class FontImporter {
     }
 
     /**
+     * Import a glyph's contours to state.glyphs
+     * @param {Object} state - The editor state
+     * @param {string} key - The key to use in state.glyphs
+     * @param {Object} glyph - The opentype.js glyph object
+     * @returns {boolean} True if glyph was imported successfully
+     */
+    _importGlyphToState(state, key, glyph) {
+        if (!glyph) return false;
+        
+        // Prefer using glyph.points for TrueType fonts (more accurate than path reconstruction)
+        if (glyph.points && glyph.points.length > 0) {
+            const contours = extractGlyphContours(glyph);
+            if (contours.length > 0) {
+                state.glyphs[key] = contours;
+                if (state.glyphWidths) {
+                    state.glyphWidths[key] = glyph.advanceWidth;
+                }
+                return true;
+            }
+        } else if (glyph.path && glyph.path.commands.length > 0) {
+            // For CFF fonts (no points, only path), extract from path
+            const points = extractPathPoints(glyph.path);
+            if (points.length > 0) {
+                state.glyphs[key] = [points.map(p => ({ x: p[0], y: p[1], onCurve: true }))];
+                if (state.glyphWidths) {
+                    const bounds = getPathBounds(glyph.path);
+                    state.glyphWidths[key] = bounds.maxX;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Convert a glyph to its character representation
      */
     _glyphToChar(glyph) {
@@ -2727,5 +3075,46 @@ export class FontImporter {
         }
         
         return null;
+    }
+    
+    /**
+     * Generate a consistent key for a ligature result glyph
+     * Used for both importing glyph shapes and importing ligature rules
+     * @param {Object} ligGlyph - The ligature result glyph
+     * @param {number} firstGlyphIdx - Index of first component glyph
+     * @param {number[]} components - Indices of remaining component glyphs
+     * @param {Object} font - The font object for looking up component glyphs
+     * @returns {string|null} The key to use for this glyph, or null if it can't be determined
+     */
+    _getLigatureGlyphKey(ligGlyph, firstGlyphIdx, components, font) {
+        // Prefer unicode if available
+        if (ligGlyph.unicodes && ligGlyph.unicodes.length > 0) {
+            return String.fromCharCode(ligGlyph.unicodes[0]);
+        }
+        
+        // Use glyph name if valid (not 'undefined')
+        if (ligGlyph.name && ligGlyph.name !== 'undefined') {
+            return ligGlyph.name.startsWith('_') ? ligGlyph.name : '_' + ligGlyph.name;
+        }
+        
+        // Generate a name based on component unicodes
+        // This handles the case where glyph name is lost during serialization
+        const firstGlyph = font.glyphs.get(firstGlyphIdx);
+        let nameBuilder = [];
+        if (firstGlyph && firstGlyph.unicode) {
+            nameBuilder.push(firstGlyph.unicode.toString(16).padStart(4, '0'));
+        }
+        for (const compIdx of components) {
+            const compGlyph = font.glyphs.get(compIdx);
+            if (compGlyph && compGlyph.unicode) {
+                nameBuilder.push(compGlyph.unicode.toString(16).padStart(4, '0'));
+            }
+        }
+        if (nameBuilder.length > 0) {
+            return '_uni' + nameBuilder.join('');
+        }
+        
+        // Fallback to glyph index (rarely needed)
+        return '_glyph' + ligGlyph.index;
     }
 }
