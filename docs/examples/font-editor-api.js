@@ -532,7 +532,7 @@ export class FontEditorState {
         this.descender = options.descender || 0;
         // Sidebearing: padding applied half to left, half to right in auto-width mode
         // When building font, X coordinates are offset by sidebearing/2 to center glyphs
-        this.sidebearing = options.sidebearing || 0;
+        this.sidebearing = options.sidebearing !== undefined ? options.sidebearing : 40;
         this.glyphs = {};
         this.glyphWidths = {};
         // Components are just glyphs with names starting with underscore (e.g. '_stem')
@@ -590,7 +590,45 @@ export class FontEditorState {
             return widths[char];
         }
 
-        const contours = this.getGlyphPoints(char);
+        // Calculate width including reference shapes
+        const glyphsSource = this.vfEnabled && this.masters.length > 0
+            ? this.masters[this.currentMaster].glyphs
+            : this.glyphs;
+        const refsSource = this.glyphReferences;
+        
+        const ownContours = glyphsSource[char] || [];
+        const refContours = this.getTransformedReferenceContoursFromSource(char, glyphsSource, refsSource);
+        
+        // Combine own contours with reference contours
+        const allContours = [...ownContours, ...refContours];
+        
+        return this._computeGlyphWidthFromContours(allContours);
+    }
+
+    /**
+     * Compute glyph width from contours (bounding box width)
+     * @param {Array} contours - Glyph contours (array of contours)
+     * @returns {number} Width based on bounding box
+     */
+    _computeGlyphWidthFromContours(contours) {
+        if (!contours || contours.length === 0) return 5;
+        
+        // Flatten all contours and get x coordinates
+        const allPoints = contours.flat();
+        if (!allPoints || allPoints.length === 0) return 5;
+        
+        const xCoords = allPoints.map(p => p.x);
+        const minX = Math.min(...xCoords);
+        const maxX = Math.max(...xCoords);
+        return minX >= 0 ? maxX : maxX - minX;
+    }
+
+    /**
+     * Compute glyph width from contours (bounding box width)
+     * @param {Array} contours - Glyph contours
+     * @returns {number} Width based on bounding box
+     */
+    _computeGlyphWidth(contours) {
         if (!contours || contours.length === 0) return 5;
         
         // Flatten all contours and get x coordinates
@@ -621,6 +659,218 @@ export class FontEditorState {
         }
         return false;
     }
+
+    // ==================== Reference Methods ====================
+
+    /**
+     * Get references for a glyph
+     * @param {string} char - The glyph character/name
+     * @returns {Array} Array of reference objects or empty array
+     */
+    getReferences(char) {
+        return this.glyphReferences[char] || [];
+    }
+
+    /**
+     * Add a reference to a glyph
+     * @param {string} char - The glyph to add reference to
+     * @param {Object} ref - Reference object with name, dx, dy, scaleX, scaleY, rotation, skewX, skewY
+     */
+    addReference(char, ref) {
+        if (!this.glyphReferences[char]) {
+            this.glyphReferences[char] = [];
+        }
+        // Ensure defaults
+        const fullRef = {
+            name: ref.name,
+            dx: ref.dx || 0,
+            dy: ref.dy || 0,
+            scaleX: ref.scaleX !== undefined ? ref.scaleX : 1,
+            scaleY: ref.scaleY !== undefined ? ref.scaleY : 1,
+            rotation: ref.rotation || 0,
+            skewX: ref.skewX || 0,
+            skewY: ref.skewY || 0
+        };
+        this.glyphReferences[char].push(fullRef);
+    }
+
+    /**
+     * Remove a reference from a glyph
+     * @param {string} char - The glyph character/name
+     * @param {number} idx - Index of the reference to remove
+     */
+    removeReference(char, idx) {
+        if (!this.glyphReferences[char]) return false;
+        if (idx < 0 || idx >= this.glyphReferences[char].length) return false;
+        this.glyphReferences[char].splice(idx, 1);
+        // Clean up empty arrays
+        if (this.glyphReferences[char].length === 0) {
+            delete this.glyphReferences[char];
+        }
+        return true;
+    }
+
+    /**
+     * Update a reference's transform properties
+     * @param {string} char - The glyph character/name
+     * @param {number} idx - Index of the reference
+     * @param {Object} updates - Properties to update (dx, dy, scaleX, scaleY, rotation, skewX, skewY)
+     */
+    updateReference(char, idx, updates) {
+        if (!this.glyphReferences[char]) return false;
+        if (idx < 0 || idx >= this.glyphReferences[char].length) return false;
+        const ref = this.glyphReferences[char][idx];
+        Object.assign(ref, updates);
+        return true;
+    }
+
+    /**
+     * Get transformed contours for all references of a glyph
+     * @param {string} char - The glyph character/name
+     * @returns {Array} Array of transformed contours from all references
+     */
+    getTransformedReferenceContours(char) {
+        return this.getTransformedReferenceContoursFromSource(char, this.glyphs, this.glyphReferences);
+    }
+
+    /**
+     * Get transformed contours for all references of a glyph from a specific source
+     * @param {string} char - The glyph character/name
+     * @param {Object} glyphsSource - Source of glyphs to look up components from
+     * @param {Object} refsSource - Source of references
+     * @returns {Array} Array of transformed contours from all references
+     */
+    getTransformedReferenceContoursFromSource(char, glyphsSource, refsSource) {
+        const refs = refsSource?.[char];
+        if (!refs || refs.length === 0) return [];
+        
+        const allContours = [];
+        for (const ref of refs) {
+            const transformedShapes = this._getTransformedReferenceShapesFromSource(ref, glyphsSource);
+            for (const shape of transformedShapes) {
+                if (shape && shape.length > 0) {
+                    allContours.push(shape);
+                }
+            }
+        }
+        return allContours;
+    }
+
+    /**
+     * Transform a point by reference transform (dx, dy, scaleX, scaleY, rotation, skewX, skewY)
+     * Used for rendering reference layers in the editor
+     */
+    _transformPoint(x, y, ref) {
+        // Apply transforms in order: scale -> skew -> rotate -> translate
+        let px = x * (ref.scaleX || 1);
+        let py = y * (ref.scaleY || 1);
+        
+        // Skew
+        if (ref.skewX) {
+            px += py * Math.tan((ref.skewX || 0) * Math.PI / 180);
+        }
+        if (ref.skewY) {
+            py += px * Math.tan((ref.skewY || 0) * Math.PI / 180);
+        }
+        
+        // Rotate
+        if (ref.rotation) {
+            const angle = (ref.rotation || 0) * Math.PI / 180;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const rx = px * cos - py * sin;
+            const ry = px * sin + py * cos;
+            px = rx;
+            py = ry;
+        }
+        
+        // Translate
+        px += ref.dx || 0;
+        py += ref.dy || 0;
+        
+        return [px, py];
+    }
+
+    /**
+     * Get shapes for a referenced glyph
+     */
+    _getComponentShapes(glyphName) {
+        if (!this.glyphs || !this.glyphs[glyphName]) return [];
+        
+        const data = this.glyphs[glyphName];
+        if (!data || data.length === 0) return [];
+        
+        // Normalize to nested format: [[{x, y, onCurve}, ...], ...]
+        return this._normalizeShapes(data);
+    }
+
+    /**
+     * Normalize contours to nested format [[{x, y, onCurve}, ...], ...]
+     */
+    _normalizeShapes(contours) {
+        if (!contours || contours.length === 0) return [];
+        
+        // Check if already in correct format
+        const first = contours[0];
+        if (Array.isArray(first) && first.length > 0) {
+            // Nested format - check if points are objects or arrays
+            const firstPoint = first[0];
+            if (typeof firstPoint === 'object' && !Array.isArray(firstPoint) && 'x' in firstPoint) {
+                // Already in correct format: [[{x, y, onCurve}, ...], ...]
+                return contours;
+            } else if (Array.isArray(firstPoint) && typeof firstPoint[0] === 'number') {
+                // Legacy format: [[[x, y], ...], ...]
+                return contours.map(contour => 
+                    contour.map(pt => ({
+                        x: pt[0],
+                        y: pt[1],
+                        onCurve: pt[2] !== false
+                    }))
+                );
+            }
+        } else if (typeof first === 'object' && !Array.isArray(first) && 'x' in first) {
+            // Flat format: [{x, y, onCurve}, ...]
+            return [contours];
+        }
+        
+        return contours;
+    }
+
+    /**
+     * Get transformed shapes from a reference layer
+     */
+    _getTransformedReferenceShapes(ref) {
+        return this._getTransformedReferenceShapesFromSource(ref, this.glyphs);
+    }
+
+    /**
+     * Get transformed shapes from a reference layer using a specific glyph source
+     */
+    _getTransformedReferenceShapesFromSource(ref, glyphsSource) {
+        const sourceShapes = this._getComponentShapesFromSource(ref.name, glyphsSource);
+        if (!sourceShapes || sourceShapes.length === 0) return [];
+        
+        return sourceShapes.map(shape => 
+            shape.map(point => {
+                const transformed = this._transformPoint(point.x, point.y, ref);
+                return { x: transformed[0], y: transformed[1], onCurve: point.onCurve !== false };
+            })
+        );
+    }
+
+    /**
+     * Get shapes for a referenced glyph from a specific source
+     */
+    _getComponentShapesFromSource(glyphName, glyphsSource) {
+        if (!glyphsSource || !glyphsSource[glyphName]) return [];
+        
+        const data = glyphsSource[glyphName];
+        if (!data || data.length === 0) return [];
+        
+        return this._normalizeShapes(data);
+    }
+
+    // ==================== End Reference Methods ====================
 
     /**
      * Add a point to the current glyph's first contour.
@@ -658,7 +908,14 @@ export class FontEditorState {
     setVariableFontEnabled(enabled) {
         this.vfEnabled = enabled;
         if (enabled && this.masters.length === 0) {
-            this.addMaster('Default', this.getDefaultCoords(), { ...this.glyphs }, { ...this.glyphWidths });
+            // Deep copy current state for the default master
+            this.addMaster(
+                'Default', 
+                this.getDefaultCoords(), 
+                JSON.parse(JSON.stringify(this.glyphs)), 
+                JSON.parse(JSON.stringify(this.glyphWidths)),
+                JSON.parse(JSON.stringify(this.glyphReferences || {}))
+            );
         }
     }
 
@@ -673,6 +930,18 @@ export class FontEditorState {
     addAxis(axis) {
         this.axes.push(axis);
         this.previewCoords[axis.tag] = axis.defaultValue;
+        // Apply default value to all existing masters
+        for (const master of this.masters) {
+            if (master.coords[axis.tag] === undefined) {
+                master.coords[axis.tag] = axis.defaultValue;
+            }
+        }
+        // Apply default value to all existing instances
+        for (const instance of this.instances) {
+            if (instance.coords[axis.tag] === undefined) {
+                instance.coords[axis.tag] = axis.defaultValue;
+            }
+        }
     }
 
     removeAxis(index) {
@@ -715,12 +984,13 @@ export class FontEditorState {
      * // (to fix kinking or volume loss from linear interpolation)
      * state.addMaster('Medium-e', { wght: 500 }, { 'e': correctedE }, { 'e': correctedWidth });
      */
-    addMaster(name, coords, glyphs = null, glyphWidths = null) {
+    addMaster(name, coords, glyphs = null, glyphWidths = null, glyphReferences = null) {
         this.masters.push({
             name,
             coords: { ...coords },
-            glyphs: glyphs ? { ...glyphs } : { ...this.glyphs },
-            glyphWidths: glyphWidths ? { ...glyphWidths } : { ...this.glyphWidths }
+            glyphs: glyphs ? JSON.parse(JSON.stringify(glyphs)) : JSON.parse(JSON.stringify(this.glyphs)),
+            glyphWidths: glyphWidths ? JSON.parse(JSON.stringify(glyphWidths)) : JSON.parse(JSON.stringify(this.glyphWidths)),
+            glyphReferences: glyphReferences ? JSON.parse(JSON.stringify(glyphReferences)) : JSON.parse(JSON.stringify(this.glyphReferences || {}))
         });
     }
 
@@ -730,6 +1000,50 @@ export class FontEditorState {
         if (this.currentMaster >= this.masters.length) {
             this.currentMaster = Math.max(0, this.masters.length - 1);
         }
+        return true;
+    }
+
+    /**
+     * Select a master for editing. This saves the current glyph edits to the
+     * current master, then loads the target master's glyphs/widths/references.
+     * @param {number} index - Index of the master to select
+     * @returns {boolean} Whether selection was successful
+     */
+    selectMaster(index) {
+        if (index < 0 || index >= this.masters.length) return false;
+        if (index === this.currentMaster) return true;
+        
+        // Save current glyph edits to current master
+        if (this.currentMaster < this.masters.length) {
+            this.masters[this.currentMaster].glyphs = JSON.parse(JSON.stringify(this.glyphs));
+            this.masters[this.currentMaster].glyphWidths = JSON.parse(JSON.stringify(this.glyphWidths));
+            this.masters[this.currentMaster].glyphReferences = JSON.parse(JSON.stringify(this.glyphReferences || {}));
+        }
+        
+        // Switch to new master
+        this.currentMaster = index;
+        this.glyphs = JSON.parse(JSON.stringify(this.masters[index].glyphs || {}));
+        this.glyphWidths = JSON.parse(JSON.stringify(this.masters[index].glyphWidths || {}));
+        this.glyphReferences = JSON.parse(JSON.stringify(this.masters[index].glyphReferences || {}));
+        
+        return true;
+    }
+
+    /**
+     * Select an instance - apply its axis coordinates to previewCoords.
+     * This updates the preview to show the font at the instance's coordinates.
+     * @param {number} index - Index of the instance to select
+     * @returns {boolean} Whether selection was successful
+     */
+    selectInstance(index) {
+        if (index < 0 || index >= this.instances.length) return false;
+        const instance = this.instances[index];
+        
+        // Set preview coords to instance coords
+        for (const [tag, value] of Object.entries(instance.coords)) {
+            this.previewCoords[tag] = value;
+        }
+        
         return true;
     }
 
@@ -794,6 +1108,356 @@ export class FontEditorState {
         };
     }
 
+    /**
+     * Interpolate glyphs based on axis coordinates.
+     * Returns glyphs, widths, and references interpolated between masters.
+     * @param {Object} coords - Axis coordinates (e.g., {wght: 500})
+     * @returns {Object} { glyphs, widths, references }
+     */
+    getInterpolatedGlyphs(coords = null) {
+        const targetCoords = coords || this.previewCoords;
+        
+        // If VF not enabled or no masters, return current glyphs
+        if (!this.vfEnabled || this.masters.length === 0 || this.axes.length === 0) {
+            return { 
+                glyphs: this.glyphs, 
+                widths: this.glyphWidths, 
+                references: this.glyphReferences 
+            };
+        }
+        
+        // Find default master (all coords at default values)
+        let defaultMaster = this.masters[0];
+        for (const master of this.masters) {
+            let isDefault = true;
+            for (const axis of this.axes) {
+                const v = master.coords[axis.tag];
+                if (v !== undefined && v !== axis.defaultValue) {
+                    isDefault = false;
+                    break;
+                }
+            }
+            if (isDefault) {
+                defaultMaster = master;
+                break;
+            }
+        }
+        
+        // For each axis, find min and max masters
+        const axisMasters = [];
+        for (const axis of this.axes) {
+            let minMaster = null, maxMaster = null;
+            let minVal = axis.defaultValue, maxVal = axis.defaultValue;
+            
+            for (const master of this.masters) {
+                const v = master.coords[axis.tag];
+                if (v === undefined || v === axis.defaultValue) continue;
+                
+                if (v < axis.defaultValue && (minMaster === null || v < minVal)) {
+                    minMaster = master;
+                    minVal = v;
+                }
+                if (v > axis.defaultValue && (maxMaster === null || v > maxVal)) {
+                    maxMaster = master;
+                    maxVal = v;
+                }
+            }
+            axisMasters.push({ axis, minMaster, maxMaster, minVal, maxVal });
+        }
+        
+        const resultGlyphs = {};
+        const resultWidths = {};
+        
+        // Interpolate each glyph
+        for (const char of Object.keys(this.glyphs)) {
+            const baseGlyph = defaultMaster.glyphs?.[char];
+            if (!baseGlyph) {
+                resultGlyphs[char] = this.glyphs[char] || [];
+                continue;
+            }
+            
+            // Deep copy base glyph
+            let resultGlyph = JSON.parse(JSON.stringify(baseGlyph));
+            let widthDelta = 0;
+            // Compute base width from explicit width or glyph bounds
+            let baseWidth = defaultMaster.glyphWidths?.[char];
+            if (baseWidth === undefined) {
+                baseWidth = this._computeGlyphWidth(baseGlyph);
+            }
+            
+            // Apply deltas from each axis
+            for (const { axis, minMaster, maxMaster, minVal, maxVal } of axisMasters) {
+                const targetVal = targetCoords[axis.tag] ?? axis.defaultValue;
+                if (targetVal === axis.defaultValue) continue;
+                
+                // Determine interpolation/extrapolation factor and delta master
+                let t;
+                let deltaMaster;
+                let isExtrapolation = false;
+                
+                if (targetVal < axis.defaultValue) {
+                    // Moving toward min side
+                    if (minMaster) {
+                        // Normal interpolation toward min master
+                        t = (targetVal - axis.defaultValue) / (minVal - axis.defaultValue);
+                        deltaMaster = minMaster;
+                    } else if (maxMaster) {
+                        // Extrapolate from max side: reverse the max delta
+                        // Calculate t as: how far toward min we want to go, scaled by the max delta
+                        const maxRange = maxVal - axis.defaultValue;
+                        const targetRange = axis.defaultValue - targetVal;
+                        t = -targetRange / maxRange; // Negative to reverse direction
+                        deltaMaster = maxMaster;
+                        isExtrapolation = true;
+                    } else {
+                        continue;
+                    }
+                } else {
+                    // Moving toward max side (targetVal > axis.defaultValue)
+                    if (maxMaster) {
+                        // Normal interpolation toward max master
+                        t = (targetVal - axis.defaultValue) / (maxVal - axis.defaultValue);
+                        deltaMaster = maxMaster;
+                    } else if (minMaster) {
+                        // Extrapolate from min side: reverse the min delta
+                        // Calculate t as: how far toward max we want to go, scaled by the min delta
+                        const minRange = axis.defaultValue - minVal;
+                        const targetRange = targetVal - axis.defaultValue;
+                        t = -targetRange / minRange; // Negative to reverse direction
+                        deltaMaster = minMaster;
+                        isExtrapolation = true;
+                    } else {
+                        continue;
+                    }
+                }
+                
+                const deltaGlyph = deltaMaster.glyphs?.[char];
+                if (!deltaGlyph) continue;
+                
+                // Apply interpolation to each contour
+                for (let ci = 0; ci < resultGlyph.length && ci < deltaGlyph.length; ci++) {
+                    const baseContour = resultGlyph[ci];
+                    const deltaContour = deltaGlyph[ci];
+                    if (!baseContour || !deltaContour) continue;
+                    
+                    for (let pi = 0; pi < baseContour.length && pi < deltaContour.length; pi++) {
+                        const basePoint = baseContour[pi];
+                        const deltaPoint = deltaContour[pi];
+                        // Delta = masterPoint - defaultPoint, scaled by t
+                        const defaultPoint = baseGlyph[ci]?.[pi];
+                        if (defaultPoint && deltaPoint) {
+                            basePoint.x += (deltaPoint.x - defaultPoint.x) * t;
+                            basePoint.y += (deltaPoint.y - defaultPoint.y) * t;
+                        }
+                    }
+                }
+                
+                // Interpolate width - compute from glyph bounds if no explicit width
+                let deltaWidth = deltaMaster.glyphWidths?.[char];
+                if (deltaWidth === undefined && deltaGlyph) {
+                    // Compute width from delta master's glyph bounding box
+                    deltaWidth = this._computeGlyphWidth(deltaGlyph);
+                }
+                if (deltaWidth !== undefined) {
+                    widthDelta += (deltaWidth - baseWidth) * t;
+                }
+            }
+            
+            resultGlyphs[char] = resultGlyph;
+            resultWidths[char] = baseWidth + widthDelta;
+        }
+        
+        return { glyphs: resultGlyphs, widths: resultWidths, references: this.glyphReferences };
+    }
+
+    /**
+     * Get the default space width (matches FontBuilder: 5 * unitsPerEm/10 = unitsPerEm/2)
+     */
+    getDefaultSpaceWidth() {
+        return Math.round(this.unitsPerEm / 2);
+    }
+
+    /**
+     * Shape text into positioned glyphs with optional ligatures and kerning
+     * @param {string} text - The text to shape
+     * @param {Object} options - Shaping options
+     * @param {boolean} options.useLigatures - Whether to apply ligatures
+     * @param {boolean} options.useKerning - Whether to apply kerning
+     * @param {Object} options.coords - Explicit axis coordinates for VF interpolation (e.g., {wght: 500})
+     * @returns {Array} Array of {x, width, char, contours} objects (contours may be empty for space)
+     */
+    shapeText(text, options = {}) {
+        const { useLigatures = false, useKerning = false, coords = null } = options;
+        const result = [];
+        let x = 0;
+
+        // Get interpolated glyphs if VF is enabled
+        let glyphs, widths, refs;
+        if (this.vfEnabled && this.axes.length > 0) {
+            // Use explicit coords if provided, otherwise use previewCoords
+            const targetCoords = coords || this.previewCoords;
+            const interp = this.getInterpolatedGlyphs(targetCoords);
+            glyphs = interp.glyphs;
+            widths = interp.widths;
+            refs = interp.references;
+        } else {
+            glyphs = this.glyphs;
+            widths = this.glyphWidths;
+            refs = this.glyphReferences;
+        }
+
+        // Process ligatures if enabled
+        let chars = [...text];
+        if (useLigatures && this.ligatures && this.ligatures.length > 0) {
+            chars = this._processLigatures(text, glyphs);
+        }
+
+        // Simple character-by-character shaping
+        for (let i = 0; i < chars.length; i++) {
+            const char = chars[i];
+            const rawContours = glyphs[char] || [];
+            
+            // Get the glyph's own contours
+            const contours = [];
+            if (rawContours && rawContours.length > 0) {
+                for (const contour of rawContours) {
+                    if (contour && contour.length > 0) {
+                        contours.push(contour);
+                    }
+                }
+            }
+            
+            // Add any reference contours (flattened/baked)
+            const refContours = this.getTransformedReferenceContoursFromSource(char, glyphs, refs);
+            for (const contour of refContours) {
+                if (contour && contour.length > 0) {
+                    contours.push(contour);
+                }
+            }
+            
+            // Calculate width for this glyph
+            let width;
+            if (char === ' ' || char === 'space') {
+                // Space character - use space width from widths or default
+                width = widths[' '] ?? widths['space'] ?? this.getDefaultSpaceWidth();
+            } else if (widths[char] !== undefined) {
+                width = widths[char] + (this.sidebearing || 0);
+            } else if (contours.length > 0) {
+                width = this.getGlyphWidth(char) + (this.sidebearing || 0);
+            } else {
+                // Missing glyph - use smaller fallback
+                width = Math.round(this.unitsPerEm / 4);
+            }
+            
+            // Always push the glyph (even spaces with no contours) so we maintain proper positioning
+            result.push({
+                x: x,
+                width: width,
+                char: char,
+                contours: contours
+            });
+            
+            x += width;
+            
+            // Apply kerning to next character if enabled
+            if (useKerning && i < chars.length - 1) {
+                const nextChar = chars[i + 1];
+                const pair = char + nextChar;
+                const kernValue = this.kerning[pair];
+                if (kernValue !== undefined) {
+                    x += kernValue;
+                }
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * Process ligatures in text, returning array of glyph names
+     * @private
+     */
+    _processLigatures(text, glyphs) {
+        const result = [];
+        const ligatures = this.ligatures || [];
+        
+        // Sort ligatures by sequence length (longest first)
+        const sortedLigs = [...ligatures]
+            .filter(l => l.enabled && l.sequence && l.result && glyphs[l.result])
+            .sort((a, b) => b.sequence.length - a.sequence.length);
+        
+        let i = 0;
+        while (i < text.length) {
+            let matched = false;
+            for (const lig of sortedLigs) {
+                if (text.substring(i, i + lig.sequence.length) === lig.sequence) {
+                    result.push(lig.result);
+                    i += lig.sequence.length;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                result.push(text[i]);
+                i++;
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * Convert shaped text to SVG path string
+     * @param {Array} shapedGlyphs - Result from shapeText()
+     * @param {Object} options - Rendering options
+     * @param {number} options.fontSize - Target font size in pixels (default: 72)
+     * @param {number} options.x - Starting X position (default: 0)
+     * @param {number} options.baseline - Y position of baseline from top (default: fontSize)
+     * @returns {string} SVG path d attribute
+     */
+    shapedTextToSvgPath(shapedGlyphs, options = {}) {
+        const { fontSize = 72, x: startX = 0, baseline = null } = options;
+        const scale = fontSize / this.unitsPerEm;
+        const baselineY = baseline ?? fontSize;
+        const lsbOffset = (this.sidebearing || 0) / 2;
+        
+        let d = '';
+        
+        for (const glyph of shapedGlyphs) {
+            if (glyph.contours && glyph.contours.length > 0) {
+                for (const contour of glyph.contours) {
+                    if (!contour || contour.length === 0) continue;
+                    
+                    const p0 = contour[0];
+                    const x0 = startX + (glyph.x + p0.x + lsbOffset) * scale;
+                    const y0 = baselineY - p0.y * scale;
+                    d += `M${x0.toFixed(2)} ${y0.toFixed(2)}`;
+                    
+                    for (let i = 1; i < contour.length; i++) {
+                        const p = contour[i];
+                        const px = startX + (glyph.x + p.x + lsbOffset) * scale;
+                        const py = baselineY - p.y * scale;
+                        d += ` L${px.toFixed(2)} ${py.toFixed(2)}`;
+                    }
+                    d += ' Z ';
+                }
+            }
+        }
+        
+        return d.trim();
+    }
+
+    /**
+     * Get total width of shaped text in font units
+     * @param {Array} shapedGlyphs - Result from shapeText()
+     * @returns {number} Total width in font units
+     */
+    getShapedTextWidth(shapedGlyphs) {
+        if (!shapedGlyphs || shapedGlyphs.length === 0) return 0;
+        const lastGlyph = shapedGlyphs[shapedGlyphs.length - 1];
+        return lastGlyph.x + lastGlyph.width;
+    }
+
     fromJSON(json) {
         this.familyName = json.familyName || 'Custom Font';
         this.styleName = json.styleName || 'Regular';
@@ -834,6 +1498,15 @@ export class FontBuilder {
     }
 
     /**
+     * Check if a glyph key represents a component glyph (not a regular character).
+     * Component glyphs are underscore-prefixed names with more than 1 character (e.g., '_stem', '_O_shape').
+     * A single underscore '_' is the actual underscore character, NOT a component.
+     */
+    _isComponentGlyph(char) {
+        return char.startsWith('_') && char.length > 1;
+    }
+
+    /**
      * Convert a character/glyph key to a consistent glyph name.
      * - Single characters (e.g., 'A', 'O') use the character as the name
      * - Component glyphs starting with underscore (e.g., '_stem', '_O_shape') use their full name
@@ -843,7 +1516,7 @@ export class FontBuilder {
         if (char.length === 1) {
             return char;
         }
-        if (char.startsWith('_')) {
+        if (this._isComponentGlyph(char)) {
             return char; // Component names are used as-is
         }
         return 'glyph' + char.charCodeAt(0);
@@ -962,8 +1635,8 @@ export class FontBuilder {
      * All shapes use contour format: [[{x, y, onCurve}, ...], ...]
      */
     _getGlyphShapesWithReferences(char, contours) {
-        const state = this.state;
         const allShapes = [];
+        const state = this.state;
         
         // Normalize the glyph's own contours (handles legacy [x,y] format)
         const normalizedContours = this._normalizeShapes(contours);
@@ -1250,7 +1923,7 @@ export class FontBuilder {
             // Also include ligature result glyphs (underscore-prefixed non-unicode glyphs)
             if (state.ligatures && state.features?.liga !== false) {
                 for (const lig of state.ligatures) {
-                    if (lig.enabled && lig.result && lig.result.startsWith('_')) {
+                    if (lig.enabled && lig.result && this._isComponentGlyph(lig.result)) {
                         // This is an underscore-prefixed ligature result glyph
                         if (state.glyphs[lig.result]) {
                             referencedGlyphs.add(lig.result);
@@ -1263,7 +1936,7 @@ export class FontBuilder {
             // For these, we need to create a synthetic component for their shapes
             // because TrueType glyphs can be EITHER simple OR composite, not both
             for (const [char, pointsOrShapes] of Object.entries(baseGlyphs)) {
-                if (char.startsWith('_')) continue; // Skip existing components
+                if (this._isComponentGlyph(char)) continue; // Skip existing components
                 
                 const refs = state.glyphReferences ? state.glyphReferences[char] : null;
                 const hasReferences = refs && refs.length > 0;
@@ -1291,17 +1964,21 @@ export class FontBuilder {
                         compShapes = baseGlyphs[originalChar];
                         compWidth = baseWidths && baseWidths[originalChar] !== undefined 
                             ? baseWidths[originalChar] 
-                            : (state.glyphWidths[originalChar] || 8);
+                            : this._getGlyphWidth(compShapes, originalChar, state.glyphWidths, baseGlyphs);
                     } else if (!state.glyphs[refName]) {
                         continue; // Not a synthetic and doesn't exist
                     } else {
                         compShapes = state.glyphs[refName];
-                        compWidth = state.glyphWidths[refName] || 8;
+                        compWidth = state.glyphWidths[refName] !== undefined
+                            ? state.glyphWidths[refName]
+                            : this._getGlyphWidth(compShapes, refName, state.glyphWidths, baseGlyphs);
                     }
                 } else {
                     if (!state.glyphs[refName]) continue;
                     compShapes = state.glyphs[refName];
-                    compWidth = state.glyphWidths[refName] || 8;
+                    compWidth = state.glyphWidths[refName] !== undefined
+                        ? state.glyphWidths[refName]
+                        : this._getGlyphWidth(compShapes, refName, state.glyphWidths, baseGlyphs);
                 }
                 
                 const path = new ot.Path();
@@ -1321,7 +1998,7 @@ export class FontBuilder {
                 
                 // Determine if this is a regular character glyph (single char, not starting with _)
                 // Regular character glyphs need their unicode even when used as components
-                const isRegularChar = refName.length === 1 && !refName.startsWith('_');
+                const isRegularChar = refName.length === 1 && !this._isComponentGlyph(refName);
                 const compGlyph = new ot.Glyph({
                     name: isRegularChar ? this._charToGlyphName(refName) : refName,
                     unicode: isRegularChar ? refName.charCodeAt(0) : undefined,
@@ -1340,8 +2017,9 @@ export class FontBuilder {
         const lsbOffset = (state.sidebearing || 0) / 2;
         
         for (const [char, pointsOrShapes] of Object.entries(baseGlyphs)) {
-            // Skip component glyphs (underscore-prefixed) - they're handled in Step 1
-            if (char.startsWith('_')) continue;
+            // Skip component glyphs (underscore-prefixed with more than 1 char) - they're handled in Step 1
+            // Note: Single underscore "_" is the actual underscore character, not a component
+            if (this._isComponentGlyph(char)) continue;
             // Skip glyphs already created as referenced components
             if (componentGlyphIndexMap.has(char)) continue;
             
@@ -3039,7 +3717,9 @@ export class FontImporter {
             if (contours.length > 0) {
                 state.glyphs[key] = contours;
                 if (state.glyphWidths) {
-                    state.glyphWidths[key] = glyph.advanceWidth;
+                    // Store intrinsic width (advanceWidth - sidebearing) since exporter adds sidebearing
+                    const sidebearing = state.sidebearing || 0;
+                    state.glyphWidths[key] = glyph.advanceWidth - sidebearing;
                 }
                 return true;
             }
@@ -3050,6 +3730,7 @@ export class FontImporter {
                 state.glyphs[key] = [points.map(p => ({ x: p[0], y: p[1], onCurve: true }))];
                 if (state.glyphWidths) {
                     const bounds = getPathBounds(glyph.path);
+                    // For CFF, we use bounding box which is intrinsic width (no sidebearing)
                     state.glyphWidths[key] = bounds.maxX;
                 }
                 return true;

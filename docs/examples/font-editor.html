@@ -1604,6 +1604,157 @@
             font-size: 10px;
             color: var(--accent);
         }
+
+        /* Shaping Tab Styles */
+        .shaping-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            gap: 16px;
+            overflow: hidden;
+        }
+
+        .shaping-controls {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 16px;
+            flex-shrink: 0;
+        }
+
+        .shaping-text-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 18px;
+            margin-bottom: 12px;
+            outline: none;
+        }
+
+        .shaping-text-input:focus {
+            border-color: var(--accent);
+        }
+
+        .shaping-axes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .shaping-axis-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-secondary);
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+
+        .shaping-axis-control label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            min-width: 40px;
+            font-family: monospace;
+        }
+
+        .shaping-axis-control input[type="range"] {
+            width: 120px;
+        }
+
+        .shaping-axis-control .value {
+            font-size: 11px;
+            min-width: 40px;
+            text-align: right;
+            color: var(--accent);
+        }
+
+        .shaping-features {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .shaping-feature-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-secondary);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .shaping-feature-toggle:hover {
+            background: rgba(74, 158, 255, 0.1);
+        }
+
+        .shaping-feature-toggle input {
+            margin: 0;
+        }
+
+        .shaping-feature-toggle .tag {
+            font-family: monospace;
+            color: var(--text-secondary);
+        }
+
+        .shaping-comparison {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            overflow: hidden;
+        }
+
+        .shaping-column {
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .shaping-column-header {
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .shaping-column-content {
+            flex: 1;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: auto;
+            min-height: 200px;
+        }
+
+        .shaping-column-content svg {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .shaping-column-content canvas {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .shaping-html-preview {
+            font-family: PreviewFont, sans-serif;
+            font-size: 48px;
+            line-height: 1.4;
+            word-break: break-all;
+        }
     </style>
 </head>
 <body>
@@ -1630,6 +1781,7 @@
             <button class="main-tab active" data-tab="drawing">Drawing</button>
             <button class="main-tab" data-tab="ligatures">Ligatures</button>
             <button class="main-tab" data-tab="kerning">Kerning</button>
+            <button class="main-tab" data-tab="shaping">Shaping</button>
             <button class="main-tab" data-tab="preview">Preview</button>
         </div>
 
@@ -1885,6 +2037,41 @@
                 </div>
             </div>
         </div><!-- End Kerning Tab -->
+
+        <!-- Shaping Tab Content -->
+        <div class="tab-content" id="tab-shaping">
+            <div class="shaping-panel">
+                <div class="shaping-controls">
+                    <input type="text" class="shaping-text-input" id="shaping-text" value="A B C" placeholder="Enter text to shape...">
+                    <div class="shaping-axes" id="shaping-axes">
+                        <!-- Axis sliders will be rendered here dynamically -->
+                    </div>
+                    <div class="shaping-features" id="shaping-features">
+                        <!-- Feature toggles will be rendered here dynamically -->
+                    </div>
+                </div>
+                <div class="shaping-comparison">
+                    <div class="shaping-column">
+                        <div class="shaping-column-header">SVG Shaping (shapeText API)</div>
+                        <div class="shaping-column-content" id="shaping-svg-content">
+                            <svg id="shaping-svg" width="100%" height="100%"></svg>
+                        </div>
+                    </div>
+                    <div class="shaping-column">
+                        <div class="shaping-column-header">Canvas Shaping (opentype draw)</div>
+                        <div class="shaping-column-content" id="shaping-canvas-content">
+                            <canvas id="shaping-canvas" width="600" height="200"></canvas>
+                        </div>
+                    </div>
+                    <div class="shaping-column">
+                        <div class="shaping-column-header">HTML (Exported Font)</div>
+                        <div class="shaping-column-content" id="shaping-html-content">
+                            <div class="shaping-html-preview" id="shaping-html-preview">A B C</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div><!-- End Shaping Tab -->
 
         <!-- Preview Tab Content -->
         <div class="tab-content" id="tab-preview">
@@ -2681,6 +2868,11 @@ fi fl ff ffi ffl</div>
                     // Special handling when switching to preview tab
                     if (targetTab === 'preview') {
                         initPreviewTab();
+                    }
+                    
+                    // Special handling when switching to shaping tab
+                    if (targetTab === 'shaping') {
+                        initShapingTab();
                     }
                 });
             });
@@ -7851,6 +8043,317 @@ fi fl ff ffi ffl</div>
             
             html += '</div>';
             deltaInfo.innerHTML = html;
+        }
+        
+        // =========================================
+        // Shaping Tab Functions
+        // =========================================
+        
+        let shapingFontUrl = null;
+        let shapingFont = null;
+        
+        // Initialize shaping tab when switching to it
+        async function initShapingTab() {
+            await buildShapingFont();
+            renderShapingAxes();
+            renderShapingFeatures();
+            updateShapingTab();
+            setupShapingEventListeners();
+        }
+        
+        // Build the font and load it for shaping
+        async function buildShapingFont() {
+            try {
+                const format = document.getElementById('export-format').value;
+                const result = buildFont(format);
+                
+                // Revoke previous font URL if exists
+                if (shapingFontUrl) {
+                    URL.revokeObjectURL(shapingFontUrl);
+                }
+                
+                // Create blob and object URL
+                const blob = new Blob([result.buffer], { type: result.format === 'otf' ? 'font/otf' : 'font/ttf' });
+                shapingFontUrl = URL.createObjectURL(blob);
+                
+                // Load font with FontFace API for HTML preview
+                const fontFace = new FontFace('PreviewFont', `url(${shapingFontUrl})`);
+                await fontFace.load();
+                
+                // Remove old font if exists
+                for (const face of document.fonts) {
+                    if (face.family === 'PreviewFont') {
+                        document.fonts.delete(face);
+                    }
+                }
+                
+                document.fonts.add(fontFace);
+                shapingFont = result.font;
+                
+            } catch (err) {
+                console.error('Error building shaping font:', err);
+            }
+        }
+        
+        // Render axis sliders for shaping tab
+        function renderShapingAxes() {
+            const container = document.getElementById('shaping-axes');
+            container.innerHTML = '';
+            
+            if (!state.vf.enabled || state.vf.axes.length === 0) {
+                container.innerHTML = '<span style="color: var(--text-secondary); font-size: 12px;">No variable font axes defined.</span>';
+                return;
+            }
+            
+            state.vf.axes.forEach(axis => {
+                const control = document.createElement('div');
+                control.className = 'shaping-axis-control';
+                
+                const label = document.createElement('label');
+                label.textContent = axis.tag;
+                label.title = axis.name || axis.tag;
+                
+                const slider = document.createElement('input');
+                slider.type = 'range';
+                slider.min = axis.min;
+                slider.max = axis.max;
+                slider.value = state.vf.previewCoords[axis.tag] || axis.default;
+                slider.step = 1;
+                slider.dataset.axis = axis.tag;
+                
+                const valueDisplay = document.createElement('span');
+                valueDisplay.className = 'value';
+                valueDisplay.textContent = slider.value;
+                
+                slider.addEventListener('input', () => {
+                    valueDisplay.textContent = slider.value;
+                    updateShapingTab();
+                });
+                
+                control.appendChild(label);
+                control.appendChild(slider);
+                control.appendChild(valueDisplay);
+                container.appendChild(control);
+            });
+        }
+        
+        // Render feature toggles for shaping tab
+        function renderShapingFeatures() {
+            const container = document.getElementById('shaping-features');
+            container.innerHTML = '';
+            
+            // Get features from the font
+            const fontFeatures = new Set();
+            if (shapingFont) {
+                if (shapingFont.tables.gsub && shapingFont.tables.gsub.features) {
+                    shapingFont.tables.gsub.features.forEach(f => {
+                        if (f.tag) fontFeatures.add(f.tag);
+                    });
+                }
+                if (shapingFont.tables.gpos && shapingFont.tables.gpos.features) {
+                    shapingFont.tables.gpos.features.forEach(f => {
+                        if (f.tag) fontFeatures.add(f.tag);
+                    });
+                }
+                if (shapingFont.tables.kern) {
+                    fontFeatures.add('kern');
+                }
+            }
+            
+            // Always show liga and kern toggles
+            ['liga', 'kern'].forEach(tag => fontFeatures.add(tag));
+            
+            if (fontFeatures.size === 0) {
+                container.innerHTML = '<span style="color: var(--text-secondary); font-size: 12px;">No OpenType features.</span>';
+                return;
+            }
+            
+            fontFeatures.forEach(tag => {
+                const toggle = document.createElement('label');
+                toggle.className = 'shaping-feature-toggle';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.dataset.feature = tag;
+                checkbox.checked = tag === 'liga' || tag === 'kern';
+                
+                checkbox.addEventListener('change', updateShapingTab);
+                
+                const tagSpan = document.createElement('span');
+                tagSpan.className = 'tag';
+                tagSpan.textContent = tag;
+                
+                toggle.appendChild(checkbox);
+                toggle.appendChild(tagSpan);
+                toggle.title = OT_FEATURE_NAMES[tag] || tag;
+                
+                container.appendChild(toggle);
+            });
+        }
+        
+        // Setup event listeners for shaping tab
+        function setupShapingEventListeners() {
+            const textInput = document.getElementById('shaping-text');
+            if (!textInput._listenerAdded) {
+                textInput.addEventListener('input', updateShapingTab);
+                textInput._listenerAdded = true;
+            }
+        }
+        
+        // Get current shaping settings (coords and features)
+        function getShapingSettings() {
+            const coords = {};
+            document.querySelectorAll('#shaping-axes input[type="range"]').forEach(slider => {
+                coords[slider.dataset.axis] = parseFloat(slider.value);
+            });
+            
+            const features = {};
+            document.querySelectorAll('#shaping-features input[type="checkbox"]').forEach(checkbox => {
+                features[checkbox.dataset.feature] = checkbox.checked;
+            });
+            
+            return { coords, features };
+        }
+        
+        // Update all three shaping views
+        function updateShapingTab() {
+            const text = document.getElementById('shaping-text').value || 'A B C';
+            const settings = getShapingSettings();
+            
+            updateShapingSvg(text, settings);
+            updateShapingCanvas(text, settings);
+            updateShapingHtml(text, settings);
+        }
+        
+        // Update SVG shaping view using our shapeText-like logic
+        function updateShapingSvg(text, settings) {
+            const svg = document.getElementById('shaping-svg');
+            while (svg.firstChild) {
+                svg.removeChild(svg.firstChild);
+            }
+            
+            // Use interpolated glyphs based on coords
+            let glyphs, widths, refs;
+            if (state.vf.enabled && state.vf.axes.length > 0 && Object.keys(settings.coords).length > 0) {
+                const interp = interpolateGlyphs(settings.coords);
+                glyphs = interp.glyphs;
+                widths = interp.widths;
+                refs = interp.references;
+            } else {
+                glyphs = state.glyphs;
+                widths = state.glyphWidths;
+                refs = state.glyphReferences;
+            }
+            
+            // Process ligatures if enabled
+            const useLigatures = settings.features.liga;
+            const glyphNames = useLigatures ? processLigatures(text, glyphs) : [...text];
+            
+            const scale = 100 / state.unitsPerEm;
+            const height = 150;
+            const baseline = 30;
+            let x = 20;
+            const lsbOffset = (state.sidebearing || 0) / 2;
+            
+            let pathData = '';
+            for (const glyphName of glyphNames) {
+                const glyphData = glyphs[glyphName];
+                const allShapes = getGlyphShapesWithReferences(glyphName, glyphData, glyphs, refs);
+                
+                if (allShapes.length > 0) {
+                    for (const points of allShapes) {
+                        if (points.length > 0) {
+                            const x0 = x + (points[0].x + lsbOffset) * scale;
+                            const y0 = height - baseline - points[0].y * scale;
+                            pathData += `M${x0.toFixed(2)} ${y0.toFixed(2)}`;
+                            for (let i = 1; i < points.length; i++) {
+                                const px = x + (points[i].x + lsbOffset) * scale;
+                                const py = height - baseline - points[i].y * scale;
+                                pathData += ` L${px.toFixed(2)} ${py.toFixed(2)}`;
+                            }
+                            pathData += ' Z ';
+                        }
+                    }
+                    x += (getGlyphWidthFromShapes(allShapes, glyphName, widths) + 1) * scale;
+                } else {
+                    x += 30 * scale;
+                }
+            }
+            
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', pathData.trim());
+            path.setAttribute('fill', '#4a9eff');
+            path.setAttribute('fill-rule', 'nonzero');
+            svg.appendChild(path);
+            
+            const totalWidth = Math.max(x + 20, 100);
+            svg.setAttribute('viewBox', `0 0 ${totalWidth} ${height}`);
+            svg.setAttribute('preserveAspectRatio', 'xMinYMid meet');
+        }
+        
+        // Update Canvas shaping view using opentype's draw method
+        function updateShapingCanvas(text, settings) {
+            const canvas = document.getElementById('shaping-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.fillStyle = '#2a2f35';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (!shapingFont) {
+                ctx.fillStyle = '#8899aa';
+                ctx.font = '14px sans-serif';
+                ctx.fillText('Building font...', 20, 100);
+                return;
+            }
+            
+            try {
+                // Build variation settings object
+                const variationSettings = {};
+                Object.entries(settings.coords).forEach(([tag, value]) => {
+                    variationSettings[tag] = value;
+                });
+                
+                // Build font options
+                const options = {
+                    kerning: settings.features.kern,
+                    features: settings.features
+                };
+                
+                // Create a path using opentype's getPath
+                const fontSize = 72;
+                const path = shapingFont.getPath(text, 20, 120, fontSize, options);
+                
+                // Draw the path
+                ctx.fillStyle = '#4a9eff';
+                path.fill = '#4a9eff';
+                path.draw(ctx);
+                
+            } catch (err) {
+                console.error('Error drawing on canvas:', err);
+                ctx.fillStyle = '#ff6a6a';
+                ctx.font = '12px sans-serif';
+                ctx.fillText('Error: ' + err.message, 20, 100);
+            }
+        }
+        
+        // Update HTML preview with exported font
+        function updateShapingHtml(text, settings) {
+            const preview = document.getElementById('shaping-html-preview');
+            preview.textContent = text;
+            
+            // Build font-variation-settings
+            const variationSettings = Object.entries(settings.coords)
+                .map(([tag, value]) => `"${tag}" ${value}`)
+                .join(', ');
+            
+            // Build font-feature-settings
+            const featureSettings = Object.entries(settings.features)
+                .map(([tag, enabled]) => `"${tag}" ${enabled ? 1 : 0}`)
+                .join(', ');
+            
+            preview.style.fontVariationSettings = variationSettings || 'normal';
+            preview.style.fontFeatureSettings = featureSettings || 'normal';
         }
         
         window._editorFunctions = {
