@@ -478,6 +478,12 @@ Font.prototype.forEachGlyph = function(text, x, y, fontSize, options, callback) 
     x = x !== undefined ? x : 0;
     y = y !== undefined ? y : 0;
     fontSize = fontSize !== undefined ? fontSize : 72;
+    
+    // Check if explicit variation option is passed BEFORE merging with defaultRenderOptions
+    // This ensures we only apply HVAR delta when user explicitly passes variation option
+    const hasExplicitVariation = this.variation && options && options.variation && this.tables.hvar;
+    const explicitVariation = hasExplicitVariation ? options.variation : null;
+    
     options = Object.assign({}, this.defaultRenderOptions, options);
     const fontScale = 1 / this.unitsPerEm * fontSize;
     const glyphs = this.stringToGlyphs(text, options);
@@ -486,11 +492,27 @@ Font.prototype.forEachGlyph = function(text, x, y, fontSize, options, callback) 
         const script = options.script || this.position.getDefaultScriptName();
         kerningLookups = this.position.getKerningTables(script, options.language);
     }
+    
     for (let i = 0; i < glyphs.length; i += 1) {
         const glyph = glyphs[i];
         callback.call(this, glyph, x, y, fontSize, options);
-        if (glyph.advanceWidth) {
-            x += glyph.advanceWidth * fontScale;
+        
+        // Get advance width - apply HVAR variation delta if explicit variation is passed
+        let advanceWidth = glyph.advanceWidth;
+        if (explicitVariation) {
+            // Calculate the HVAR delta directly without mutating the glyph
+            try {
+                const delta = this.variation.process.getVariableAdjustment(
+                    glyph.index, 'hvar', 'advanceWidth', explicitVariation
+                );
+                advanceWidth = Math.round((glyph._advanceWidth !== undefined ? glyph._advanceWidth : glyph.advanceWidth) + delta);
+            } catch (e) {
+                // If HVAR lookup fails, use the glyph's advanceWidth as-is
+            }
+        }
+        
+        if (advanceWidth) {
+            x += advanceWidth * fontScale;
         }
 
         if (options.kerning && i < glyphs.length - 1) {

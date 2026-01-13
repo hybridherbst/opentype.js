@@ -16,6 +16,7 @@ import './table.js';
 import './tokenizer.js';
 import './variation.js';
 import './variation-roundtrip.js';
+import './variation-canvas.js';
 import './snapping.js';
 import './fontCreation.js';
 import './tables/avar.js';

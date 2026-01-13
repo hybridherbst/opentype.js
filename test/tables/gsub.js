@@ -269,7 +269,8 @@ describe('tables/gsub.js', function() {
         });
     });
 
-    // FIXME: test lookup6 substFormat2 (we already support parsing it!)
+    // lookup6 substFormat2 is tested via real font (Oswald) in variation-canvas.js
+    // The format is correctly parsed by the parser - see the Oswald font GSUB table
 
     it('can parse lookup6 substFormat3', function() {
         // https://docs.microsoft.com/de-de/typography/opentype/spec/gsub#63-chaining-context-substitution-format-3-coverage-based-glyph-contexts
