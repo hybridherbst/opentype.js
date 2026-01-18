@@ -746,7 +746,8 @@ export class FontEditorState {
         
         const allContours = [];
         for (const ref of refs) {
-            const transformedShapes = this._getTransformedReferenceShapesFromSource(ref, glyphsSource);
+            // Pass refsSource for recursive lookup
+            const transformedShapes = this._getTransformedReferenceShapesFromSource(ref, glyphsSource, refsSource);
             for (const shape of transformedShapes) {
                 if (shape && shape.length > 0) {
                     allContours.push(shape);
@@ -845,17 +846,70 @@ export class FontEditorState {
 
     /**
      * Get transformed shapes from a reference layer using a specific glyph source
+     * This method now supports recursive references (references within references)
+     * @param {Object} ref - Reference object with name, dx, dy, scaleX, scaleY, etc.
+     * @param {Object} glyphsSource - Source of glyph data
+     * @param {Object} refsSource - Source of reference data (for recursive lookup)
+     * @param {Set} visited - Set of already visited glyph names to prevent infinite loops
+     * @returns {Array} Array of transformed contours
      */
-    _getTransformedReferenceShapesFromSource(ref, glyphsSource) {
-        const sourceShapes = this._getComponentShapesFromSource(ref.name, glyphsSource);
-        if (!sourceShapes || sourceShapes.length === 0) return [];
+    _getTransformedReferenceShapesFromSource(ref, glyphsSource, refsSource = null, visited = null) {
+        // Initialize visited set if not provided
+        if (!visited) {
+            visited = new Set();
+        }
         
-        return sourceShapes.map(shape => 
-            shape.map(point => {
+        // Check for circular reference
+        if (visited.has(ref.name)) {
+            console.warn(`Circular reference detected: ${ref.name}`);
+            return [];
+        }
+        visited.add(ref.name);
+        
+        const allShapes = [];
+        
+        // Get direct shapes from the referenced glyph
+        const sourceShapes = this._getComponentShapesFromSource(ref.name, glyphsSource);
+        
+        // Transform and add direct shapes
+        for (const shape of sourceShapes) {
+            if (!shape || shape.length === 0) continue;
+            const transformedShape = shape.map(point => {
                 const transformed = this._transformPoint(point.x, point.y, ref);
                 return { x: transformed[0], y: transformed[1], onCurve: point.onCurve !== false };
-            })
-        );
+            });
+            allShapes.push(transformedShape);
+        }
+        
+        // Recursively get shapes from nested references (if refsSource is provided)
+        // Use this.glyphReferences as default if not provided
+        const actualRefsSource = refsSource || this.glyphReferences;
+        if (actualRefsSource) {
+            const nestedRefs = actualRefsSource[ref.name];
+            if (nestedRefs && nestedRefs.length > 0) {
+                for (const nestedRef of nestedRefs) {
+                    // Recursively get shapes from nested reference
+                    const nestedShapes = this._getTransformedReferenceShapesFromSource(
+                        nestedRef, 
+                        glyphsSource, 
+                        actualRefsSource,
+                        new Set(visited) // Pass a copy to allow siblings to share names
+                    );
+                    
+                    // Apply the parent reference transform to the nested shapes
+                    for (const shape of nestedShapes) {
+                        if (!shape || shape.length === 0) continue;
+                        const transformedShape = shape.map(point => {
+                            const transformed = this._transformPoint(point.x, point.y, ref);
+                            return { x: transformed[0], y: transformed[1], onCurve: point.onCurve !== false };
+                        });
+                        allShapes.push(transformedShape);
+                    }
+                }
+            }
+        }
+        
+        return allShapes;
     }
 
     /**
@@ -1474,7 +1528,7 @@ export class FontEditorState {
         this.instances = json.instances || [];
         this.avarTable = json.avarTable || null;
         this.ligatures = json.ligatures || [];
-        this.features = json.features || { liga: true, kern: true, dlig: false, smcp: false };
+        this.features = json.features || { liga: true, kern: true, dlig: false, calt: true, smcp: false };
         this.kerning = json.kerning || {};
         this.currentGlyph = Object.keys(this.glyphs)[0] || null;
         this.previewCoords = {};
@@ -1921,12 +1975,15 @@ export class FontBuilder {
             }
             
             // Also include ligature result glyphs (underscore-prefixed non-unicode glyphs)
+            // Track these separately as they need sidebearing like regular character glyphs
+            const ligatureResultGlyphs = new Set();
             if (state.ligatures && state.features?.liga !== false) {
                 for (const lig of state.ligatures) {
                     if (lig.enabled && lig.result && this._isComponentGlyph(lig.result)) {
                         // This is an underscore-prefixed ligature result glyph
                         if (state.glyphs[lig.result]) {
                             referencedGlyphs.add(lig.result);
+                            ligatureResultGlyphs.add(lig.result);
                         }
                     }
                 }
@@ -1983,14 +2040,19 @@ export class FontBuilder {
                 
                 const path = new ot.Path();
                 
+                // Ligature result glyphs need sidebearing like regular character glyphs
+                // since they are substituted for regular characters during shaping
+                const isLigatureResult = ligatureResultGlyphs.has(refName);
+                const componentLsbOffset = isLigatureResult ? ((state.sidebearing || 0) / 2) : 0;
+                
                 // Draw all contours in the component
                 // All contours use format: [[{x, y, onCurve}, ...], ...]
                 const contours = this._normalizeShapes(compShapes);
                 for (const contour of contours) {
                     if (contour && contour.length > 0) {
-                        path.moveTo(Math.round(contour[0].x * scale), Math.round(contour[0].y * scale));
+                        path.moveTo(Math.round((contour[0].x + componentLsbOffset) * scale), Math.round(contour[0].y * scale));
                         for (let i = 1; i < contour.length; i++) {
-                            path.lineTo(Math.round(contour[i].x * scale), Math.round(contour[i].y * scale));
+                            path.lineTo(Math.round((contour[i].x + componentLsbOffset) * scale), Math.round(contour[i].y * scale));
                         }
                         path.closePath();
                     }
@@ -1999,11 +2061,15 @@ export class FontBuilder {
                 // Determine if this is a regular character glyph (single char, not starting with _)
                 // Regular character glyphs need their unicode even when used as components
                 const isRegularChar = refName.length === 1 && !this._isComponentGlyph(refName);
+                
+                // Calculate advance width - ligature results need full sidebearing added
+                const componentSidebearing = isLigatureResult ? (state.sidebearing || 0) : 0;
+                
                 const compGlyph = new ot.Glyph({
                     name: isRegularChar ? this._charToGlyphName(refName) : refName,
                     unicode: isRegularChar ? refName.charCodeAt(0) : undefined,
                     path,
-                    advanceWidth: Math.round(compWidth * scale)
+                    advanceWidth: Math.round((compWidth + componentSidebearing) * scale)
                 });
                 
                 otGlyphs.push(compGlyph);
@@ -2838,7 +2904,8 @@ export class FontBuilder {
     }
 
     /**
-     * Add GSUB table with ligature substitutions
+     * Add GSUB table with ligature substitutions and contextual alternates
+     * Supports liga (standard), dlig (discretionary), rlig (required), and calt (contextual)
      * @param {Object} font - The opentype.js Font object
      * @param {Map} glyphIndexMap - Map of glyph names to indices
      */
@@ -2846,56 +2913,157 @@ export class FontBuilder {
         const state = this.state;
         const ligatures = state.ligatures || [];
         
-        // Filter to only enabled ligatures with valid data
-        const enabledLigatures = ligatures.filter(lig => 
-            lig.enabled && lig.sequence && lig.result && lig.sequence.length >= 2
-        );
+        // Filter to only enabled ligatures/substitutions with valid data
+        // For liga/dlig/rlig: sequence.length >= 2 (ligature needs 2+ input glyphs)
+        // For calt: sequence.length >= 1 (single glyph substitution with context)
+        const enabledSubstitutions = ligatures.filter(lig => {
+            if (!lig.enabled || !lig.sequence || !lig.result) return false;
+            const feature = lig.feature || 'liga';
+            // calt can work with single character substitutions in context
+            if (feature === 'calt') {
+                return lig.sequence.length >= 1;
+            }
+            // Other ligatures need 2+ characters
+            return lig.sequence.length >= 2;
+        });
         
-        if (enabledLigatures.length === 0) {
+        if (enabledSubstitutions.length === 0) {
             return;
         }
 
-        // First, validate all ligatures and collect valid ones
-        const validLigatures = [];
+        // Group substitutions by feature type
+        const byFeature = {
+            liga: [],
+            dlig: [],
+            rlig: [],
+            calt: []
+        };
         
-        for (const lig of enabledLigatures) {
-            // Get glyph indices for the sequence characters
-            const subGlyphIndices = [];
+        for (const lig of enabledSubstitutions) {
+            const feature = lig.feature || 'liga';
+            if (byFeature[feature]) {
+                byFeature[feature].push(lig);
+            }
+        }
+
+        // Process and validate each feature's substitutions
+        const validByFeature = {
+            liga: [],
+            dlig: [],
+            rlig: [],
+            calt: []
+        };
+        
+        // Process ligature-type features (liga, dlig, rlig)
+        for (const feature of ['liga', 'dlig', 'rlig']) {
+            for (const lig of byFeature[feature]) {
+                const subGlyphIndices = [];
+                let valid = true;
+                
+                for (const char of lig.sequence) {
+                    const glyphName = this._charToGlyphName(char);
+                    const idx = glyphIndexMap.get(glyphName);
+                    if (idx === undefined) {
+                        console.warn(`${feature} sequence character '${char}' not found in font`);
+                        valid = false;
+                        break;
+                    }
+                    subGlyphIndices.push(idx);
+                }
+                
+                if (!valid) continue;
+                
+                let resultGlyphIdx = glyphIndexMap.get(lig.result);
+                if (resultGlyphIdx === undefined) {
+                    const resultGlyphName = this._charToGlyphName(lig.result);
+                    resultGlyphIdx = glyphIndexMap.get(resultGlyphName);
+                }
+                
+                if (resultGlyphIdx === undefined) {
+                    console.warn(`${feature} result glyph '${lig.result}' not found in font`);
+                    continue;
+                }
+                
+                validByFeature[feature].push({ sub: subGlyphIndices, by: resultGlyphIdx });
+            }
+        }
+        
+        // Process calt (contextual alternates) - uses chaining context substitution
+        for (const lig of byFeature.calt) {
+            const inputGlyphIndices = [];
+            const backtrackIndices = [];
+            const lookaheadIndices = [];
             let valid = true;
             
+            // Get input sequence indices
             for (const char of lig.sequence) {
                 const glyphName = this._charToGlyphName(char);
                 const idx = glyphIndexMap.get(glyphName);
                 if (idx === undefined) {
-                    console.warn(`Ligature sequence character '${char}' not found in font`);
+                    console.warn(`calt input character '${char}' not found in font`);
                     valid = false;
                     break;
                 }
-                subGlyphIndices.push(idx);
+                inputGlyphIndices.push(idx);
             }
             
             if (!valid) continue;
             
-            // Get the result glyph index
-            // The result glyph name is stored directly (e.g., "A_B" or "fi_lig")
+            // Get backtrack context indices (if any)
+            if (lig.backtrack) {
+                for (const char of lig.backtrack) {
+                    const glyphName = this._charToGlyphName(char);
+                    const idx = glyphIndexMap.get(glyphName);
+                    if (idx === undefined) {
+                        console.warn(`calt backtrack character '${char}' not found in font`);
+                        valid = false;
+                        break;
+                    }
+                    backtrackIndices.push(idx);
+                }
+            }
+            
+            if (!valid) continue;
+            
+            // Get lookahead context indices (if any)
+            if (lig.lookahead) {
+                for (const char of lig.lookahead) {
+                    const glyphName = this._charToGlyphName(char);
+                    const idx = glyphIndexMap.get(glyphName);
+                    if (idx === undefined) {
+                        console.warn(`calt lookahead character '${char}' not found in font`);
+                        valid = false;
+                        break;
+                    }
+                    lookaheadIndices.push(idx);
+                }
+            }
+            
+            if (!valid) continue;
+            
+            // Get result glyph index
             let resultGlyphIdx = glyphIndexMap.get(lig.result);
             if (resultGlyphIdx === undefined) {
-                // Try looking it up as a character
                 const resultGlyphName = this._charToGlyphName(lig.result);
                 resultGlyphIdx = glyphIndexMap.get(resultGlyphName);
             }
             
             if (resultGlyphIdx === undefined) {
-                console.warn(`Ligature result glyph '${lig.result}' not found in font`);
+                console.warn(`calt result glyph '${lig.result}' not found in font`);
                 continue;
             }
             
-            // This ligature is valid, save it
-            validLigatures.push({ sub: subGlyphIndices, by: resultGlyphIdx });
+            validByFeature.calt.push({
+                input: inputGlyphIndices,
+                backtrack: backtrackIndices,
+                lookahead: lookaheadIndices,
+                by: resultGlyphIdx
+            });
         }
         
-        // Only create GSUB table if we have valid ligatures
-        if (validLigatures.length === 0) {
+        // Check if we have any valid substitutions
+        const hasValid = Object.values(validByFeature).some(arr => arr.length > 0);
+        if (!hasValid) {
             return;
         }
 
@@ -2904,9 +3072,59 @@ export class FontBuilder {
             font.tables.gsub = font.substitution.createDefaultTable();
         }
 
-        // Add each valid ligature to the 'liga' feature
-        for (const ligData of validLigatures) {
-            font.substitution.addLigature('liga', ligData);
+        // Add ligature-type features in alphabetical order (required by GSUB spec)
+        // dlig < liga < rlig (alphabetically)
+        for (const feature of ['dlig', 'liga', 'rlig']) {
+            for (const ligData of validByFeature[feature]) {
+                font.substitution.addLigature(feature, ligData);
+            }
+        }
+        
+        // Add contextual alternates (calt) using the core API
+        if (validByFeature.calt.length > 0) {
+            this._addCaltFeature(font, validByFeature.calt);
+        }
+    }
+    
+    /**
+     * Add calt (contextual alternates) feature using GSUB lookup type 6 (Chaining Context)
+     * Uses the core opentype.js substitution.addChaining() API
+     * @param {Object} font - The opentype.js Font object
+     * @param {Array} caltRules - Array of { input, backtrack, lookahead, by } objects
+     *   - input: array of glyph IDs to match
+     *   - backtrack: array of glyph IDs that must precede input (in visual order)
+     *   - lookahead: array of glyph IDs that must follow input
+     *   - by: glyph ID to substitute with
+     */
+    _addCaltFeature(font, caltRules) {
+        // Process each calt rule
+        for (const rule of caltRules) {
+            // Build substitution array for multi-glyph inputs
+            const substitutions = [];
+            
+            // For each position in the input sequence, we need to specify what to substitute
+            // For single-glyph input, we substitute the input glyph with the 'by' glyph
+            // For multi-glyph input, we'd need more sophisticated handling
+            for (let i = 0; i < rule.input.length; i++) {
+                if (i === 0) {
+                    // First (or only) input glyph gets substituted
+                    substitutions.push({
+                        sequenceIndex: i,
+                        sub: rule.input[i],
+                        by: rule.by
+                    });
+                }
+                // For multi-glyph inputs, we could add additional substitutions here
+                // e.g., to delete subsequent glyphs or replace them with .notdef
+            }
+            
+            // Use the core API
+            font.substitution.addChaining('calt', {
+                backtrack: rule.backtrack,
+                input: rule.input,
+                lookahead: rule.lookahead,
+                substitution: substitutions
+            });
         }
     }
 
@@ -3605,96 +3823,98 @@ export class FontImporter {
         }
 
         try {
-            // Look for ligature substitution lookups in GSUB
-            const gsub = font.tables.gsub;
-            
-            // Find features that use ligature lookups (liga, dlig, etc.)
+            // Use opentype.js substitution API to get ligatures
+            // This handles all lookup types including chained context substitution (type 6)
             const ligaFeatures = ['liga', 'dlig', 'clig', 'rlig'];
             
-            for (const script of (gsub.scripts || [])) {
-                for (const langSys of [script.script.defaultLangSys, ...(script.script.langSysRecords || []).map(r => r.langSys)]) {
-                    if (!langSys || !langSys.featureIndexes) continue;
+            for (const featureTag of ligaFeatures) {
+                // getLigatures handles all the complex lookup resolution internally
+                const ligatures = font.substitution.getLigatures(featureTag);
+                
+                if (verbose && ligatures.length > 0) {
+                    console.log(`Found ${ligatures.length} ${featureTag} ligatures via API`);
+                }
+                
+                for (const lig of ligatures) {
+                    // lig.sub is array of glyph indices [first, ...components]
+                    // lig.by is the result glyph index
                     
-                    for (const featureIdx of langSys.featureIndexes) {
-                        const feature = gsub.features[featureIdx];
-                        if (!feature || !ligaFeatures.includes(feature.tag)) continue;
+                    // Convert glyph indices to character sequence
+                    const sequence = [];
+                    let valid = true;
+                    
+                    for (const glyphIdx of lig.sub) {
+                        const glyph = font.glyphs.get(glyphIdx);
+                        const char = glyph ? this._glyphToChar(glyph) : null;
+                        if (char) {
+                            sequence.push(char);
+                        } else {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    
+                    if (!valid || sequence.length < 2) continue;
+                    
+                    const ligGlyph = font.glyphs.get(lig.by);
+                    if (!ligGlyph) continue;
+                    
+                    // Get the first glyph index and components for key computation
+                    const firstGlyphIdx = lig.sub[0];
+                    const components = lig.sub.slice(1);
+                    
+                    // Compute the result key using consistent method
+                    const resultKey = this._getLigatureGlyphKey(ligGlyph, firstGlyphIdx, components, font);
+                    if (!resultKey) continue;
+                    
+                    // Import the ligature result glyph if it doesn't exist
+                    if (!state.glyphs[resultKey]) {
+                        this._importGlyphToState(state, resultKey, ligGlyph);
+                    }
+                    
+                    // Join sequence array to string for UI compatibility
+                    const sequenceStr = sequence.join('');
+                    
+                    // Check if this ligature already exists
+                    const existing = state.ligatures.find(
+                        l => l.sequence === sequenceStr
+                    );
+                    
+                    if (!existing) {
+                        state.ligatures.push({
+                            sequence: sequenceStr,  // String, not array
+                            result: resultKey,      // Key matching state.glyphs
+                            enabled: true,
+                            feature: featureTag     // 'liga', 'dlig', 'rlig', 'clig'
+                        });
                         
-                        if (verbose) console.log('Processing feature:', feature.tag);
-                        
-                        // Process lookups for this feature
-                        for (const lookupIdx of feature.feature.lookupListIndexes) {
-                            const lookup = gsub.lookups[lookupIdx];
-                            if (!lookup || lookup.lookupType !== 4) continue; // Type 4 = Ligature Substitution
-                            
-                            for (const subtable of lookup.subtables) {
-                                if (!subtable.ligatureSets || !subtable.coverage) continue;
-                                
-                                // Coverage maps position to actual glyph index
-                                const coverageGlyphs = subtable.coverage.glyphs || [];
-                                
-                                // ligatureSets is indexed by position in coverage, not glyph index
-                                for (const [posStr, ligSet] of Object.entries(subtable.ligatureSets)) {
-                                    const pos = parseInt(posStr);
-                                    const firstGlyphIdx = coverageGlyphs[pos];
-                                    if (firstGlyphIdx === undefined) continue;
-                                    
-                                    const firstGlyph = font.glyphs.get(firstGlyphIdx);
-                                    const firstChar = firstGlyph ? this._glyphToChar(firstGlyph) : null;
-                                    if (!firstChar) continue;
-                                    
-                                    for (const lig of ligSet) {
-                                        // lig.components is array of following glyph indices
-                                        // lig.ligGlyph is the resulting ligature glyph index
-                                        const sequence = [firstChar];
-                                        let valid = true;
-                                        
-                                        for (const compIdx of lig.components) {
-                                            const compGlyph = font.glyphs.get(compIdx);
-                                            const compChar = compGlyph ? this._glyphToChar(compGlyph) : null;
-                                            if (compChar) {
-                                                sequence.push(compChar);
-                                            } else {
-                                                valid = false;
-                                                break;
-                                            }
-                                        }
-                                        
-                                        if (valid && sequence.length >= 2) {
-                                            const ligGlyph = font.glyphs.get(lig.ligGlyph);
-                                            if (!ligGlyph) continue;
-                                            
-                                            // Compute the result key using consistent method
-                                            const resultKey = this._getLigatureGlyphKey(ligGlyph, firstGlyphIdx, lig.components, font);
-                                            if (!resultKey) continue;
-                                            
-                                            // Import the ligature result glyph if it doesn't exist
-                                            // This ensures roundtrip works correctly
-                                            if (!state.glyphs[resultKey]) {
-                                                this._importGlyphToState(state, resultKey, ligGlyph);
-                                            }
-                                            
-                                            // Join sequence array to string for UI compatibility
-                                            const sequenceStr = sequence.join('');
-                                            
-                                            // Check if this ligature already exists
-                                            const existing = state.ligatures.find(
-                                                l => l.sequence === sequenceStr
-                                            );
-                                            
-                                            if (!existing) {
-                                                state.ligatures.push({
-                                                    sequence: sequenceStr,  // String, not array
-                                                    result: resultKey,      // Key matching state.glyphs
-                                                    enabled: true
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        if (verbose) {
+                            console.log(`  Imported ${featureTag}: ${sequenceStr} -> ${resultKey}`);
                         }
                     }
                 }
+            }
+            
+            // After importing, set feature flags based on what was found
+            if (!state.features) {
+                state.features = { liga: true, kern: true, dlig: false, smcp: false };
+            }
+            
+            // Enable features that have ligatures
+            const hasLiga = state.ligatures.some(l => !l.feature || l.feature === 'liga');
+            const hasDlig = state.ligatures.some(l => l.feature === 'dlig');
+            const hasRlig = state.ligatures.some(l => l.feature === 'rlig');
+            
+            if (hasLiga) state.features.liga = true;
+            if (hasDlig) state.features.dlig = true;
+            // rlig (required ligatures) should always be on if present
+            
+            if (verbose) {
+                console.log('Feature flags after ligature import:', 
+                    `liga=${state.features.liga} (${hasLiga ? 'found' : 'none'})`,
+                    `dlig=${state.features.dlig} (${hasDlig ? 'found' : 'none'})`,
+                    `rlig=${hasRlig ? 'found' : 'none'}`);
+                console.log(`Total ligatures imported: ${state.ligatures.length}`);
             }
         } catch (e) {
             console.warn('Error importing ligatures:', e);

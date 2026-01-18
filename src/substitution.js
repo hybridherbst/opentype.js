@@ -139,6 +139,131 @@ Substitution.prototype.getAlternates = function(feature, script, language) {
 };
 
 /**
+ * List all chaining context substitutions (lookup type 6) for a given script, language, and feature.
+ * Returns an array of rules with backtrack, input, lookahead contexts and the substitutions to apply.
+ * The 'sub' field contains the substitution details that reference other lookups.
+ * @param {string} feature - 4-letter feature name ('calt', 'rclt', etc.)
+ * @param {string} [script='DFLT']
+ * @param {string} [language='dflt']
+ * @return {Array} rules - Array of { backtrack: [ids], input: [ids], lookahead: [ids], lookupRecords: [{sequenceIndex, lookupListIndex}] }
+ */
+Substitution.prototype.getChaining = function(feature, script, language) {
+    const rules = [];
+    const lookupTables = this.getLookupTables(script, language, feature, 6);
+    const allLookups = this.font.tables.gsub ? this.font.tables.gsub.lookups : [];
+    
+    for (let idx = 0; idx < lookupTables.length; idx++) {
+        const subtables = lookupTables[idx].subtables;
+        for (let i = 0; i < subtables.length; i++) {
+            const subtable = subtables[i];
+            
+            if (subtable.substFormat === 1) {
+                // Format 1: Simple Chaining Context - glyph-based
+                const coverageGlyphs = this.expandCoverage(subtable.coverage);
+                const chainRuleSets = subtable.chainRuleSets || [];
+                
+                for (let j = 0; j < coverageGlyphs.length; j++) {
+                    const firstGlyph = coverageGlyphs[j];
+                    const chainRuleSet = chainRuleSets[j];
+                    if (!chainRuleSet) continue;
+                    
+                    for (const chainRule of chainRuleSet) {
+                        // Resolve the lookups to get actual substitution info
+                        const substitutions = this._resolveLookupRecords(chainRule.lookupRecords, allLookups);
+                        rules.push({
+                            backtrack: chainRule.backtrack.slice(),
+                            input: [firstGlyph].concat(chainRule.input),
+                            lookahead: chainRule.lookahead.slice(),
+                            lookupRecords: chainRule.lookupRecords.slice(),
+                            substitutions: substitutions
+                        });
+                    }
+                }
+            } else if (subtable.substFormat === 3) {
+                // Format 3: Coverage-based Chaining Context
+                const backtrack = [];
+                const input = [];
+                const lookahead = [];
+                
+                // Expand coverages to get glyph lists
+                for (const cov of (subtable.backtrackCoverage || [])) {
+                    backtrack.push(this.expandCoverage(cov));
+                }
+                for (const cov of (subtable.inputCoverage || [])) {
+                    input.push(this.expandCoverage(cov));
+                }
+                for (const cov of (subtable.lookaheadCoverage || [])) {
+                    lookahead.push(this.expandCoverage(cov));
+                }
+                
+                // Resolve the lookups to get actual substitution info
+                const substitutions = this._resolveLookupRecords(subtable.lookupRecords, allLookups);
+                
+                rules.push({
+                    backtrack: backtrack,  // Array of arrays (coverage sets)
+                    input: input,          // Array of arrays (coverage sets)
+                    lookahead: lookahead,  // Array of arrays (coverage sets)
+                    lookupRecords: (subtable.lookupRecords || []).slice(),
+                    substitutions: substitutions
+                });
+            }
+            // Format 2 (class-based) is more complex and less common for calt, 
+            // could be added later if needed
+        }
+    }
+    return rules;
+};
+
+/**
+ * Helper to resolve lookup records to actual substitution information
+ * @private
+ */
+Substitution.prototype._resolveLookupRecords = function(lookupRecords, allLookups) {
+    const substitutions = [];
+    for (const record of (lookupRecords || [])) {
+        const lookup = allLookups[record.lookupListIndex];
+        if (!lookup) continue;
+        
+        const subInfo = {
+            sequenceIndex: record.sequenceIndex,
+            lookupType: lookup.lookupType,
+            substitutions: []
+        };
+        
+        // Extract substitution mappings from the referenced lookup
+        for (const subtable of (lookup.subtables || [])) {
+            if (lookup.lookupType === 1) {
+                // Single substitution
+                const glyphs = this.expandCoverage(subtable.coverage);
+                if (subtable.substFormat === 1) {
+                    for (const glyph of glyphs) {
+                        subInfo.substitutions.push({ sub: glyph, by: glyph + subtable.deltaGlyphId });
+                    }
+                } else if (subtable.substFormat === 2) {
+                    for (let k = 0; k < glyphs.length; k++) {
+                        subInfo.substitutions.push({ sub: glyphs[k], by: subtable.substitute[k] });
+                    }
+                }
+            } else if (lookup.lookupType === 4) {
+                // Ligature substitution
+                const glyphs = this.expandCoverage(subtable.coverage);
+                for (let k = 0; k < glyphs.length; k++) {
+                    const ligSet = subtable.ligatureSets[k];
+                    for (const lig of ligSet) {
+                        subInfo.substitutions.push({
+                            sub: [glyphs[k]].concat(lig.components),
+                            by: lig.ligGlyph
+                        });
+                    }
+                }
+            }
+        }
+        substitutions.push(subInfo);
+    }
+    return substitutions;
+};
+
+/**
  * List all ligatures (lookup type 4) for a given script, language, and feature.
  * The result is an array of ligature objects like { sub: [ids], by: id }
  * @param {string} feature - 4-letter feature name ('liga', 'rlig', 'dlig'...)
@@ -295,6 +420,157 @@ Substitution.prototype.addLigature = function(feature, ligature, script, languag
 };
 
 /**
+ * Add a chaining context substitution (lookup type 6, format 3)
+ * This creates a rule that matches glyphs in context and applies a substitution.
+ * 
+ * @param {string} feature - 4-letter feature name ('calt', 'rclt', etc.)
+ * @param {Object} rule - The chaining rule definition:
+ *   - backtrack: Array of glyph IDs that must precede the input (in visual order, reversed internally)
+ *   - input: Array of glyph IDs to match (the glyphs that may be substituted)
+ *   - lookahead: Array of glyph IDs that must follow the input
+ *   - substitution: Object { sequenceIndex: number, sub: glyphId, by: glyphId } or array of such objects
+ *     - sequenceIndex: which input glyph to substitute (0-based)
+ *     - sub: the glyph to substitute (must be in input at that index)
+ *     - by: the replacement glyph
+ * @param {string} [script='DFLT']
+ * @param {string} [language='dflt']
+ * 
+ * @example
+ * // Replace 'a' with 'a.end' when preceded by any letter and followed by space
+ * font.substitution.addChaining('calt', {
+ *   backtrack: [letterGlyphId],
+ *   input: [aGlyphId],
+ *   lookahead: [spaceGlyphId],
+ *   substitution: { sequenceIndex: 0, sub: aGlyphId, by: aEndGlyphId }
+ * });
+ * 
+ * // Multi-glyph input: replace 'fi' sequence contextually
+ * font.substitution.addChaining('calt', {
+ *   backtrack: [],
+ *   input: [fGlyphId, iGlyphId],
+ *   lookahead: [],
+ *   substitution: [
+ *     { sequenceIndex: 0, sub: fGlyphId, by: fiLigGlyphId },
+ *     { sequenceIndex: 1, sub: iGlyphId, by: 0 }  // 0 could be .notdef or handle differently
+ *   ]
+ * });
+ */
+Substitution.prototype.addChaining = function(feature, rule, script, language) {
+    check.assert(rule.input && rule.input.length > 0, 'Chaining: input must have at least one glyph');
+    
+    // Ensure GSUB table exists
+    let gsub = this.font.tables.gsub;
+    if (!gsub) {
+        gsub = this.font.tables.gsub = this.createDefaultTable();
+    }
+    
+    // Normalize substitution to array
+    const substitutions = Array.isArray(rule.substitution) ? rule.substitution : [rule.substitution];
+    
+    // Step 1: Create or find a single substitution lookup for the actual replacements
+    // We need a separate lookup that the chaining context will reference
+    const singleSubLookupIndex = this._getOrCreateSingleSubLookup(gsub, substitutions);
+    
+    // Step 2: Create the chaining context lookup (type 6, format 3)
+    const chainLookup = this.getLookupTables(script, language, feature, 6, true)[0];
+    
+    // Create a new subtable for this rule (format 3: coverage-based)
+    const subtable = {
+        substFormat: 3,
+        backtrackCoverage: [],
+        inputCoverage: [],
+        lookaheadCoverage: [],
+        lookupRecords: []
+    };
+    
+    // Add backtrack coverages (stored in reverse order per OT spec)
+    const backtrack = rule.backtrack || [];
+    for (let i = backtrack.length - 1; i >= 0; i--) {
+        const glyph = backtrack[i];
+        subtable.backtrackCoverage.push({
+            format: 1,
+            glyphs: Array.isArray(glyph) ? glyph.slice().sort((a, b) => a - b) : [glyph]
+        });
+    }
+    
+    // Add input coverages
+    for (const glyph of rule.input) {
+        subtable.inputCoverage.push({
+            format: 1,
+            glyphs: Array.isArray(glyph) ? glyph.slice().sort((a, b) => a - b) : [glyph]
+        });
+    }
+    
+    // Add lookahead coverages
+    const lookahead = rule.lookahead || [];
+    for (const glyph of lookahead) {
+        subtable.lookaheadCoverage.push({
+            format: 1,
+            glyphs: Array.isArray(glyph) ? glyph.slice().sort((a, b) => a - b) : [glyph]
+        });
+    }
+    
+    // Add lookup records - each substitution references the single sub lookup
+    // Group substitutions by sequenceIndex to handle multi-glyph inputs
+    const subsByIndex = new Map();
+    for (const sub of substitutions) {
+        if (!subsByIndex.has(sub.sequenceIndex)) {
+            subsByIndex.set(sub.sequenceIndex, []);
+        }
+        subsByIndex.get(sub.sequenceIndex).push(sub);
+    }
+    
+    for (const [sequenceIndex] of subsByIndex) {
+        subtable.lookupRecords.push({
+            sequenceIndex: sequenceIndex,
+            lookupListIndex: singleSubLookupIndex
+        });
+    }
+    
+    chainLookup.subtables.push(subtable);
+};
+
+/**
+ * Helper to get or create a single substitution lookup for chaining context
+ * @private
+ */
+Substitution.prototype._getOrCreateSingleSubLookup = function(gsub, substitutions) {
+    // Look for an existing single sub lookup we can add to, or create a new one
+    // For simplicity, we always create a new lookup to avoid conflicts
+    const lookupIndex = gsub.lookups.length;
+    
+    const lookup = {
+        lookupType: 1,  // Single substitution
+        lookupFlag: 0,
+        subtables: [{
+            substFormat: 2,
+            coverage: { format: 1, glyphs: [] },
+            substitute: []
+        }]
+    };
+    
+    const subtable = lookup.subtables[0];
+    
+    // Build the substitution mappings
+    for (const sub of substitutions) {
+        if (sub.sub === undefined || sub.by === undefined) continue;
+        
+        let pos = this.binSearch(subtable.coverage.glyphs, sub.sub);
+        if (pos < 0) {
+            pos = -1 - pos;
+            subtable.coverage.glyphs.splice(pos, 0, sub.sub);
+            subtable.substitute.splice(pos, 0, sub.by);
+        } else {
+            // Update existing
+            subtable.substitute[pos] = sub.by;
+        }
+    }
+    
+    gsub.lookups.push(lookup);
+    return lookupIndex;
+};
+
+/**
  * List all feature data for a given script and language.
  * @param {string} feature - 4-letter feature name
  * @param {string} [script='DFLT']
@@ -320,6 +596,9 @@ Substitution.prototype.getFeature = function(feature, script, language) {
                 .concat(this.getLigatures(feature, script, language));
         case 'stch':
             return this.getMultiple(feature, script, language);
+        case 'calt':
+        case 'rclt':
+            return this.getChaining(feature, script, language);
     }
     return undefined;
 };
@@ -328,6 +607,7 @@ Substitution.prototype.getFeature = function(feature, script, language) {
  * Add a substitution to a feature for a given script and language.
  * @param {string} feature - 4-letter feature name
  * @param {Object} sub - the substitution to add (an object like { sub: id or [ids], by: id or [ids] })
+ *                       For chaining features (calt, rclt), use { backtrack, input, lookahead, substitution }
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
  */
@@ -352,6 +632,9 @@ Substitution.prototype.add = function(feature, sub, script, language) {
                 return this.addMultiple(feature, sub, script, language);
             }
             return this.addLigature(feature, sub, script, language);
+        case 'calt':
+        case 'rclt':
+            return this.addChaining(feature, sub, script, language);
     }
     return undefined;
 };

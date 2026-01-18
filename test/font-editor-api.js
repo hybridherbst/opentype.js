@@ -1334,7 +1334,7 @@ describe('Font Editor API', () => {
         
         describe('advance width preservation', () => {
             it('should preserve explicit advance widths', () => {
-                const state = new FontEditorState();
+                const state = new FontEditorState({ sidebearing: 0 });
                 state.addGlyph('W', contours([[0, 700], [140, 0], [280, 420], [420, 0], [560, 700]]));
                 state.setGlyphWidth('W', 600);
                 
@@ -1349,7 +1349,7 @@ describe('Font Editor API', () => {
             });
             
             it('should compute width from bounding box when not explicit', () => {
-                const state = new FontEditorState();
+                const state = new FontEditorState({ sidebearing: 0 });
                 // Glyph from x=0 to x=560
                 state.addGlyph('H', contours([[0, 0], [0, 700], [560, 700], [560, 0]]));
                 // No explicit width set
@@ -1369,7 +1369,7 @@ describe('Font Editor API', () => {
     describe('Edit-Export-Import Roundtrip', () => {
         it('should preserve edited glyph points after export and reimport', () => {
             // Create state with initial glyph
-            const state = new FontEditorState();
+            const state = new FontEditorState({ sidebearing: 0 });
             state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
             
             // "Edit" the glyph - simulate user modification
@@ -1410,7 +1410,7 @@ describe('Font Editor API', () => {
         });
         
         it('should export the current state, not initial state', () => {
-            const state = new FontEditorState();
+            const state = new FontEditorState({ sidebearing: 0 });
             
             // Add initial glyphs
             state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
@@ -1462,7 +1462,7 @@ describe('Font Editor API', () => {
             // 4. Reimport from OTF
             // 5. Verify edits are preserved
             
-            const state = new FontEditorState();
+            const state = new FontEditorState({ sidebearing: 0 });
             state.addGlyph('A', contours([[0, 0], [320, 700], [640, 0]]));
             state.addGlyph('B', contours([[0, 0], [0, 700], [420, 700], [420, 0]]));
             
@@ -1476,9 +1476,9 @@ describe('Font Editor API', () => {
             const builder = new FontBuilder(state, opentype);
             const buffer = builder.toArrayBuffer();
             
-            // Reimport
+            // Reimport - also use sidebearing: 0 for consistent coordinates
             const importer = new FontImporter(opentype);
-            const newState = new FontEditorState();
+            const newState = new FontEditorState({ sidebearing: 0 });
             importer.import(newState, buffer, { range: 'uppercase' });
             
             // Verify A was modified
@@ -2428,6 +2428,88 @@ describe('Font Editor API', () => {
                 // Clean up
                 try { fs.unlinkSync(tempFile); } catch(e) {}
             }
+        });
+        
+        it('should export dlig (discretionary ligatures) feature separately from liga', () => {
+            const state = new FontEditorState({
+                familyName: 'Dlig Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add base glyphs
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('f', contours([[0, 0], [400, 0], [400, 700], [0, 700]]));
+            state.addGlyph('i', contours([[0, 0], [250, 0], [250, 700], [0, 700]]));
+            
+            // Add dlig result glyph (AA -> larger A)
+            state.addGlyph('A.dlig', contours([[0, 0], [800, 0], [800, 800], [0, 800]]));
+            // Add liga result glyph (fi)
+            state.addGlyph('fi', contours([[0, 0], [650, 0], [650, 700], [0, 700]]));
+            
+            // Add dlig substitution (AA -> A.dlig)
+            state.ligatures.push({ sequence: 'AA', result: 'A.dlig', enabled: true, feature: 'dlig' });
+            // Add liga substitution (fi -> fi)
+            state.ligatures.push({ sequence: 'fi', result: 'fi', enabled: true, feature: 'liga' });
+            
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            const parsed = opentype.parse(buffer);
+            
+            // Verify GSUB table has both liga and dlig features
+            assert.ok(parsed.tables.gsub, 'Font should have GSUB table');
+            const gsub = parsed.tables.gsub;
+            
+            const ligaFeature = gsub.features.find(f => f.tag === 'liga');
+            const dligFeature = gsub.features.find(f => f.tag === 'dlig');
+            
+            assert.ok(ligaFeature, 'GSUB should have liga feature');
+            assert.ok(dligFeature, 'GSUB should have dlig feature');
+            
+            // Verify dlig can be retrieved
+            const dligLigatures = parsed.substitution.getLigatures('dlig');
+            assert.ok(dligLigatures.length > 0, 'Should have dlig ligatures');
+            
+            // Verify the dlig content
+            const dligSub = dligLigatures[0];
+            assert.equal(dligSub.sub.length, 2, 'dlig should substitute 2 glyphs');
+        });
+        
+        it('should import dlig ligatures from existing font with feature property', async () => {
+            // This tests that when importing a font with dlig, the feature property is preserved
+            const state = new FontEditorState({
+                familyName: 'Dlig Import Test',
+                styleName: 'Regular',
+                unitsPerEm: 1000,
+                ascender: 800,
+                descender: -200
+            });
+            
+            // Add base glyphs
+            state.addGlyph('A', contours([[0, 0], [600, 0], [600, 700], [0, 700]]));
+            state.addGlyph('A.dlig', contours([[0, 0], [800, 0], [800, 800], [0, 800]]));
+            
+            // Add dlig substitution
+            state.ligatures.push({ sequence: 'AA', result: 'A.dlig', enabled: true, feature: 'dlig' });
+            state.features = { liga: true, kern: true, dlig: true, smcp: false };
+            
+            // Build and export
+            const builder = new FontBuilder(state, opentype);
+            const font = builder.build({ validate: true, validateRoundTrip: false });
+            const buffer = font.toArrayBuffer();
+            
+            // Re-import
+            const importState = new FontEditorState();
+            const importer = new FontImporter(opentype);
+            await importer.import(importState, buffer, { verbose: false });
+            
+            // Verify dlig was imported with feature property
+            const dligLigs = importState.ligatures.filter(l => l.feature === 'dlig');
+            assert.ok(dligLigs.length > 0, 'Should have imported dlig ligatures');
+            assert.ok(importState.features.dlig, 'dlig feature should be enabled after import');
         });
     });
 
