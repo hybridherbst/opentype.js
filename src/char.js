@@ -36,11 +36,16 @@ export function isThaiChar(c) {
 }
 
 /**
- * Check if a char is Latin
+ * Check if a char is Latin (including ASCII punctuation/symbols for ligature support)
+ * Includes: A-Z, a-z, and common ASCII punctuation that may be part of ligatures
  * @param {string} c a single char
  */
 export function isLatinChar(c) {
-    return /[A-z]/.test(c);
+    if (!c) return false;
+    // A-Z (65-90), a-z (97-122), and ASCII punctuation/symbols (33-64, 91-96, 123-126)
+    // This covers !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~ which may be part of ligatures
+    const code = c.charCodeAt(0);
+    return (code >= 33 && code <= 126);
 }
 
 /**

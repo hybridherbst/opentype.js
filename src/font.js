@@ -464,7 +464,7 @@ Font.prototype.defaultRenderOptions = {
          * and shouldn't be turned off when rendering arabic text.
          */
         { script: 'arab', tags: ['init', 'medi', 'fina', 'rlig'] },
-        { script: 'latn', tags: ['liga', 'rlig'] },
+        { script: 'latn', tags: ['liga', 'rlig', 'calt'] },
         { script: 'thai', tags: ['liga', 'rlig', 'ccmp'] },
     ],
     hinting: false,
@@ -734,10 +734,12 @@ Font.prototype.validate = function() {
 /**
  * Convert the font object to a SFNT data structure.
  * This structure contains all the necessary tables and metadata to create a binary OTF file.
+ * @param {Object} [options] - Options for table generation
+ * @param {number} [options.postFormat] - Post table format (2 = with glyph names, 3 = without)
  * @return {opentype.Table}
  */
-Font.prototype.toTables = function() {
-    return sfnt.fontToTable(this);
+Font.prototype.toTables = function(options) {
+    return sfnt.fontToTable(this, options);
 };
 /**
  * @deprecated Font.toBuffer is deprecated. Use Font.toArrayBuffer instead.
@@ -748,10 +750,12 @@ Font.prototype.toBuffer = function() {
 };
 /**
  * Converts a `opentype.Font` into an `ArrayBuffer`
+ * @param {Object} [options] - Options for table generation
+ * @param {number} [options.postFormat] - Post table format (2 = with glyph names, 3 = without)
  * @return {ArrayBuffer}
  */
-Font.prototype.toArrayBuffer = function() {
-    const sfntTable = this.toTables();
+Font.prototype.toArrayBuffer = function(options) {
+    const sfntTable = this.toTables(options);
     const bytes = sfntTable.encode();
     const buffer = new ArrayBuffer(bytes.length);
     const intArray = new Uint8Array(buffer);

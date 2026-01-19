@@ -196,14 +196,17 @@ function applyLatinLigatures() {
     const hasLiga = this.hasFeatureEnabled('latn', 'liga');
     const hasDlig = this.hasFeatureEnabled('latn', 'dlig');
     const hasClig = this.hasFeatureEnabled('latn', 'clig');
+    const hasCalt = this.hasFeatureEnabled('latn', 'calt');
     
-    if (!hasLiga && !hasDlig && !hasClig) return;
+    if (!hasLiga && !hasDlig && !hasClig && !hasCalt) return;
     
     checkGlyphIndexStatus.call(this);
     const ranges = this.tokenizer.getContextRanges('latinWord');
     for(let i = 0; i < ranges.length; i++) {
         const range = ranges[i];
         // Apply each enabled ligature feature in order
+        // Note: calt (contextual alternates) should be applied before other ligatures
+        if (hasCalt) latinLigature.call(this, range, 'calt');
         if (hasLiga) latinLigature.call(this, range, 'liga');
         if (hasDlig) latinLigature.call(this, range, 'dlig');
         if (hasClig) latinLigature.call(this, range, 'clig');

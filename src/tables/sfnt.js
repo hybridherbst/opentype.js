@@ -221,7 +221,7 @@ function computeMaxpValues(glyphs) {
 
 // Convert the font object to a SFNT data structure.
 // This structure contains all the necessary tables and metadata to create a binary OTF file.
-function fontToSfntTable(font) {
+function fontToSfntTable(font, options = {}) {
     const xMins = [];
     const yMins = [];
     const xMaxs = [];
@@ -527,7 +527,7 @@ function fontToSfntTable(font) {
     const nameTable = _name.make(names, languageTags, { skipMacPlatform: true, noStringDedup: true });
     // Skip ltag table creation - not needed for modern fonts
 
-    const postTable = post.make(font);
+    const postTable = post.make(font, { postFormat: options.postFormat });
     
     const metaTable = (font.metas && Object.keys(font.metas).length > 0) ? meta.make(font.metas) : undefined;
 
