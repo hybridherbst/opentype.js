@@ -193,12 +193,20 @@ function applyArabicRequireLigatures() {
  * Apply required arabic ligatures
  */
 function applyLatinLigatures() {
-    if (!this.hasFeatureEnabled('latn', 'liga')) return;
+    const hasLiga = this.hasFeatureEnabled('latn', 'liga');
+    const hasDlig = this.hasFeatureEnabled('latn', 'dlig');
+    const hasClig = this.hasFeatureEnabled('latn', 'clig');
+    
+    if (!hasLiga && !hasDlig && !hasClig) return;
+    
     checkGlyphIndexStatus.call(this);
     const ranges = this.tokenizer.getContextRanges('latinWord');
     for(let i = 0; i < ranges.length; i++) {
         const range = ranges[i];
-        latinLigature.call(this, range);
+        // Apply each enabled ligature feature in order
+        if (hasLiga) latinLigature.call(this, range, 'liga');
+        if (hasDlig) latinLigature.call(this, range, 'dlig');
+        if (hasClig) latinLigature.call(this, range, 'clig');
     }
 }
 

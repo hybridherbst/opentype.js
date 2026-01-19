@@ -316,9 +316,18 @@ Font.prototype.updateFeatures = function (options) {
     // TODO: update all features options not only 'latn'.
     return this.defaultRenderOptions.features.map(feature => {
         if (feature.script === 'latn') {
+            // Start with default tags that are enabled
+            const enabledTags = feature.tags.filter(tag => options[tag]);
+            // Also add any tags from options that are enabled but not in defaults
+            // This allows enabling features like 'dlig', 'smcp', 'calt' that aren't on by default
+            for (const [tag, enabled] of Object.entries(options)) {
+                if (enabled && !enabledTags.includes(tag)) {
+                    enabledTags.push(tag);
+                }
+            }
             return {
                 script: 'latn',
-                tags: feature.tags.filter(tag => options[tag])
+                tags: enabledTags
             };
         } else {
             return feature;
