@@ -234,11 +234,13 @@ Layout.prototype = {
 
     /**
      * Get the lookup tables of a given type for a script/language/feature.
+     * This method handles extension lookups (type 7 for GSUB, type 9 for GPOS)
+     * by unwrapping them and checking the actual lookup type inside.
      * @instance
      * @param {string} [script='DFLT']
      * @param {string} [language='dlft']
      * @param {string} feature - 4-letter feature code
-     * @param {number} lookupType - 1 to 9
+     * @param {number} lookupType - 1 to 8 (not 7 - extension lookups are unwrapped)
      * @param {boolean} create - forces the creation of the lookup table if it doesn't exist, with no subtables.
      * @return {Object[]}
      */
@@ -254,6 +256,32 @@ Layout.prototype = {
                 lookupTable = allLookups[lookupListIndexes[i]];
                 if (lookupTable.lookupType === lookupType) {
                     tables.push(lookupTable);
+                } else if (lookupTable.lookupType === 7 && this.tableName === 'gsub') {
+                    // GSUB Extension Substitution (type 7) - unwrap and check inner type
+                    // Extension lookups wrap other lookup types to allow 32-bit offsets
+                    for (const subtable of lookupTable.subtables) {
+                        if (subtable.lookupType === lookupType && subtable.extension) {
+                            // Create a virtual lookup table with the unwrapped subtables
+                            tables.push({
+                                lookupType: lookupType,
+                                lookupFlag: lookupTable.lookupFlag,
+                                subtables: [subtable.extension],
+                                markFilteringSet: lookupTable.markFilteringSet
+                            });
+                        }
+                    }
+                } else if (lookupTable.lookupType === 9 && this.tableName === 'gpos') {
+                    // GPOS Extension Positioning (type 9) - unwrap and check inner type
+                    for (const subtable of lookupTable.subtables) {
+                        if (subtable.lookupType === lookupType && subtable.extension) {
+                            tables.push({
+                                lookupType: lookupType,
+                                lookupFlag: lookupTable.lookupFlag,
+                                subtables: [subtable.extension],
+                                markFilteringSet: lookupTable.markFilteringSet
+                            });
+                        }
+                    }
                 }
             }
             if (tables.length === 0 && create) {

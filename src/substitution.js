@@ -221,18 +221,29 @@ Substitution.prototype.getChaining = function(feature, script, language) {
 Substitution.prototype._resolveLookupRecords = function(lookupRecords, allLookups) {
     const substitutions = [];
     for (const record of (lookupRecords || [])) {
-        const lookup = allLookups[record.lookupListIndex];
+        let lookup = allLookups[record.lookupListIndex];
         if (!lookup) continue;
+        
+        // Unwrap extension lookups (type 7) to get the actual lookup
+        let actualLookupType = lookup.lookupType;
+        let actualSubtables = lookup.subtables;
+        if (lookup.lookupType === 7 && lookup.subtables && lookup.subtables.length > 0) {
+            const extSubtable = lookup.subtables[0];
+            if (extSubtable.extension) {
+                actualLookupType = extSubtable.lookupType;
+                actualSubtables = [extSubtable.extension];
+            }
+        }
         
         const subInfo = {
             sequenceIndex: record.sequenceIndex,
-            lookupType: lookup.lookupType,
+            lookupType: actualLookupType,
             substitutions: []
         };
         
         // Extract substitution mappings from the referenced lookup
-        for (const subtable of (lookup.subtables || [])) {
-            if (lookup.lookupType === 1) {
+        for (const subtable of (actualSubtables || [])) {
+            if (actualLookupType === 1) {
                 // Single substitution
                 const glyphs = this.expandCoverage(subtable.coverage);
                 if (subtable.substFormat === 1) {
@@ -244,12 +255,12 @@ Substitution.prototype._resolveLookupRecords = function(lookupRecords, allLookup
                         subInfo.substitutions.push({ sub: glyphs[k], by: subtable.substitute[k] });
                     }
                 }
-            } else if (lookup.lookupType === 4) {
+            } else if (actualLookupType === 4) {
                 // Ligature substitution
                 const glyphs = this.expandCoverage(subtable.coverage);
                 for (let k = 0; k < glyphs.length; k++) {
                     const ligSet = subtable.ligatureSets[k];
-                    for (const lig of ligSet) {
+                    for (const lig of (ligSet || [])) {
                         subInfo.substitutions.push({
                             sub: [glyphs[k]].concat(lig.components),
                             by: lig.ligGlyph
@@ -528,6 +539,155 @@ Substitution.prototype.addChaining = function(feature, rule, script, language) {
     }
     
     chainLookup.subtables.push(subtable);
+};
+
+/**
+ * Add a chaining context rule using extension lookups (type 7).
+ * This is the same as addChaining but wraps the lookup in an extension,
+ * allowing for larger tables that exceed 16-bit offset limits.
+ * Use this for rules with large coverage arrays.
+ * 
+ * @param {string} feature - 4-letter feature name
+ * @param {Object} rule - The chaining context rule:
+ *   - backtrack: Array of glyph ID arrays (glyphs that must precede input)
+ *   - input: Array of glyph ID arrays (glyphs that may be substituted)
+ *   - lookahead: Array of glyph ID arrays (glyphs that must follow input)
+ *   - substitution: Object or array of { sequenceIndex, sub, by }
+ * @param {string} [script='DFLT']
+ * @param {string} [language='dflt']
+ */
+Substitution.prototype.addChainingExtension = function(feature, rule, script, language) {
+    check.assert(rule.input && rule.input.length > 0, 'Chaining: input must have at least one glyph');
+    
+    // Ensure GSUB table exists
+    let gsub = this.font.tables.gsub;
+    if (!gsub) {
+        gsub = this.font.tables.gsub = this.createDefaultTable();
+    }
+    
+    // Normalize substitution to array
+    const substitutions = Array.isArray(rule.substitution) ? rule.substitution : [rule.substitution];
+    
+    // Step 1: Create a single substitution lookup for the actual replacements
+    // This lookup also needs to be wrapped in an extension for consistency
+    const singleSubLookupIndex = this._getOrCreateSingleSubLookupExtension(gsub, substitutions);
+    
+    // Step 2: Create the chaining context subtable (format 3: coverage-based)
+    const chainSubtable = {
+        substFormat: 3,
+        backtrackCoverage: [],
+        inputCoverage: [],
+        lookaheadCoverage: [],
+        lookupRecords: []
+    };
+    
+    // Add backtrack coverages (stored in reverse order per OT spec)
+    const backtrack = rule.backtrack || [];
+    for (let i = backtrack.length - 1; i >= 0; i--) {
+        const glyph = backtrack[i];
+        chainSubtable.backtrackCoverage.push({
+            format: 1,
+            glyphs: Array.isArray(glyph) ? glyph.slice().sort((a, b) => a - b) : [glyph]
+        });
+    }
+    
+    // Add input coverages
+    for (const glyph of rule.input) {
+        chainSubtable.inputCoverage.push({
+            format: 1,
+            glyphs: Array.isArray(glyph) ? glyph.slice().sort((a, b) => a - b) : [glyph]
+        });
+    }
+    
+    // Add lookahead coverages
+    const lookahead = rule.lookahead || [];
+    for (const glyph of lookahead) {
+        chainSubtable.lookaheadCoverage.push({
+            format: 1,
+            glyphs: Array.isArray(glyph) ? glyph.slice().sort((a, b) => a - b) : [glyph]
+        });
+    }
+    
+    // Add lookup records - each substitution references the single sub lookup
+    const subsByIndex = new Map();
+    for (const sub of substitutions) {
+        if (!subsByIndex.has(sub.sequenceIndex)) {
+            subsByIndex.set(sub.sequenceIndex, []);
+        }
+        subsByIndex.get(sub.sequenceIndex).push(sub);
+    }
+    
+    for (const [sequenceIndex] of subsByIndex) {
+        chainSubtable.lookupRecords.push({
+            sequenceIndex: sequenceIndex,
+            lookupListIndex: singleSubLookupIndex
+        });
+    }
+    
+    // Step 3: Wrap in extension lookup (type 7)
+    const extensionSubtable = {
+        substFormat: 1,
+        lookupType: 6,  // Chaining Context
+        extension: chainSubtable
+    };
+    
+    // Create a NEW extension lookup for each rule to avoid 64KB limit per lookup
+    // Each lookup contains exactly one subtable, ensuring we stay under the limit
+    const lookupIndex = gsub.lookups.length;
+    const extLookup = {
+        lookupType: 7,  // Extension
+        lookupFlag: 0,
+        subtables: [extensionSubtable]
+    };
+    gsub.lookups.push(extLookup);
+    
+    // Add the lookup to the feature's lookupListIndexes
+    const featureTable = this.getFeatureTable(script, language, feature, true);
+    featureTable.lookupListIndexes.push(lookupIndex);
+};
+
+/**
+ * Helper to create a single substitution lookup wrapped in extension
+ * @private
+ */
+Substitution.prototype._getOrCreateSingleSubLookupExtension = function(gsub, substitutions) {
+    // Create a new single substitution lookup wrapped in extension
+    const lookupIndex = gsub.lookups.length;
+    
+    // Build the single substitution subtable
+    const singleSubtable = {
+        substFormat: 2,
+        coverage: { format: 1, glyphs: [] },
+        substitute: []
+    };
+    
+    // Build the substitution mappings
+    for (const sub of substitutions) {
+        if (sub.sub === undefined || sub.by === undefined) continue;
+        
+        let pos = this.binSearch(singleSubtable.coverage.glyphs, sub.sub);
+        if (pos < 0) {
+            pos = -1 - pos;
+            singleSubtable.coverage.glyphs.splice(pos, 0, sub.sub);
+            singleSubtable.substitute.splice(pos, 0, sub.by);
+        } else {
+            singleSubtable.substitute[pos] = sub.by;
+        }
+    }
+    
+    // Wrap in extension
+    const extensionLookup = {
+        lookupType: 7,  // Extension
+        lookupFlag: 0,
+        subtables: [{
+            substFormat: 1,
+            lookupType: 1,  // Single substitution
+            extension: singleSubtable
+        }]
+    };
+    
+    gsub.lookups.push(extensionLookup);
+    return lookupIndex;
 };
 
 /**

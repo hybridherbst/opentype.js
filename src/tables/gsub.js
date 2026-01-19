@@ -430,13 +430,171 @@ subtableMakers[6] = function makeLookup6(subtable) {
     check.assert(false, 'lookup type 6 format must be 1, 2 or 3.');
 };
 
+// Extension Substitution subtable (lookup type 7)
+// For extension subtables during the first pass, we only write the 8-byte header
+// with a placeholder offset. The actual subtable data is collected separately
+// and appended at the end of the GSUB table.
+subtableMakers[7] = function makeLookup7(subtable, extensionData) {
+    // subtable has: { substFormat: 1, lookupType: actualType, extension: actualSubtable }
+    check.argument(subtable.substFormat === 1, 'Extension substitution format must be 1');
+    check.argument(subtable.lookupType && subtable.lookupType !== 7, 'Extension cannot wrap another extension');
+    
+    // Get the maker for the actual lookup type
+    const actualMaker = subtableMakers[subtable.lookupType];
+    check.assert(actualMaker, 'No maker for extension lookup type ' + subtable.lookupType);
+    
+    // Create the actual subtable
+    const actualTable = actualMaker(subtable.extension);
+    const actualBytes = actualTable.encode();
+    
+    // If extensionData array is provided, collect the data for deferred writing
+    // and return just an 8-byte header with placeholder offset
+    if (extensionData) {
+        extensionData.actualData.push(actualBytes);
+        extensionData.headerPositions.push(-1);  // Will be patched later
+        extensionData.lookupTypes.push(subtable.lookupType);
+        
+        // Return header with placeholder offset (will be patched)
+        return new table.Table('extensionSubstitution', [
+            {name: 'substFormat', type: 'USHORT', value: 1},
+            {name: 'extensionLookupType', type: 'USHORT', value: subtable.lookupType},
+            {name: 'extensionOffset', type: 'ULONG', value: 0}  // Placeholder
+        ]);
+    }
+    
+    // Fallback: if no extensionData collector, embed data inline (may cause size issues)
+    return new table.Table('extensionSubstitution', [
+        {name: 'substFormat', type: 'USHORT', value: 1},
+        {name: 'extensionLookupType', type: 'USHORT', value: subtable.lookupType},
+        {name: 'extensionOffset', type: 'ULONG', value: 8},
+        {name: 'extension', type: 'LITERAL', value: actualBytes}
+    ]);
+};
+
+/**
+ * Custom GSUB table encoder that handles extension lookups properly.
+ * Extension subtable data is stored at the end of the table with 32-bit offsets.
+ */
 function makeGsubTable(gsub) {
-    return new table.Table('GSUB', [
+    // Check if we have any extension lookups
+    let hasExtensions = false;
+    for (const lookup of gsub.lookups) {
+        if (lookup.lookupType === 7) {
+            hasExtensions = true;
+            break;
+        }
+    }
+    
+    if (!hasExtensions) {
+        // No extension lookups - use standard encoding
+        return new table.Table('GSUB', [
+            {name: 'version', type: 'ULONG', value: 0x10000},
+            {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
+            {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
+            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, subtableMakers)}
+        ]);
+    }
+    
+    // Has extension lookups - use two-phase encoding
+    // Phase 1: Collect extension data and create headers with placeholder offsets
+    const extensionData = {
+        actualData: [],      // The actual subtable bytes for each extension
+        headerPositions: [], // Byte position of each extension header (for offset patching)
+        lookupTypes: []      // Lookup type for each extension
+    };
+    
+    // Create a modified subtableMakers that passes extensionData to type-7 maker
+    const makersWithExtension = Object.assign({}, subtableMakers);
+    const originalMaker7 = subtableMakers[7];
+    makersWithExtension[7] = function(subtable) {
+        return originalMaker7(subtable, extensionData);
+    };
+    
+    // Build the main table structure
+    const mainTable = new table.Table('GSUB', [
         {name: 'version', type: 'ULONG', value: 0x10000},
         {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
         {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
-        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, subtableMakers)}
+        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, makersWithExtension)}
     ]);
+    
+    // Phase 2: Encode the main table, then append extension data and patch offsets
+    let mainBytes = mainTable.encode();
+    
+    // If we have extension data, append it and patch offsets
+    if (extensionData.actualData.length > 0) {
+        // Find all extension header positions by searching for the pattern
+        // We need to find each 8-byte extension header and patch its offset
+        // The headers are: substFormat(2) + lookupType(2) + offset(4)
+        
+        // Build list of extension header positions in the encoded bytes
+        // We'll scan for extension headers by looking for the substFormat=1 pattern
+        // followed by a valid lookup type (1-6) and placeholder offset (0)
+        const headerPositions = [];
+        for (let i = 0; i <= mainBytes.length - 8; i++) {
+            // Check for substFormat = 1
+            if (mainBytes[i] === 0 && mainBytes[i + 1] === 1) {
+                // Check for valid lookupType (1-6 for GSUB)
+                const lookupType = (mainBytes[i + 2] << 8) | mainBytes[i + 3];
+                if (lookupType >= 1 && lookupType <= 6) {
+                    // Check for placeholder offset = 0
+                    const offset = (mainBytes[i + 4] << 24) | (mainBytes[i + 5] << 16) | 
+                                   (mainBytes[i + 6] << 8) | mainBytes[i + 7];
+                    if (offset === 0) {
+                        headerPositions.push(i);
+                    }
+                }
+            }
+        }
+        
+        // Verify we found the expected number of headers
+        if (headerPositions.length !== extensionData.actualData.length) {
+            // Fallback: if we can't find headers reliably, use inline encoding
+            console.warn('Extension header detection mismatch, using inline encoding');
+            return mainTable;
+        }
+        
+        // Calculate where extension data will be appended
+        const dataStartOffset = mainBytes.length;
+        
+        // Append all extension data and calculate offsets
+        const extDataBytes = [];
+        const dataOffsets = [];
+        let currentOffset = 0;
+        
+        for (let i = 0; i < extensionData.actualData.length; i++) {
+            dataOffsets.push(dataStartOffset + currentOffset);
+            extDataBytes.push(...extensionData.actualData[i]);
+            currentOffset += extensionData.actualData[i].length;
+        }
+        
+        // Patch the extension offsets in mainBytes
+        for (let i = 0; i < headerPositions.length; i++) {
+            const headerPos = headerPositions[i];
+            // Offset is relative to the start of the extension header
+            const relativeOffset = dataOffsets[i] - headerPos;
+            
+            // Write the 32-bit offset (big-endian)
+            mainBytes[headerPos + 4] = (relativeOffset >> 24) & 0xff;
+            mainBytes[headerPos + 5] = (relativeOffset >> 16) & 0xff;
+            mainBytes[headerPos + 6] = (relativeOffset >> 8) & 0xff;
+            mainBytes[headerPos + 7] = relativeOffset & 0xff;
+        }
+        
+        // Combine main table with extension data
+        const finalBytes = new Uint8Array(mainBytes.length + extDataBytes.length);
+        finalBytes.set(mainBytes);
+        finalBytes.set(extDataBytes, mainBytes.length);
+        
+        // Return a Table-like wrapper compatible with sfnt.js
+        // Use LITERAL type to include the pre-computed bytes
+        const finalBytesArray = Array.from(finalBytes);
+        return new table.Table('GSUB', [
+            {name: 'data', type: 'LITERAL', value: finalBytesArray}
+        ]);
+    }
+    
+    return mainTable;
 }
 
 export default { parse: parseGsubTable, make: makeGsubTable };
