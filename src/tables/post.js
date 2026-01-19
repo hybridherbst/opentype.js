@@ -74,7 +74,20 @@ function makePostTable(font, options = {}) {
         
         for (let i = 0; i < numberOfGlyphs; i++) {
             const glyph = font.glyphs.get(i);
-            const name = glyph.name || '';
+            let name = glyph.name || '';
+            
+            // Generate a name for glyphs without names or with empty names
+            // OTS requires valid Pascal strings (non-empty, valid chars)
+            if (!name || name.length === 0) {
+                name = 'glyph' + i;
+            }
+            
+            // Sanitize name: only allow printable ASCII (0x21-0x7E), no spaces
+            // OTS is strict about post table names
+            name = name.replace(/[^\x21-\x7E]/g, '_');
+            if (name.length === 0) {
+                name = 'glyph' + i;
+            }
             
             // Check if it's a standard name
             const stdIndex = standardNames.indexOf(name);
