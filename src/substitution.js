@@ -624,26 +624,18 @@ Substitution.prototype.addChainingExtension = function(feature, rule, script, la
         });
     }
     
-    // Step 3: Wrap in extension lookup (type 7)
+    // Step 3: Wrap in extension subtable (will be added to extension lookup)
     const extensionSubtable = {
         substFormat: 1,
         lookupType: 6,  // Chaining Context
         extension: chainSubtable
     };
     
-    // Create a NEW extension lookup for each rule to avoid 64KB limit per lookup
-    // Each lookup contains exactly one subtable, ensuring we stay under the limit
-    const lookupIndex = gsub.lookups.length;
-    const extLookup = {
-        lookupType: 7,  // Extension
-        lookupFlag: 0,
-        subtables: [extensionSubtable]
-    };
-    gsub.lookups.push(extLookup);
-    
-    // Add the lookup to the feature's lookupListIndexes
-    const featureTable = this.getFeatureTable(script, language, feature, true);
-    featureTable.lookupListIndexes.push(lookupIndex);
+    // Step 4: Get or create the extension lookup for this feature
+    // CRITICAL: Reuse the same lookup to preserve blocking rule semantics
+    // (blocking rules only prevent matches in subsequent subtables of the SAME lookup)
+    const extLookup = this._getOrCreateExtensionLookup(gsub, script, language, feature, 6);
+    extLookup.subtables.push(extensionSubtable);
 };
 
 /**
@@ -688,6 +680,51 @@ Substitution.prototype._getOrCreateSingleSubLookupExtension = function(gsub, sub
     
     gsub.lookups.push(extensionLookup);
     return lookupIndex;
+};
+
+/**
+ * Helper to get or create an extension lookup (type 7) for a specific feature and lookup type.
+ * CRITICAL: This reuses the same lookup for the same feature/type to preserve
+ * blocking rule semantics (blocking rules only work within the same lookup).
+ * @private
+ * @param {Object} gsub - The GSUB table
+ * @param {string} script - Script tag
+ * @param {string} language - Language tag  
+ * @param {string} feature - Feature tag (e.g., 'calt')
+ * @param {number} innerLookupType - The lookup type for the extension's inner content (e.g., 6 for chaining)
+ * @returns {Object} The extension lookup to add subtables to
+ */
+Substitution.prototype._getOrCreateExtensionLookup = function(gsub, script, language, feature, innerLookupType) {
+    // Get or create the feature table
+    const featureTable = this.getFeatureTable(script, language, feature, true);
+    
+    // Look for an existing extension lookup for this feature with the correct inner type
+    for (const lookupIndex of featureTable.lookupListIndexes) {
+        const lookup = gsub.lookups[lookupIndex];
+        if (lookup && lookup.lookupType === 7) {  // Extension lookup
+            // Check if any subtable has the matching inner lookup type
+            if (lookup.subtables && lookup.subtables.length > 0) {
+                const firstSubtable = lookup.subtables[0];
+                if (firstSubtable.lookupType === innerLookupType) {
+                    return lookup;
+                }
+            }
+        }
+    }
+    
+    // No existing extension lookup found, create a new one
+    const lookupIndex = gsub.lookups.length;
+    const extLookup = {
+        lookupType: 7,  // Extension
+        lookupFlag: 0,
+        subtables: []  // Subtables will be added by the caller
+    };
+    gsub.lookups.push(extLookup);
+    
+    // Add the lookup to the feature's lookupListIndexes
+    featureTable.lookupListIndexes.push(lookupIndex);
+    
+    return extLookup;
 };
 
 /**

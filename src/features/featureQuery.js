@@ -261,6 +261,9 @@ function chainingSubstitutionFormat2(contextParams, subtable) {
     return [];
 }
 
+// Special marker for "matched but no substitution" (blocking rule)
+const BLOCK_MARKER = { blocked: true };
+
 /**
  * Handle chaining context substitution - format 3
  * @param {ContextParams} contextParams context params to lookup
@@ -306,6 +309,11 @@ function chainingSubstitutionFormat3(contextParams, subtable) {
     );
     let substitutions = [];
     if (contextRulesMatch) {
+        // If the rule matches but has no lookupRecords, it's a blocking rule
+        // Return the special BLOCK_MARKER to indicate "matched but no substitution"
+        if (!subtable.lookupRecords || subtable.lookupRecords.length === 0) {
+            return BLOCK_MARKER;
+        }
         for (let i = 0; i < subtable.lookupRecords.length; i++) {
             const lookupRecord = subtable.lookupRecords[i];
             const lookupListIndex = lookupRecord.lookupListIndex;
@@ -638,6 +646,7 @@ FeatureQuery.prototype.lookupFeature = function (query) {
     );
     const lookups = this.getFeatureLookups(feature);
     const substitutions = [].concat(contextParams.context);
+    lookupLoop:
     for (let l = 0; l < lookups.length; l++) {
         const lookupTable = lookups[l];
         const subtables = this.getLookupSubtables(lookupTable);
@@ -675,6 +684,11 @@ FeatureQuery.prototype.lookupFeature = function (query) {
                     break;
                 case '63':
                     substitution = lookup(contextParams);
+                    // Check for blocking rule - matched but no substitution
+                    if (substitution && substitution.blocked) {
+                        // A blocking rule matched - stop processing ALL lookups for this glyph
+                        break lookupLoop;
+                    }
                     if (Array.isArray(substitution) && substitution.length) {
                         substitutions.splice(currentIndex, 1, new SubstitutionAction({
                             id: 63, tag: query.tag, substitution
@@ -700,6 +714,11 @@ FeatureQuery.prototype.lookupFeature = function (query) {
                 case '51':
                 case '53':
                     substitution = lookup(contextParams);
+                    // Check for blocking rule - matched but no substitution
+                    if (substitution && substitution.blocked) {
+                        // A blocking rule matched - stop processing ALL lookups for this glyph
+                        break lookupLoop;
+                    }
                     if (Array.isArray(substitution) && substitution.length) {
                         substitutions.splice(currentIndex, 1, new SubstitutionAction({
                             id: parseInt(substType),
