@@ -84,12 +84,16 @@ function singleSubstitutionFormat2(glyphIndex, subtable) {
  * Lookup a list of coverage tables
  * @param {any} coverageList a list of coverage tables
  * @param {ContextParams} contextParams context params to lookup
+ * @param {number} startOffset - offset from contextParams.index to start matching (default 0)
  */
-function lookupCoverageList(coverageList, contextParams) {
+function lookupCoverageList(coverageList, contextParams, startOffset = 0) {
     let lookupList = [];
     for (let i = 0; i < coverageList.length; i++) {
         const coverage = coverageList[i];
-        let glyphIndex = contextParams.current;
+        // Get the glyph at position (index + startOffset + i)
+        // For backtrack/lookahead with their own ContextParams (index=0), this works correctly
+        // For input with the main ContextParams, startOffset=0 means we start at index
+        let glyphIndex = contextParams.context[contextParams.index + startOffset + i];
         glyphIndex = Array.isArray(glyphIndex) ? glyphIndex[0] : glyphIndex;
         const lookupIndex = lookupCoverage(glyphIndex, coverage);
         if (lookupIndex !== -1) {
