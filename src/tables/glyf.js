@@ -374,36 +374,47 @@ function encodeCoordinate(delta, shortBit, sameBit) {
  * @param {number} x3 - End point x
  * @param {number} y3 - End point y
  * @param {number} [tolerance=1] - Maximum allowed error in font units
+ * @param {number} [_depth=0] - Internal: recursion depth for safety limit
  * @returns {Array} Array of quadratic segments: { cx, cy, x, y }
  */
-function cubicToQuadratics(x0, y0, x1, y1, x2, y2, x3, y3, tolerance = 1) {
-    // Check if cubic can be approximated by a single quadratic
-    // by checking if the control points are roughly collinear with proper positions
+function cubicToQuadratics(x0, y0, x1, y1, x2, y2, x3, y3, tolerance = 1, _depth = 0) {
+    // Safety limit to prevent infinite recursion
+    const MAX_DEPTH = 10;
     
-    // Calculate the ideal single quadratic control point (if the curve were exactly quadratic)
-    // For a cubic (p0, p1, p2, p3), the equivalent quadratic control point would be:
-    // q1 = (3*p1 - p0 + 3*p2 - p3) / 4 = (3*(p1 + p2) - (p0 + p3)) / 4
-    // This gives us the best single quadratic approximation
+    // Calculate the ideal single quadratic control point
+    // For a cubic (p0, p1, p2, p3), the best quadratic approximation uses:
+    // q = (3*(p1 + p2) - (p0 + p3)) / 4
     const qx = (3 * (x1 + x2) - (x0 + x3)) / 4;
     const qy = (3 * (y1 + y2) - (y0 + y3)) / 4;
     
-    // Check the error at t=0.5 (maximum deviation point for most cubic curves)
-    // Cubic at t=0.5: (1-t)^3*p0 + 3*(1-t)^2*t*p1 + 3*(1-t)*t^2*p2 + t^3*p3
-    // = 0.125*p0 + 0.375*p1 + 0.375*p2 + 0.125*p3
-    const cubicMidX = 0.125 * x0 + 0.375 * x1 + 0.375 * x2 + 0.125 * x3;
-    const cubicMidY = 0.125 * y0 + 0.375 * y1 + 0.375 * y2 + 0.125 * y3;
+    // Check error at multiple t values to catch symmetric curves
+    // where error at t=0.5 might be zero but errors at t=0.25, 0.75 are large
+    const tolSq = tolerance * tolerance;
+    let maxErrorSq = 0;
     
-    // Quadratic at t=0.5 with control point (qx, qy) and endpoints (x0, y0), (x3, y3):
-    // (1-t)^2*p0 + 2*(1-t)*t*q + t^2*p3 = 0.25*p0 + 0.5*q + 0.25*p3
-    const quadMidX = 0.25 * x0 + 0.5 * qx + 0.25 * x3;
-    const quadMidY = 0.25 * y0 + 0.5 * qy + 0.25 * y3;
+    for (const t of [0.25, 0.5, 0.75]) {
+        const mt = 1 - t;
+        const mt2 = mt * mt;
+        const mt3 = mt2 * mt;
+        const t2 = t * t;
+        const t3 = t2 * t;
+        
+        // Cubic point at t
+        const cubicX = mt3 * x0 + 3 * mt2 * t * x1 + 3 * mt * t2 * x2 + t3 * x3;
+        const cubicY = mt3 * y0 + 3 * mt2 * t * y1 + 3 * mt * t2 * y2 + t3 * y3;
+        
+        // Quadratic point at t
+        const quadX = mt2 * x0 + 2 * mt * t * qx + t2 * x3;
+        const quadY = mt2 * y0 + 2 * mt * t * qy + t2 * y3;
+        
+        const errorX = cubicX - quadX;
+        const errorY = cubicY - quadY;
+        const errorSq = errorX * errorX + errorY * errorY;
+        maxErrorSq = Math.max(maxErrorSq, errorSq);
+    }
     
-    const errorX = cubicMidX - quadMidX;
-    const errorY = cubicMidY - quadMidY;
-    const errorSq = errorX * errorX + errorY * errorY;
-    
-    if (errorSq <= tolerance * tolerance) {
-        // Single quadratic is accurate enough
+    if (maxErrorSq <= tolSq || _depth >= MAX_DEPTH) {
+        // Single quadratic is accurate enough, or max depth reached
         return [{ cx: qx, cy: qy, x: x3, y: y3 }];
     }
     
@@ -418,8 +429,8 @@ function cubicToQuadratics(x0, y0, x1, y1, x2, y2, x3, y3, tolerance = 1) {
     const mx0123 = (mx012 + mx123) / 2, my0123 = (my012 + my123) / 2;
     
     // Recursively convert both halves
-    const left = cubicToQuadratics(x0, y0, mx01, my01, mx012, my012, mx0123, my0123, tolerance);
-    const right = cubicToQuadratics(mx0123, my0123, mx123, my123, mx23, my23, x3, y3, tolerance);
+    const left = cubicToQuadratics(x0, y0, mx01, my01, mx012, my012, mx0123, my0123, tolerance, _depth + 1);
+    const right = cubicToQuadratics(mx0123, my0123, mx123, my123, mx23, my23, x3, y3, tolerance, _depth + 1);
     
     return left.concat(right);
 }
