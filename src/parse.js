@@ -664,6 +664,35 @@ Parser.prototype.parseClassDef = function() {
     };
 };
 
+// Parse an Anchor table in a GPOS table.
+// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#anchor-table
+Parser.prototype.parseAnchor = function() {
+    const startOffset = this.offset + this.relativeOffset;
+    const anchorFormat = this.parseUShort();
+    const xCoordinate = this.parseShort();
+    const yCoordinate = this.parseShort();
+    const anchor = {
+        format: anchorFormat,
+        xCoordinate: xCoordinate,
+        yCoordinate: yCoordinate
+    };
+    if (anchorFormat === 2) {
+        anchor.anchorPoint = this.parseUShort();
+    } else if (anchorFormat === 3) {
+        const xDeviceOffset = this.parseUShort();
+        const yDeviceOffset = this.parseUShort();
+        if (xDeviceOffset > 0) {
+            anchor.xDevice = this.parseDeviceOrVariationIndex(startOffset + xDeviceOffset);
+        }
+        if (yDeviceOffset > 0) {
+            anchor.yDevice = this.parseDeviceOrVariationIndex(startOffset + yDeviceOffset);
+        }
+    } else if (anchorFormat !== 1) {
+        console.warn(`0x${startOffset.toString(16)}: Anchor format ${anchorFormat} is not supported.`);
+    }
+    return anchor;
+};
+
 ///// Static methods ///////////////////////////////////
 // These convenience methods can be used as callbacks and should be called with "this" context set to a Parser instance.
 
@@ -715,6 +744,7 @@ Parser.f2Dot14 = Parser.prototype.parseF2Dot14;
 Parser.struct = Parser.prototype.parseStruct;
 Parser.coverage = Parser.prototype.parseCoverage;
 Parser.classDef = Parser.prototype.parseClassDef;
+Parser.anchor = Parser.prototype.parseAnchor;
 
 ///// Script, Feature, Lookup lists ///////////////////////////////////////////////
 // https://www.microsoft.com/typography/OTSPEC/chapter2.htm

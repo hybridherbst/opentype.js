@@ -1125,13 +1125,21 @@ encode.TABLE = function(table) {
             value = field.value;
         }
 
+        // Handle null/undefined table values gracefully
+        if (value === null || value === undefined) {
+            if (field.type === 'TABLE') {
+                d.push(...[0, 0]); // Offset 0 for null tables
+                continue;
+            }
+        }
+
         const bytes = encodingFunction(value);
 
         if (field.type === 'TABLE') {
             // If the table.fields are set to NULL, don't add it as subtable data,
             // so the offset will be set to 0 but no table data will be added.
             // This is required e.g. for classSeqRuleSetOffsets with no defined contexts.
-            if (value.fields !== null) {
+            if (value && value.fields !== null) {
                 subtableOffsets.push(d.length);
                 subtables.push(bytes);
             }
@@ -1172,6 +1180,13 @@ sizeOf.TABLE = function(table) {
         let value = table[field.name];
         if (value === undefined) {
             value = field.value;
+        }
+
+        // Handle null/undefined table values gracefully (e.g., from errors)
+        if (value === null || value === undefined) {
+            if (field.type === 'TABLE') {
+                continue; // Skip null tables, offset will be 0
+            }
         }
 
         numBytes += sizeOfFunction(value);
