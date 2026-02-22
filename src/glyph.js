@@ -207,15 +207,33 @@ Glyph.prototype.getPath = function(x, y, fontSize, options, font) {
             p._layers = [];
             for ( let i = 0; i < layers.length; i += 1 ) {
                 const layer = layers[i];
-                let color = getPaletteColor(font, layer.paletteIndex, options.usePalette);
                 
-                if ( color === 'currentColor' ) {
-                    color = options.fill || 'black'; 
+                // COLRv1 layers may have a paint subtree instead of a simple paletteIndex
+                if (layer.paint && !layer.paletteIndex && layer.paletteIndex !== 0) {
+                    // Complex paint (gradient, etc.) — store paint data on the path
+                    const layerOptions = Object.assign({}, options, { drawLayers: false });
+                    const layerPath = this.getPath.call(layer.glyph, x, y, fontSize, layerOptions, font);
+                    layerPath._paint = layer.paint;
+                    layerPath._alpha = layer.alpha !== undefined ? layer.alpha : 1;
+                    if (layer.transform) layerPath._transform = layer.transform;
+                    p._layers.push(layerPath);
                 } else {
-                    color = formatColor(color, options.colorFormat || 'rgba');
+                    // Simple solid color layer (v0 compatible)
+                    let color = getPaletteColor(font, layer.paletteIndex, options.usePalette);
+                    
+                    if ( color === 'currentColor' ) {
+                        color = options.fill || 'black'; 
+                    } else {
+                        color = formatColor(color, options.colorFormat || 'rgba');
+                    }
+                    const layerOptions = Object.assign({}, options, {fill: color, drawLayers: false});
+                    const layerPath = this.getPath.call(layer.glyph, x, y, fontSize, layerOptions, font);
+                    if (layer.alpha !== undefined && layer.alpha < 1) {
+                        layerPath._alpha = layer.alpha;
+                    }
+                    if (layer.transform) layerPath._transform = layer.transform;
+                    p._layers.push(layerPath);
                 }
-                options = Object.assign({}, options, {fill: color});
-                p._layers.push(this.getPath.call(layer.glyph, x, y, fontSize, options, font));
             }
             return p;
         }

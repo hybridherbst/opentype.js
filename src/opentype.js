@@ -13,6 +13,7 @@ import BoundingBox from './bbox.js';
 import Path from './path.js';
 import cpal from './tables/cpal.js';
 import colr from './tables/colr.js';
+import { PaintFormat, CompositeMode } from './tables/colr.js';
 import cmap from './tables/cmap.js';
 import cff from './tables/cff.js';
 import stat from './tables/stat.js';
@@ -655,6 +656,8 @@ export {
     BoundingBox,
     VariationManager,
     PaletteManager,
+    PaintFormat,
+    CompositeMode,
     parseColor,
     formatColor,
     pathToPoints,

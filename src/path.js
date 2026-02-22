@@ -648,11 +648,13 @@ Path.prototype.toPathData = function(options) {
  */
 Path.prototype.toSVG = function(options, pathData) {
     if (this._layers && this._layers.length) {
-        /** @TODO: implement SVG output for colr fonts
-         * Is there a standardized way?
-         * @see https://github.com/unicode-org/text-rendering-tests/issues/95
-        */
-        console.warn('toSVG() does not support colr font layers yet');
+        // Render color font layers as a <g> containing multiple colored <path> elements
+        let svg = '<g>';
+        for (let l = 0; l < this._layers.length; l++) {
+            svg += this._layers[l].toSVG(options);
+        }
+        svg += '</g>';
+        return svg;
     }
     if (this._image) {
         /**
@@ -692,11 +694,12 @@ Path.prototype.toSVG = function(options, pathData) {
  */
 Path.prototype.toDOMElement = function(options, pathData) {
     if(this._layers && this._layers.length) {
-        /** @TODO: implement SVG output for colr fonts
-         * Is there a standardized way?
-         * @see https://github.com/unicode-org/text-rendering-tests/issues/95
-        */
-        console.warn('toDOMElement() does not support colr font layers yet');
+        // Render color font layers as a <g> containing multiple colored <path> elements
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        for (let l = 0; l < this._layers.length; l++) {
+            group.appendChild(this._layers[l].toDOMElement(options));
+        }
+        return group;
     }
     if (!pathData) {
         pathData = this.toPathData(options);
@@ -720,6 +723,36 @@ Path.prototype.toDOMElement = function(options, pathData) {
     }
 
     return newPath;
+};
+
+/**
+ * Get structured color path data for COLR font layers.
+ * Returns an array of {d: string, fill: string} objects for each color layer,
+ * or null if no color layers exist (regular monochrome path).
+ * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options for path data generation
+ * @return {Array<{d: string, fill: string}>|null}
+ */
+Path.prototype.toColorPaths = function(options) {
+    if (!this._layers || !this._layers.length) {
+        return null;
+    }
+    const result = [];
+    for (let l = 0; l < this._layers.length; l++) {
+        const layer = this._layers[l];
+        const d = layer.toPathData(options);
+        if (d) {
+            const entry = {
+                d: d,
+                fill: layer.fill || 'black'
+            };
+            // Carry over COLRv1 paint data if present
+            if (layer._paint) entry.paint = layer._paint;
+            if (layer._alpha !== undefined) entry.alpha = layer._alpha;
+            if (layer._transform) entry.transform = layer._transform;
+            result.push(entry);
+        }
+    }
+    return result.length > 0 ? result : null;
 };
 
 export default Path;
