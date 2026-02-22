@@ -466,7 +466,9 @@ export class VariationManager {
             advanceWidthDeltasMin[i] = 0;
             advanceWidthDeltasMax[i] = 0;
             
-            if (!glyph || !glyph.path || !glyph.path.commands || glyph.path.commands.length === 0) {
+            const hasSimpleOutlines = glyph && glyph.path && glyph.path.commands && glyph.path.commands.length > 0;
+            const isComposite = glyph && glyph.isComposite;
+            if (!hasSimpleOutlines && !isComposite) {
                 continue;
             }
             
