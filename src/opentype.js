@@ -41,6 +41,7 @@ import meta from './tables/meta.js';
 import gasp from './tables/gasp.js';
 import svg from './tables/svg.js';
 import { PaletteManager } from './palettes.js';
+import { parseColor, formatColor } from './tables/cpal.js';
 import { VariationManager } from './variation.js';
 /**
  * The opentype library.
@@ -220,6 +221,65 @@ function uncompressTable(data, tableEntry) {
 }
 
 // Public API ///////////////////////////////////////////////////////////
+
+/**
+ * List the table tags in a font binary without fully parsing it.
+ * Useful for detecting font capabilities (e.g. COLR, CBDT, glyf) before a full parse.
+ * @param  {ArrayBuffer} buffer - The font file data
+ * @return {Object} result
+ * @return {Set<string>} result.tags - Set of 4-character table tag strings
+ * @return {boolean} result.isTrueType - Whether the font has TrueType outlines
+ * @return {boolean} result.isCFF - Whether the font has CFF outlines
+ * @return {boolean} result.isWOFF - Whether the font is WOFF compressed
+ * @return {boolean} result.isValid - Whether the font signature was recognized
+ * @return {Object[]} result.tableEntries - Full table entry objects (tag, offset, length, etc.)
+ */
+function listTables(buffer) {
+    if (buffer.constructor !== ArrayBuffer) {
+        buffer = new Uint8Array(buffer).buffer;
+    }
+    const data = new DataView(buffer, 0);
+    const signature = parse.getTag(data, 0);
+    const result = {
+        tags: new Set(),
+        isTrueType: false,
+        isCFF: false,
+        isWOFF: false,
+        isValid: false,
+        tableEntries: []
+    };
+
+    let numTables;
+    if (signature === String.fromCharCode(0, 1, 0, 0) || signature === 'true' || signature === 'typ1') {
+        result.isTrueType = true;
+        result.isValid = true;
+        numTables = parse.getUShort(data, 4);
+        result.tableEntries = parseOpenTypeTableEntries(data, numTables);
+    } else if (signature === 'OTTO') {
+        result.isCFF = true;
+        result.isValid = true;
+        numTables = parse.getUShort(data, 4);
+        result.tableEntries = parseOpenTypeTableEntries(data, numTables);
+    } else if (signature === 'wOFF') {
+        result.isWOFF = true;
+        result.isValid = true;
+        const flavor = parse.getTag(data, 4);
+        if (flavor === String.fromCharCode(0, 1, 0, 0)) {
+            result.isTrueType = true;
+        } else if (flavor === 'OTTO') {
+            result.isCFF = true;
+        }
+        numTables = parse.getUShort(data, 12);
+        result.tableEntries = parseWOFFTableEntries(data, numTables);
+    } else {
+        return result; // invalid signature
+    }
+
+    for (const entry of result.tableEntries) {
+        result.tags.add(entry.tag);
+    }
+    return result;
+}
 
 /**
  * Parse the OpenType file data (as an ArrayBuffer) and return a Font object.
@@ -594,6 +654,9 @@ export {
     Path,
     BoundingBox,
     VariationManager,
+    PaletteManager,
+    parseColor,
+    formatColor,
     pathToPoints,
     cubicToQuadratics,
     quadraticToCubic,
@@ -608,6 +671,7 @@ export {
     sanitizeFontForExport,
     parse as _parse,
     parseBuffer as parse,
+    listTables,
     load,
     loadSync
 };
