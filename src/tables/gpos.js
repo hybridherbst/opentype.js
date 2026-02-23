@@ -2,6 +2,7 @@
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos
 
 import check from '../check.js';
+import { encode } from '../types.js';
 import { Parser } from '../parse.js';
 import table from '../table.js';
 
@@ -406,13 +407,139 @@ function makeValueRecord(value, valueFormat) {
     return new table.Table('valueRecord', fields);
 }
 
-// Lookup Type 1: Single Adjustment Positioning - NOT YET SUPPORTED
-// TODO: Implement properly
-subtableMakers[1] = undefined;
+// Helper to infer valueFormat bitmask from parsed value record fields
+function inferValueFormat(value) {
+    if (!value) return 0;
+    let format = 0;
+    if ('xPlacement' in value) format |= 0x0001;
+    if ('yPlacement' in value) format |= 0x0002;
+    if ('xAdvance' in value) format |= 0x0004;
+    if ('yAdvance' in value) format |= 0x0008;
+    return format;
+}
 
-// Lookup Type 2: Pair Adjustment Positioning (Kerning) - NOT YET SUPPORTED
-// TODO: Implement properly
-subtableMakers[2] = undefined;
+// Helper to write inline value record fields based on valueFormat
+function valueRecordFields(prefix, value, valueFormat) {
+    const fields = [];
+    if (valueFormat & 0x0001) fields.push({name: prefix + 'xPlacement', type: 'SHORT', value: value?.xPlacement || 0});
+    if (valueFormat & 0x0002) fields.push({name: prefix + 'yPlacement', type: 'SHORT', value: value?.yPlacement || 0});
+    if (valueFormat & 0x0004) fields.push({name: prefix + 'xAdvance', type: 'SHORT', value: value?.xAdvance || 0});
+    if (valueFormat & 0x0008) fields.push({name: prefix + 'yAdvance', type: 'SHORT', value: value?.yAdvance || 0});
+    return fields;
+}
+
+// Lookup Type 1: Single Adjustment Positioning
+// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-1-single-adjustment-positioning-subtable
+subtableMakers[1] = function makeLookup1(subtable) {
+    if (subtable.posFormat === 1) {
+        // Format 1: single value record applied to all glyphs in coverage
+        const valueFormat = inferValueFormat(subtable.value);
+        return new table.Table('singlePosFormat1', [
+            {name: 'posFormat', type: 'USHORT', value: 1},
+            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
+            {name: 'valueFormat', type: 'USHORT', value: valueFormat}
+        ].concat(valueRecordFields('v_', subtable.value, valueFormat)));
+    } else if (subtable.posFormat === 2) {
+        // Format 2: per-glyph value records
+        const values = subtable.values || [];
+        let valueFormat = 0;
+        for (const v of values) {
+            valueFormat |= inferValueFormat(v);
+        }
+        const vFields = [];
+        for (let i = 0; i < values.length; i++) {
+            vFields.push(...valueRecordFields('v' + i + '_', values[i], valueFormat));
+        }
+        return new table.Table('singlePosFormat2', [
+            {name: 'posFormat', type: 'USHORT', value: 2},
+            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
+            {name: 'valueFormat', type: 'USHORT', value: valueFormat},
+            {name: 'valueCount', type: 'USHORT', value: values.length}
+        ].concat(vFields));
+    }
+    check.assert(false, 'GPOS lookup type 1 posFormat must be 1 or 2.');
+};
+
+// Lookup Type 2: Pair Adjustment Positioning (Kerning)
+// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-2-pair-adjustment-positioning-subtable
+subtableMakers[2] = function makeLookup2(subtable) {
+    check.assert(subtable.posFormat === 1 || subtable.posFormat === 2,
+        'Lookup type 2 posFormat must be 1 or 2.');
+
+    if (subtable.posFormat === 1) {
+        // PairPosFormat1: Individual pair adjustments
+        // Layout: posFormat, coverageOffset, vf1, vf2, pairSetCount, pairSetOffsets[], then subtable data
+        const pairSets = subtable.pairSets || [];
+
+        // Build pair set sub-tables (each is a flat table with inline value records)
+        const pairSetTables = pairSets.map(function(pairs, i) {
+            pairs = pairs || [];
+            const fields = [
+                {name: 'pairValueCount', type: 'USHORT', value: pairs.length}
+            ];
+            for (let j = 0; j < pairs.length; j++) {
+                const pair = pairs[j];
+                fields.push({name: 'secondGlyph' + j, type: 'USHORT', value: pair.secondGlyph});
+                if (subtable.valueFormat1 & 0x0001) fields.push({name: 'v1xP' + j, type: 'SHORT', value: pair.value1?.xPlacement || 0});
+                if (subtable.valueFormat1 & 0x0002) fields.push({name: 'v1yP' + j, type: 'SHORT', value: pair.value1?.yPlacement || 0});
+                if (subtable.valueFormat1 & 0x0004) fields.push({name: 'v1xA' + j, type: 'SHORT', value: pair.value1?.xAdvance || 0});
+                if (subtable.valueFormat1 & 0x0008) fields.push({name: 'v1yA' + j, type: 'SHORT', value: pair.value1?.yAdvance || 0});
+                if (subtable.valueFormat2 & 0x0001) fields.push({name: 'v2xP' + j, type: 'SHORT', value: pair.value2?.xPlacement || 0});
+                if (subtable.valueFormat2 & 0x0002) fields.push({name: 'v2yP' + j, type: 'SHORT', value: pair.value2?.yPlacement || 0});
+                if (subtable.valueFormat2 & 0x0004) fields.push({name: 'v2xA' + j, type: 'SHORT', value: pair.value2?.xAdvance || 0});
+                if (subtable.valueFormat2 & 0x0008) fields.push({name: 'v2yA' + j, type: 'SHORT', value: pair.value2?.yAdvance || 0});
+            }
+            return new table.Table('pairSet' + i, fields);
+        });
+
+        // Use TABLE type for coverage and pairSets — the Table encoder auto-computes offsets
+        return new table.Table('pairPosFormat1', [
+            {name: 'posFormat', type: 'USHORT', value: 1},
+            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
+            {name: 'valueFormat1', type: 'USHORT', value: subtable.valueFormat1},
+            {name: 'valueFormat2', type: 'USHORT', value: subtable.valueFormat2},
+            {name: 'pairSetCount', type: 'USHORT', value: pairSets.length}
+        ].concat(pairSetTables.map(function(pst, i) {
+            return {name: 'pairSet' + i, type: 'TABLE', value: pst};
+        })));
+    } else {
+        // PairPosFormat2: Class pair adjustments
+        // Layout: posFormat, coverageOffset, vf1, vf2, classDef1Offset, classDef2Offset,
+        //         class1Count, class2Count, then inline class records, then subtable data
+        const class1Count = subtable.class1Count;
+        const class2Count = subtable.class2Count;
+        const classRecords = subtable.classRecords || [];
+
+        // Build inline class record fields (these are written directly, not as subtables)
+        const recordFields = [];
+        for (let i = 0; i < class1Count; i++) {
+            const class2Records = classRecords[i] || [];
+            for (let j = 0; j < class2Count; j++) {
+                const rec = class2Records[j] || {};
+                if (subtable.valueFormat1 & 0x0001) recordFields.push({name: 'c' + i + '_' + j + '_v1xP', type: 'SHORT', value: rec.value1?.xPlacement || 0});
+                if (subtable.valueFormat1 & 0x0002) recordFields.push({name: 'c' + i + '_' + j + '_v1yP', type: 'SHORT', value: rec.value1?.yPlacement || 0});
+                if (subtable.valueFormat1 & 0x0004) recordFields.push({name: 'c' + i + '_' + j + '_v1xA', type: 'SHORT', value: rec.value1?.xAdvance || 0});
+                if (subtable.valueFormat1 & 0x0008) recordFields.push({name: 'c' + i + '_' + j + '_v1yA', type: 'SHORT', value: rec.value1?.yAdvance || 0});
+                if (subtable.valueFormat2 & 0x0001) recordFields.push({name: 'c' + i + '_' + j + '_v2xP', type: 'SHORT', value: rec.value2?.xPlacement || 0});
+                if (subtable.valueFormat2 & 0x0002) recordFields.push({name: 'c' + i + '_' + j + '_v2yP', type: 'SHORT', value: rec.value2?.yPlacement || 0});
+                if (subtable.valueFormat2 & 0x0004) recordFields.push({name: 'c' + i + '_' + j + '_v2xA', type: 'SHORT', value: rec.value2?.xAdvance || 0});
+                if (subtable.valueFormat2 & 0x0008) recordFields.push({name: 'c' + i + '_' + j + '_v2yA', type: 'SHORT', value: rec.value2?.yAdvance || 0});
+            }
+        }
+
+        // TABLE type auto-handles offset back-patching for coverage and classDefs
+        return new table.Table('pairPosFormat2', [
+            {name: 'posFormat', type: 'USHORT', value: 2},
+            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
+            {name: 'valueFormat1', type: 'USHORT', value: subtable.valueFormat1},
+            {name: 'valueFormat2', type: 'USHORT', value: subtable.valueFormat2},
+            {name: 'classDef1', type: 'TABLE', value: subtable.classDef1 ? new table.ClassDef(subtable.classDef1) : null},
+            {name: 'classDef2', type: 'TABLE', value: subtable.classDef2 ? new table.ClassDef(subtable.classDef2) : null},
+            {name: 'class1Count', type: 'USHORT', value: class1Count},
+            {name: 'class2Count', type: 'USHORT', value: class2Count}
+        ].concat(recordFields));
+    }
+};
 
 // Lookup Type 3: Cursive Attachment Positioning
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-3-cursive-attachment-positioning-subtable
@@ -489,7 +616,7 @@ subtableMakers[3] = function makeLookup3(subtable) {
 // Lookup Type 4: Mark-to-Base Attachment Positioning
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-4-mark-to-base-attachment-positioning-subtable
 subtableMakers[4] = function makeLookup4(subtable) {
-    if (!subtable) {
+    if (!subtable || !subtable.posFormat) {
         return new table.Table('markToBaseTable', [
             { name: 'posFormat', type: 'USHORT', value: 1 }
         ]);
@@ -497,18 +624,53 @@ subtableMakers[4] = function makeLookup4(subtable) {
     
     check.assert(subtable.posFormat === 1, 'Lookup type 4 posFormat must be 1.');
     
+    const markClassCount = subtable.markClassCount || 1;
+    
+    // Build MarkArray subtable
+    const markArrayFields = [
+        { name: 'markCount', type: 'USHORT', value: subtable.markArray?.length || 0 }
+    ];
+    if (subtable.markArray) {
+        for (let i = 0; i < subtable.markArray.length; i++) {
+            const rec = subtable.markArray[i];
+            markArrayFields.push(
+                { name: 'markClass_' + i, type: 'USHORT', value: rec.markClass || 0 },
+                { name: 'markAnchor_' + i, type: 'TABLE', value: makeAnchor(rec.markAnchor) }
+            );
+        }
+    }
+    const markArrayTable = new table.Table('markArray', markArrayFields);
+    
+    // Build BaseArray subtable
+    const baseArrayFields = [
+        { name: 'baseCount', type: 'USHORT', value: subtable.baseArray?.length || 0 }
+    ];
+    if (subtable.baseArray) {
+        for (let i = 0; i < subtable.baseArray.length; i++) {
+            const baseRecord = subtable.baseArray[i];
+            for (let c = 0; c < markClassCount; c++) {
+                const anchor = baseRecord ? baseRecord[c] : null;
+                baseArrayFields.push(
+                    { name: 'baseAnchor_' + i + '_' + c, type: 'TABLE', value: makeAnchor(anchor) }
+                );
+            }
+        }
+    }
+    const baseArrayTable = new table.Table('baseArray', baseArrayFields);
+    
     return new table.Table('markToBaseTable', [
         { name: 'posFormat', type: 'USHORT', value: 1 },
-        { name: 'markCoverageOffset', type: 'USHORT', value: 10 },
-        { name: 'baseCoverageOffset', type: 'USHORT', value: 20 },
-        { name: 'markClassCount', type: 'USHORT', value: 1 },
-        { name: 'markArrayOffset', type: 'USHORT', value: 30 },
-        { name: 'baseArrayOffset', type: 'USHORT', value: 40 }
+        { name: 'markCoverage', type: 'TABLE', value: new table.Coverage(subtable.markCoverage) },
+        { name: 'baseCoverage', type: 'TABLE', value: new table.Coverage(subtable.baseCoverage) },
+        { name: 'markClassCount', type: 'USHORT', value: markClassCount },
+        { name: 'markArray', type: 'TABLE', value: markArrayTable },
+        { name: 'baseArray', type: 'TABLE', value: baseArrayTable }
     ]);
 };
 subtableMakers[5] = function makeLookup5(subtable) {
     check.assert(subtable.posFormat === 1, 'Lookup type 5 posFormat must be 1.');
     
+    // Stub — mark-to-ligature not yet needed
     return new table.Table('markToLigatureTable', [
         {name: 'posFormat', type: 'USHORT', value: 1},
         {name: 'markCoverageOffset', type: 'USHORT', value: 0},
@@ -525,152 +687,46 @@ subtableMakers[6] = function makeLookup6(subtable) {
     
     const markClassCount = subtable.markClassCount || 1;
     
-    // Build Mark1Array table (similar to MarkArray)
-    const mark1ArrayTableFields = [
-        { name: 'markCount', type: 'USHORT', value: subtable.mark1Array?.length || 0 }
+    // Build Mark1Array subtable
+    const mark1ArrayFields = [
+        { name: 'mark1Count', type: 'USHORT', value: subtable.mark1Array?.length || 0 }
     ];
-    
     if (subtable.mark1Array) {
         for (let i = 0; i < subtable.mark1Array.length; i++) {
-            const markRecord = subtable.mark1Array[i];
-            const anchorTable = makeAnchor(markRecord.markAnchor);
-            markRecord._anchorTable = anchorTable;
-            
-            mark1ArrayTableFields.push(
-                { name: `markClass_${i}`, type: 'USHORT', value: markRecord.markClass || 0 },
-                { name: `markAnchorOffset_${i}`, type: 'USHORT', value: 0 }
+            const rec = subtable.mark1Array[i];
+            mark1ArrayFields.push(
+                { name: 'markClass_' + i, type: 'USHORT', value: rec.markClass || 0 },
+                { name: 'mark1Anchor_' + i, type: 'TABLE', value: makeAnchor(rec.markAnchor) }
             );
         }
     }
+    const mark1ArrayTable = new table.Table('mark1Array', mark1ArrayFields);
     
-    // Build Mark2Array table (similar to BaseArray but for mark2)
-    const mark2ArrayTableFields = [
-        { name: 'markCount', type: 'USHORT', value: subtable.mark2Array?.length || 0 }
+    // Build Mark2Array subtable
+    const mark2ArrayFields = [
+        { name: 'mark2Count', type: 'USHORT', value: subtable.mark2Array?.length || 0 }
     ];
-    
     if (subtable.mark2Array) {
         for (let i = 0; i < subtable.mark2Array.length; i++) {
             const mark2Record = subtable.mark2Array[i];
-            
             for (let c = 0; c < markClassCount; c++) {
                 const anchor = mark2Record[c];
-                const anchorTable = makeAnchor(anchor);
-                mark2Record[`_anchorTable_${c}`] = anchorTable;
-                
-                mark2ArrayTableFields.push(
-                    { name: `markAnchorOffset_${i}_${c}`, type: 'USHORT', value: 0 }
+                mark2ArrayFields.push(
+                    { name: 'mark2Anchor_' + i + '_' + c, type: 'TABLE', value: makeAnchor(anchor) }
                 );
             }
         }
     }
+    const mark2ArrayTable = new table.Table('mark2Array', mark2ArrayFields);
     
-    // Build Coverage tables
-    const mark1CoverageTable = makeCoverageTable(subtable.mark1Coverage);
-    const mark2CoverageTable = makeCoverageTable(subtable.mark2Coverage);
-    
-    // Calculate sizes and offsets
-    const headerSize = 16;
-    const mark1CoverageSize = mark1CoverageTable?.sizeOf() || 0;
-    const mark2CoverageSize = mark2CoverageTable?.sizeOf() || 0;
-    
-    const mark1ArrayOffset = headerSize + mark1CoverageSize + mark2CoverageSize;
-    
-    // Calculate anchor table sizes
-    let mark1AnchorSizes = [];
-    if (subtable.mark1Array) {
-        for (const markRecord of subtable.mark1Array) {
-            mark1AnchorSizes.push(markRecord._anchorTable?.sizeOf() || 0);
-        }
-    }
-    
-    let mark2AnchorSizes = [];
-    if (subtable.mark2Array) {
-        for (const mark2Record of subtable.mark2Array) {
-            const classSizes = [];
-            for (let c = 0; c < markClassCount; c++) {
-                classSizes.push(mark2Record[`_anchorTable_${c}`]?.sizeOf() || 0);
-            }
-            mark2AnchorSizes.push(classSizes);
-        }
-    }
-    
-    // Build final Mark1Array with calculated offsets
-    const finalMark1ArrayFields = [
-        { name: 'markCount', type: 'USHORT', value: subtable.mark1Array?.length || 0 }
-    ];
-    
-    let currentMark1AnchorOffset = 2 + (subtable.mark1Array?.length || 0) * 4;
-    if (subtable.mark1Array) {
-        for (let i = 0; i < subtable.mark1Array.length; i++) {
-            const markRecord = subtable.mark1Array[i];
-            finalMark1ArrayFields.push(
-                { name: `markClass_${i}`, type: 'USHORT', value: markRecord.markClass || 0 },
-                { name: `markAnchorOffset_${i}`, type: 'USHORT', value: currentMark1AnchorOffset }
-            );
-            currentMark1AnchorOffset += mark1AnchorSizes[i] || 0;
-        }
-    }
-    
-    // Build final Mark2Array with calculated offsets
-    const finalMark2ArrayFields = [
-        { name: 'markCount', type: 'USHORT', value: subtable.mark2Array?.length || 0 }
-    ];
-    
-    let currentMark2AnchorOffset = 2 + (subtable.mark2Array?.length || 0) * markClassCount * 2;
-    if (subtable.mark2Array) {
-        for (let i = 0; i < subtable.mark2Array.length; i++) {
-            for (let c = 0; c < markClassCount; c++) {
-                finalMark2ArrayFields.push(
-                    { name: `markAnchorOffset_${i}_${c}`, type: 'USHORT', value: currentMark2AnchorOffset }
-                );
-                currentMark2AnchorOffset += mark2AnchorSizes[i]?.[c] || 0;
-            }
-        }
-    }
-    
-    // Build the main table - use offset 0 and let Table class calculate actual offsets
-    const fields = [
+    return new table.Table('markToMarkTable', [
         { name: 'posFormat', type: 'USHORT', value: 1 },
-        { name: 'mark1CoverageOffset', type: 'USHORT', value: 0 },
-        { name: 'mark2CoverageOffset', type: 'USHORT', value: 0 },
+        { name: 'mark1Coverage', type: 'TABLE', value: new table.Coverage(subtable.mark1Coverage) },
+        { name: 'mark2Coverage', type: 'TABLE', value: new table.Coverage(subtable.mark2Coverage) },
         { name: 'markClassCount', type: 'USHORT', value: markClassCount },
-        { name: 'mark1ArrayOffset', type: 'USHORT', value: 0 },
-        { name: 'mark2ArrayOffset', type: 'USHORT', value: 0 }
-    ];
-    
-    // Add coverage tables
-    if (mark1CoverageTable) fields.push({ name: 'mark1Coverage', type: 'TABLE', value: mark1CoverageTable });
-    if (mark2CoverageTable) fields.push({ name: 'mark2Coverage', type: 'TABLE', value: mark2CoverageTable });
-    
-    // Add Mark1Array table
-    const mark1ArrayTable = new table.Table('Mark1Array', finalMark1ArrayFields);
-    fields.push({ name: 'mark1Array', type: 'TABLE', value: mark1ArrayTable });
-    
-    // Add anchor tables to Mark1Array
-    if (subtable.mark1Array) {
-        for (const markRecord of subtable.mark1Array) {
-            if (markRecord._anchorTable) {
-                fields.push({ name: 'mark1Anchor', type: 'TABLE', value: markRecord._anchorTable });
-            }
-        }
-    }
-    
-    // Add Mark2Array table
-    const mark2ArrayTable = new table.Table('Mark2Array', finalMark2ArrayFields);
-    fields.push({ name: 'mark2Array', type: 'TABLE', value: mark2ArrayTable });
-    
-    // Add anchor tables to Mark2Array
-    if (subtable.mark2Array) {
-        for (const mark2Record of subtable.mark2Array) {
-            for (let c = 0; c < markClassCount; c++) {
-                if (mark2Record[`_anchorTable_${c}`]) {
-                    fields.push({ name: 'mark2Anchor', type: 'TABLE', value: mark2Record[`_anchorTable_${c}`] });
-                }
-            }
-        }
-    }
-    
-    return new table.Table('markToMarkTable', fields);
+        { name: 'mark1Array', type: 'TABLE', value: mark1ArrayTable },
+        { name: 'mark2Array', type: 'TABLE', value: mark2ArrayTable }
+    ]);
 };
 
 // Lookup Type 7: Context Positioning
@@ -883,6 +939,10 @@ subtableMakers[8] = function makeLookup8(subtable) {
 
 // Lookup Type 9: Extension Positioning
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-9-extension-positioning-subtable
+// Extension header: posFormat(2) + extensionLookupType(2) + extensionOffset(4) = 8 bytes.
+// The extensionOffset is ULONG (32-bit), pointing from the extension subtable start
+// to the actual inner subtable data. Since inner data follows immediately, offset = 8.
+// We use LITERAL for the inner data to avoid the 16-bit TABLE offset limit.
 subtableMakers[9] = function makeLookup9(subtable) {
     // Handle error case from parser (unsupported lookup type)
     if (!subtable || subtable.error || subtable.posFormat === undefined) {
@@ -899,11 +959,12 @@ subtableMakers[9] = function makeLookup9(subtable) {
 
         if (extMaker && extSubtable && !extSubtable.error) {
             const extTable = extMaker(extSubtable);
+            const extBytes = encode.TABLE(extTable);
             return new table.Table('extensionPosTable', [
                 { name: 'posFormat', type: 'USHORT', value: 1 },
                 { name: 'extensionLookupType', type: 'USHORT', value: subtable.extensionLookupType },
-                { name: 'extensionOffset', type: 'ULONG', value: 0 },
-                { name: 'extensionSubtable', type: 'TABLE', value: extTable }
+                { name: 'extensionOffset', type: 'ULONG', value: 8 },
+                { name: 'extensionData', type: 'LITERAL', value: extBytes }
             ]);
         }
 

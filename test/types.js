@@ -503,6 +503,46 @@ describe('types.js', function() {
         assert.equal(sizeOf.TABLE(table), 8);
     });
 
+    it('counts 2 bytes for null TABLE fields (offset placeholder)', function() {
+        // A null TABLE value still occupies a 2-byte offset placeholder (0x0000)
+        // in the encoded output. sizeOf must account for this so that subsequent
+        // offsets in the same table are calculated correctly.
+        const table = {
+            fields: [
+                {name: 'version', type: 'USHORT', value: 1},
+                {name: 'nullSub', type: 'TABLE', value: null},
+                {name: 'flags', type: 'USHORT', value: 0xBEEF}
+            ]
+        };
+        // version(2) + null TABLE offset placeholder(2) + flags(2) = 6
+        assert.equal(sizeOf.TABLE(table), 6);
+        // Encoded: version=0x0001, null offset=0x0000, flags=0xBEEF
+        assert.equal(hex(encode.TABLE(table)), '00 01 00 00 BE EF');
+    });
+
+    it('sizeOf.TABLE matches encode.TABLE length with mixed null/non-null subtables', function() {
+        // Regression test: if sizeOf.TABLE doesn't count null TABLE fields correctly,
+        // offsets to subsequent non-null subtables will be wrong, corrupting the binary.
+        const table = {
+            fields: [
+                {name: 'header', type: 'USHORT', value: 0x0042},
+                {name: 'first', type: 'TABLE', value: null},          // null → 2-byte placeholder
+                {
+                    name: 'second', type: 'TABLE', value: {
+                        fields: [
+                            {name: 'data', type: 'USHORT', value: 0xCAFE}
+                        ]
+                    }
+                }
+            ]
+        };
+        const encoded = encode.TABLE(table);
+        assert.equal(sizeOf.TABLE(table), encoded.length);
+        // header(2) + null offset(2) + second offset(2) + second data(2) = 8
+        assert.equal(encoded.length, 8);
+        assert.equal(hex(encoded), '00 42 00 00 00 06 CA FE');
+    });
+
     it('can handle deeply nested TABLEs', function() {
         // First 58 bytes of Roboto-Black.ttf GSUB table.
         const expected = '00 01 00 00 00 0A 00 20 00 3A ' +                                           // header

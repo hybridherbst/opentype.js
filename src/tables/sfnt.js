@@ -18,6 +18,7 @@ import _name from './name.js';
 import os2 from './os2.js';
 import post from './post.js';
 import gsub from './gsub.js';
+import gpos from './gpos.js';
 import meta from './meta.js';
 import colr from './colr.js';
 import cpal from './cpal.js';
@@ -627,6 +628,7 @@ function fontToSfntTable(font, options = {}) {
     // Optional tables
     const optionalTables = {
         gsub,
+        gpos,
         kern,
         cpal,
         colr,

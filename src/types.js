@@ -1185,7 +1185,8 @@ sizeOf.TABLE = function(table) {
         // Handle null/undefined table values gracefully (e.g., from errors)
         if (value === null || value === undefined) {
             if (field.type === 'TABLE') {
-                continue; // Skip null tables, offset will be 0
+                numBytes += 2; // Null TABLE still occupies a 2-byte offset placeholder (0x0000)
+                continue;
             }
         }
 
