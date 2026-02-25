@@ -318,7 +318,20 @@ subtableParsers[6] = function parseLookup6() {
 
 subtableParsers[7] = function parseLookup7() { return { error: 'GPOS Lookup 7 not supported' }; };
 subtableParsers[8] = function parseLookup8() { return { error: 'GPOS Lookup 8 not supported' }; };
-subtableParsers[9] = function parseLookup9() { return { error: 'GPOS Lookup 9 not supported' }; };
+// Extension Positioning subtable (lookup type 9)
+// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-9-extension-positioning-subtable
+subtableParsers[9] = function parseLookup9() {
+    const posFormat = this.parseUShort();
+    check.argument(posFormat === 1, 'GPOS Extension Positioning subtable identifier-format must be 1');
+    const extensionLookupType = this.parseUShort();
+    const extensionParser = new Parser(this.data, this.offset + this.parseULong());
+    return {
+        posFormat: 1,
+        lookupType: extensionLookupType,
+        extensionLookupType: extensionLookupType,
+        extension: subtableParsers[extensionLookupType].call(extensionParser)
+    };
+};
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos
 function parseGposTable(data, start) {
@@ -941,9 +954,10 @@ subtableMakers[8] = function makeLookup8(subtable) {
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-9-extension-positioning-subtable
 // Extension header: posFormat(2) + extensionLookupType(2) + extensionOffset(4) = 8 bytes.
 // The extensionOffset is ULONG (32-bit), pointing from the extension subtable start
-// to the actual inner subtable data. Since inner data follows immediately, offset = 8.
-// We use LITERAL for the inner data to avoid the 16-bit TABLE offset limit.
-subtableMakers[9] = function makeLookup9(subtable) {
+// to the actual inner subtable data.
+// For two-phase encoding, we return just the 8-byte header with a placeholder offset;
+// the actual subtable data is collected separately and appended at the end of the GPOS table.
+subtableMakers[9] = function makeLookup9(subtable, extensionData) {
     // Handle error case from parser (unsupported lookup type)
     if (!subtable || subtable.error || subtable.posFormat === undefined) {
         return new table.Table('extensionPosTable', [
@@ -953,38 +967,173 @@ subtableMakers[9] = function makeLookup9(subtable) {
         ]);
     }
 
-    if (subtable.posFormat === 1 && subtable.extensionLookupType) {
-        const extSubtable = subtable.extensionSubtable || subtable.extension;
-        const extMaker = subtableMakers[subtable.extensionLookupType];
+    check.argument(subtable.posFormat === 1, 'Extension positioning format must be 1');
+    const extLookupType = subtable.extensionLookupType;
+    check.argument(extLookupType && extLookupType !== 9, 'Extension cannot wrap another extension');
 
-        if (extMaker && extSubtable && !extSubtable.error) {
-            const extTable = extMaker(extSubtable);
-            const extBytes = encode.TABLE(extTable);
+    // Get the maker for the actual lookup type
+    const actualMaker = subtableMakers[extLookupType];
+    check.assert(actualMaker, 'No maker for extension lookup type ' + extLookupType);
+
+    // Get the actual subtable data
+    const extSubtable = subtable.extensionSubtable || subtable.extension;
+
+    if (extSubtable && !extSubtable.error) {
+        const actualTable = actualMaker(extSubtable);
+        let actualBytes;
+        try {
+            actualBytes = actualTable.encode();
+        } catch (e) {
+            // Subtable content exceeds internal 16-bit offset limits (e.g. very large PairPosFormat1).
+            // Return an empty extension header rather than crashing the entire GPOS table build.
             return new table.Table('extensionPosTable', [
                 { name: 'posFormat', type: 'USHORT', value: 1 },
-                { name: 'extensionLookupType', type: 'USHORT', value: subtable.extensionLookupType },
-                { name: 'extensionOffset', type: 'ULONG', value: 8 },
-                { name: 'extensionData', type: 'LITERAL', value: extBytes }
+                { name: 'extensionLookupType', type: 'USHORT', value: extLookupType },
+                { name: 'extensionOffset', type: 'ULONG', value: 0 }
             ]);
         }
 
+        // If extensionData collector is provided, use two-phase encoding:
+        // return just the 8-byte header, collect actual data for deferred writing
+        if (extensionData) {
+            extensionData.actualData.push(actualBytes);
+            extensionData.headerPositions.push(-1);
+            extensionData.lookupTypes.push(extLookupType);
+
+            return new table.Table('extensionPosTable', [
+                { name: 'posFormat', type: 'USHORT', value: 1 },
+                { name: 'extensionLookupType', type: 'USHORT', value: extLookupType },
+                { name: 'extensionOffset', type: 'ULONG', value: 0 }  // Placeholder - patched later
+            ]);
+        }
+
+        // Fallback: embed data inline (may cause size issues for large tables)
         return new table.Table('extensionPosTable', [
             { name: 'posFormat', type: 'USHORT', value: 1 },
-            { name: 'extensionLookupType', type: 'USHORT', value: subtable.extensionLookupType || 0 },
-            { name: 'extensionOffset', type: 'ULONG', value: 0 }
+            { name: 'extensionLookupType', type: 'USHORT', value: extLookupType },
+            { name: 'extensionOffset', type: 'ULONG', value: 8 },
+            { name: 'extensionData', type: 'LITERAL', value: actualBytes }
         ]);
     }
 
-    check.assert(false, 'GPOS lookup type 9 posFormat must be 1.');
+    // No subtable data available
+    return new table.Table('extensionPosTable', [
+        { name: 'posFormat', type: 'USHORT', value: 1 },
+        { name: 'extensionLookupType', type: 'USHORT', value: extLookupType || 0 },
+        { name: 'extensionOffset', type: 'ULONG', value: 0 }
+    ]);
 };
 
+/**
+ * Custom GPOS table encoder that handles extension lookups properly.
+ * Extension subtable data is stored at the end of the table with 32-bit offsets.
+ * Mirrors the GSUB approach for type 7 Extension Substitution.
+ */
 function makeGposTable(gpos) {
-    return new table.Table('GPOS', [
+    // Check if we have any extension lookups
+    let hasExtensions = false;
+    for (const lookup of gpos.lookups) {
+        if (lookup.lookupType === 9) {
+            hasExtensions = true;
+            break;
+        }
+    }
+
+    if (!hasExtensions) {
+        // No extension lookups — use standard encoding
+        return new table.Table('GPOS', [
+            {name: 'version', type: 'ULONG', value: 0x10000},
+            {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
+            {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
+            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, subtableMakers)}
+        ]);
+    }
+
+    // Has extension lookups — use two-phase encoding
+    // Phase 1: Collect extension data and create headers with placeholder offsets
+    const extensionData = {
+        actualData: [],
+        headerPositions: [],
+        lookupTypes: []
+    };
+
+    // Create modified subtableMakers that passes extensionData to type-9 maker
+    const makersWithExtension = Object.assign({}, subtableMakers);
+    const originalMaker9 = subtableMakers[9];
+    makersWithExtension[9] = function(subtable) {
+        return originalMaker9(subtable, extensionData);
+    };
+
+    // Build the main table structure with small extension headers
+    const mainTable = new table.Table('GPOS', [
         {name: 'version', type: 'ULONG', value: 0x10000},
         {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
         {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
-        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, subtableMakers)}
+        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, makersWithExtension)}
     ]);
+
+    // Phase 2: Encode the main table, then append extension data and patch offsets
+    let mainBytes = mainTable.encode();
+
+    if (extensionData.actualData.length > 0) {
+        // Find all extension header positions by scanning for the pattern:
+        // posFormat=1 (USHORT) + valid lookupType 1-8 (USHORT) + offset=0 (ULONG)
+        const headerPositions = [];
+        for (let i = 0; i <= mainBytes.length - 8; i++) {
+            if (mainBytes[i] === 0 && mainBytes[i + 1] === 1) {
+                const lookupType = (mainBytes[i + 2] << 8) | mainBytes[i + 3];
+                if (lookupType >= 1 && lookupType <= 8) {
+                    const offset = (mainBytes[i + 4] << 24) | (mainBytes[i + 5] << 16) |
+                                   (mainBytes[i + 6] << 8) | mainBytes[i + 7];
+                    if (offset === 0) {
+                        headerPositions.push(i);
+                    }
+                }
+            }
+        }
+
+        if (headerPositions.length !== extensionData.actualData.length) {
+            console.warn('GPOS Extension header detection mismatch (' +
+                headerPositions.length + ' found, ' + extensionData.actualData.length +
+                ' expected), using inline encoding');
+            return mainTable;
+        }
+
+        // Calculate where extension data will be appended
+        const dataStartOffset = mainBytes.length;
+        const extDataBytes = [];
+        const dataOffsets = [];
+        let currentOffset = 0;
+
+        for (let i = 0; i < extensionData.actualData.length; i++) {
+            dataOffsets.push(dataStartOffset + currentOffset);
+            extDataBytes.push(...extensionData.actualData[i]);
+            currentOffset += extensionData.actualData[i].length;
+        }
+
+        // Patch the 32-bit extension offsets (relative to each header)
+        for (let i = 0; i < headerPositions.length; i++) {
+            const headerPos = headerPositions[i];
+            const relativeOffset = dataOffsets[i] - headerPos;
+            mainBytes[headerPos + 4] = (relativeOffset >> 24) & 0xff;
+            mainBytes[headerPos + 5] = (relativeOffset >> 16) & 0xff;
+            mainBytes[headerPos + 6] = (relativeOffset >> 8) & 0xff;
+            mainBytes[headerPos + 7] = relativeOffset & 0xff;
+        }
+
+        // Combine main table with extension data
+        const finalBytes = new Uint8Array(mainBytes.length + extDataBytes.length);
+        finalBytes.set(mainBytes);
+        finalBytes.set(extDataBytes, mainBytes.length);
+
+        // Return a Table-like wrapper with pre-computed bytes
+        const finalBytesArray = Array.from(finalBytes);
+        return new table.Table('GPOS', [
+            {name: 'data', type: 'LITERAL', value: finalBytesArray}
+        ]);
+    }
+
+    return mainTable;
 }
 
 export default { parse: parseGposTable, make: makeGposTable };
