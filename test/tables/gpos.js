@@ -908,6 +908,39 @@ describe('tables/gpos.js', function() {
         assert.equal((encoded[8] << 8) | encoded[9], 1);     // posFormat = 1
     });
 
+    it('can roundtrip lookup9 Extension wrapping type 5 MarkToLigature', function() {
+        // Extension wrapping mark-to-ligature — exercises the new type 5 writer
+        const inner = {
+            posFormat: 1,
+            markCoverage: { format: 1, glyphs: [0x300] },
+            ligatureCoverage: { format: 1, glyphs: [0xFB01] },
+            markClassCount: 1,
+            markArray: [
+                { markClass: 0, markAnchor: { format: 1, xCoordinate: 0, yCoordinate: 700 } }
+            ],
+            ligatureArray: [
+                [
+                    [{ format: 1, xCoordinate: 150, yCoordinate: 650 }],
+                    [{ format: 1, xCoordinate: 350, yCoordinate: 680 }]
+                ]
+            ]
+        };
+        const subtable = {
+            posFormat: 1,
+            extensionLookupType: 5,
+            extensionSubtable: inner
+        };
+        const encoded = makeLookup(9, subtable);
+
+        // Verify extension header
+        assert.equal((encoded[0] << 8) | encoded[1], 1);     // posFormat
+        assert.equal((encoded[2] << 8) | encoded[3], 5);     // extensionLookupType = 5
+        assert.equal((encoded[4] << 24) | (encoded[5] << 16) | (encoded[6] << 8) | encoded[7], 8);
+
+        // Inner subtable starts at offset 8 — verify mark-to-ligature posFormat
+        assert.equal((encoded[8] << 8) | encoded[9], 1);     // posFormat = 1
+    });
+
     //// Full table roundtrip //////////////////////////////////////////////////
 
     it('can make a complete GPOS table and re-parse it', function() {
@@ -981,5 +1014,78 @@ describe('tables/gpos.js', function() {
         assert.equal(reparsed.lookups[0].subtables[0].value.yPlacement, -50);
         assert.equal(reparsed.lookups[1].lookupType, 2);
         assert.equal(reparsed.lookups[1].subtables[0].pairSets[0][0].value1.xAdvance, -25);
+    });
+
+    it('can make a GPOS table with mark positioning types 4, 5, 6', function() {
+        const gposData = {
+            version: 1,
+            scripts: [],
+            features: [],
+            lookups: [
+                // Type 4: Mark-to-Base
+                {
+                    lookupType: 4,
+                    lookupFlag: 0,
+                    subtables: [{
+                        posFormat: 1,
+                        markCoverage: { format: 1, glyphs: [0x300] },
+                        baseCoverage: { format: 1, glyphs: [0x41] },
+                        markClassCount: 1,
+                        markArray: [{ markClass: 0, markAnchor: { format: 1, xCoordinate: 100, yCoordinate: 500 } }],
+                        baseArray: [[{ format: 1, xCoordinate: 250, yCoordinate: 600 }]]
+                    }]
+                },
+                // Type 5: Mark-to-Ligature
+                {
+                    lookupType: 5,
+                    lookupFlag: 0,
+                    subtables: [{
+                        posFormat: 1,
+                        markCoverage: { format: 1, glyphs: [0x300] },
+                        ligatureCoverage: { format: 1, glyphs: [0xFB01] },
+                        markClassCount: 1,
+                        markArray: [{ markClass: 0, markAnchor: { format: 1, xCoordinate: 0, yCoordinate: 700 } }],
+                        ligatureArray: [[[{ format: 1, xCoordinate: 150, yCoordinate: 650 }], [{ format: 1, xCoordinate: 350, yCoordinate: 680 }]]]
+                    }]
+                },
+                // Type 6: Mark-to-Mark
+                {
+                    lookupType: 6,
+                    lookupFlag: 0,
+                    subtables: [{
+                        posFormat: 1,
+                        mark1Coverage: { format: 1, glyphs: [0x308] },
+                        mark2Coverage: { format: 1, glyphs: [0x301] },
+                        markClassCount: 1,
+                        mark1Array: [{ markClass: 0, markAnchor: { format: 1, xCoordinate: 0, yCoordinate: 0 } }],
+                        mark2Array: [[{ format: 1, xCoordinate: 0, yCoordinate: 400 }]]
+                    }]
+                }
+            ]
+        };
+        const encoded = gpos.make(gposData).encode();
+        const data = new DataView(new Uint8Array(encoded).buffer);
+        const reparsed = gpos.parse(data);
+
+        assert.equal(reparsed.lookups.length, 3);
+
+        // Type 4
+        assert.equal(reparsed.lookups[0].lookupType, 4);
+        const st4 = reparsed.lookups[0].subtables[0];
+        assert.equal(st4.markArray[0].markAnchor.xCoordinate, 100);
+        assert.equal(st4.baseArray[0][0].xCoordinate, 250);
+
+        // Type 5
+        assert.equal(reparsed.lookups[1].lookupType, 5);
+        const st5 = reparsed.lookups[1].subtables[0];
+        assert.equal(st5.markArray[0].markAnchor.yCoordinate, 700);
+        assert.equal(st5.ligatureArray[0].length, 2);  // 2 components
+        assert.equal(st5.ligatureArray[0][0][0].xCoordinate, 150);
+        assert.equal(st5.ligatureArray[0][1][0].xCoordinate, 350);
+
+        // Type 6
+        assert.equal(reparsed.lookups[2].lookupType, 6);
+        const st6 = reparsed.lookups[2].subtables[0];
+        assert.equal(st6.mark2Array[0][0].yCoordinate, 400);
     });
 });
