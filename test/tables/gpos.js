@@ -288,16 +288,13 @@ describe('tables/gpos.js', function() {
         };
         const expectedData = unhexArray(
             '0001' +           // posFormat = 1
-            '000E' +           // coverageOffset = 14 (header = 7 USHORTs = 14 bytes)
+            '001E' +           // coverageOffset = 30 (after header + pairSet data)
             '0004' +           // valueFormat1 = 4 (xAdvance)
             '0001' +           // valueFormat2 = 1 (xPlacement)
             '0002' +           // pairSetCount = 2
-            '0016' +           // pairSetOffset[0] = 22 (14 + 8 bytes of coverage)
-            '001E' +           // pairSetOffset[1] = 30
-            // Coverage (Format 1) — placed first by TABLE encoder
-            '0001 0002' +      // format=1, glyphCount=2
-            '002D 0031' +      // glyphs 0x2d, 0x31
-            // PairSet[0]: 1 pair
+            '000E' +           // pairSetOffset[0] = 14 (right after header)
+            '0016' +           // pairSetOffset[1] = 22
+            // PairSet[0]: 1 pair (placed before coverage for offset safety)
             '0001' +           // pairValueCount = 1
             '0059' +           // secondGlyph = 0x59
             'FFE2' +           // value1.xAdvance = -30
@@ -306,7 +303,10 @@ describe('tables/gpos.js', function() {
             '0001' +           // pairValueCount = 1
             '0059' +           // secondGlyph = 0x59
             'FFD8' +           // value1.xAdvance = -40
-            'FFE7'             // value2.xPlacement = -25
+            'FFE7' +           // value2.xPlacement = -25
+            // Coverage (Format 1) — placed after pairSets by LITERAL encoder
+            '0001 0002' +      // format=1, glyphCount=2
+            '002D 0031'        // glyphs 0x2d, 0x31
         );
         assert.deepEqual(makeLookup(2, subtable), expectedData);
     });

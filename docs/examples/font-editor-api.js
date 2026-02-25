@@ -1962,6 +1962,8 @@ export class FontBuilder {
         
         // Track synthetic shape components created for glyphs that have both shapes AND references
         const syntheticShapeComponents = new Map(); // Maps char -> synthetic component name
+        // Track glyphs built as VF composites (need component-offset gvar deltas, not per-point)
+        const vfCompositeChars = new Set();
         
         if (useComposites) {
             // Find all glyphs that are referenced and start with underscore (components)
@@ -2103,6 +2105,10 @@ export class FontBuilder {
                 refs.every(ref => componentGlyphIndexMap.has(ref.name));
             
             if (canUseComposites && (!this._hasOwnShapes(pointsOrShapes) || hasSyntheticComponent)) {
+                // Track VF composites for composite-style gvar delta generation
+                if (state.vfEnabled) {
+                    vfCompositeChars.add(char);
+                }
                 // Create a composite glyph (no path, uses components)
                 // Build component list - if we have a synthetic shape component, add it first
                 let allRefs = refs;
@@ -2242,7 +2248,7 @@ export class FontBuilder {
         delete font.names.macintosh;
 
         if (state.vfEnabled && state.axes.length > 0 && state.masters.length > 0) {
-            this._addVariationData(font, glyphIndexMap, scale, syntheticShapeComponents);
+            this._addVariationData(font, glyphIndexMap, scale, syntheticShapeComponents, vfCompositeChars);
         }
 
         // Add ligature substitution table if there are enabled ligatures
@@ -2327,7 +2333,7 @@ export class FontBuilder {
         return minX >= 0 ? maxX : maxX - minX;
     }
 
-    _addVariationData(font, glyphIndexMap, scale, syntheticShapeComponents = new Map()) {
+    _addVariationData(font, glyphIndexMap, scale, syntheticShapeComponents = new Map(), vfCompositeChars = new Set()) {
         const state = this.state;
         const ot = this.opentype;
 
@@ -2347,7 +2353,7 @@ export class FontBuilder {
         const allDeltas = new Map();
 
         state.axes.forEach((axis, axisIndex) => {
-            const axisDeltas = this._buildMasterDeltas(axis, scale, axisIndex, axisCount, syntheticShapeComponents);
+            const axisDeltas = this._buildMasterDeltas(axis, scale, axisIndex, axisCount, syntheticShapeComponents, vfCompositeChars);
             allDeltas.set(axis.tag, axisDeltas);
         });
 
@@ -2569,7 +2575,7 @@ export class FontBuilder {
         return { x: point.x, y: point.y, onCurve: point.onCurve !== false };
     }
 
-    _buildMasterDeltas(axis, scale, axisIndex, axisCount, syntheticShapeComponents = new Map()) {
+    _buildMasterDeltas(axis, scale, axisIndex, axisCount, syntheticShapeComponents = new Map(), vfCompositeChars = new Set()) {
         const result = [];
         const masters = this.state.masters;
         if (!masters || masters.length === 0) return result;
@@ -2639,6 +2645,34 @@ export class FontBuilder {
                 const basePointsRaw = defaultMaster.glyphs[char];
                 if (!basePointsRaw) continue;
                 
+                const glyphName = this._charToGlyphName(char);
+                
+                // VF composite glyphs: skip parent composite, only emit synthetic component deltas
+                if (vfCompositeChars.has(char)) {
+                    if (syntheticShapeComponents.has(char)) {
+                        const basePoints = this._flattenGlyphPoints(basePointsRaw);
+                        const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
+                        if (basePoints.length === targetPoints.length && basePoints.length > 0) {
+                            const deltaX = [];
+                            const deltaY = [];
+                            for (let i = 0; i < basePoints.length; i++) {
+                                const basePt = this._getPointCoords(basePoints[i]);
+                                const targetPt = this._getPointCoords(targetPoints[i]);
+                                deltaX.push(Math.round((targetPt.x - basePt.x) * scale));
+                                deltaY.push(Math.round((targetPt.y - basePt.y) * scale));
+                            }
+                            deltaX.push(0, 0, 0, 0);
+                            deltaY.push(0, 0, 0, 0);
+                            const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                            const targetWidth = this._getGlyphWidth(targetPointsRaw, char, master.glyphWidths) + 1;
+                            const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale);
+                            const syntheticName = syntheticShapeComponents.get(char);
+                            deltas.set(syntheticName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
+                        }
+                    }
+                    continue;
+                }
+                
                 const basePoints = this._flattenGlyphPoints(basePointsRaw);
                 const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
                 
@@ -2665,7 +2699,6 @@ export class FontBuilder {
                 const targetWidth = this._getGlyphWidth(targetPointsRaw, char, master.glyphWidths) + 1;
                 const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale);
 
-                const glyphName = this._charToGlyphName(char);
                 deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
                 
                 // If this glyph has a synthetic shape component, add deltas for it too
@@ -2701,6 +2734,37 @@ export class FontBuilder {
                 const targetPointsRaw = master.glyphs[char];
                 if (!targetPointsRaw) continue;
                 
+                const glyphName = this._charToGlyphName(char);
+                
+                // VF composite glyphs: don't generate per-point gvar deltas for the
+                // composite parent. The variationprocessor's transformComponentsSimple
+                // will recursively apply each component's own variation.
+                // Only emit deltas for the synthetic shape component (the glyph's own shapes).
+                if (vfCompositeChars.has(char)) {
+                    if (syntheticShapeComponents.has(char)) {
+                        const basePoints = this._flattenGlyphPoints(basePointsRaw);
+                        const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
+                        if (basePoints.length === targetPoints.length && basePoints.length > 0) {
+                            const deltaX = [];
+                            const deltaY = [];
+                            for (let i = 0; i < basePoints.length; i++) {
+                                const basePt = this._getPointCoords(basePoints[i]);
+                                const targetPt = this._getPointCoords(targetPoints[i]);
+                                deltaX.push(Math.round((targetPt.x - basePt.x) * scale * deltaScale));
+                                deltaY.push(Math.round((targetPt.y - basePt.y) * scale * deltaScale));
+                            }
+                            deltaX.push(0, 0, 0, 0);
+                            deltaY.push(0, 0, 0, 0);
+                            const baseWidth = this._getGlyphWidth(basePointsRaw, char, defaultMaster.glyphWidths) + 1;
+                            const targetWidth = this._getGlyphWidth(targetPointsRaw, char, master.glyphWidths) + 1;
+                            const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
+                            const syntheticName = syntheticShapeComponents.get(char);
+                            deltas.set(syntheticName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
+                        }
+                    }
+                    continue;
+                }
+                
                 const basePoints = this._flattenGlyphPoints(basePointsRaw);
                 const targetPoints = this._flattenGlyphPoints(targetPointsRaw);
                 
@@ -2723,7 +2787,6 @@ export class FontBuilder {
                 const targetWidth = this._getGlyphWidth(targetPointsRaw, char, master.glyphWidths) + 1;
                 const advanceWidthDelta = Math.round((targetWidth - baseWidth) * scale * deltaScale);
 
-                const glyphName = this._charToGlyphName(char);
                 deltas.set(glyphName, { deltas: deltaX, deltasY: deltaY, advanceWidthDelta });
                 
                 // If this glyph has a synthetic shape component, add deltas for it too

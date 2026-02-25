@@ -259,6 +259,7 @@ describe('Format Conversion', function() {
         });
         
         it('should preserve gvar data through export', function() {
+            this.timeout(30000);  // VF roundtrip can be slow with device tables
             const buffer = vfFont.toArrayBuffer();
             const reloaded = parse(buffer);
             

@@ -426,30 +426,30 @@ Parser.prototype.parseValueRecord = function(valueFormat, parentTableOffset) {
 
     // Device table (non-variable font) / VariationIndex table (variable font)
     // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#devVarIdxTbls
-    // Offsets are relative to the immediate parent table
+    // Offsets are Offset16 (unsigned) relative to the immediate parent table
     if (valueFormat & 0x0010) { 
-        const offset = this.parseShort();
+        const offset = this.parseUShort();
         if (offset !== 0 && parentTableOffset !== undefined) {
             valueRecord.xPlaDeviceOffset = offset;
             valueRecord.xPlaDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
         }
     }
     if (valueFormat & 0x0020) { 
-        const offset = this.parseShort();
+        const offset = this.parseUShort();
         if (offset !== 0 && parentTableOffset !== undefined) {
             valueRecord.yPlaDeviceOffset = offset;
             valueRecord.yPlaDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
         }
     }
     if (valueFormat & 0x0040) { 
-        const offset = this.parseShort();
+        const offset = this.parseUShort();
         if (offset !== 0 && parentTableOffset !== undefined) {
             valueRecord.xAdvDeviceOffset = offset;
             valueRecord.xAdvDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
         }
     }
     if (valueFormat & 0x0080) { 
-        const offset = this.parseShort();
+        const offset = this.parseUShort();
         if (offset !== 0 && parentTableOffset !== undefined) {
             valueRecord.yAdvDeviceOffset = offset;
             valueRecord.yAdvDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
