@@ -718,16 +718,72 @@ subtableMakers[4] = function makeLookup4(subtable) {
     ]);
 };
 subtableMakers[5] = function makeLookup5(subtable) {
+    if (!subtable || !subtable.posFormat) {
+        return new table.Table('markToLigatureTable', [
+            { name: 'posFormat', type: 'USHORT', value: 1 }
+        ]);
+    }
+
     check.assert(subtable.posFormat === 1, 'Lookup type 5 posFormat must be 1.');
-    
-    // Stub — mark-to-ligature not yet needed
+
+    const markClassCount = subtable.markClassCount || 1;
+
+    // Build MarkArray subtable (identical to type 4)
+    const markArrayFields = [
+        { name: 'markCount', type: 'USHORT', value: subtable.markArray?.length || 0 }
+    ];
+    if (subtable.markArray) {
+        for (let i = 0; i < subtable.markArray.length; i++) {
+            const rec = subtable.markArray[i];
+            markArrayFields.push(
+                { name: 'markClass_' + i, type: 'USHORT', value: rec.markClass || 0 },
+                { name: 'markAnchor_' + i, type: 'TABLE', value: makeAnchor(rec.markAnchor) }
+            );
+        }
+    }
+    const markArrayTable = new table.Table('markArray', markArrayFields);
+
+    // Build LigatureArray subtable
+    // LigatureArray → LigatureAttach[] → ComponentRecord[] → anchor[markClassCount]
+    const ligatureAttachTables = [];
+    if (subtable.ligatureArray) {
+        for (let i = 0; i < subtable.ligatureArray.length; i++) {
+            const components = subtable.ligatureArray[i]; // array of ComponentRecords
+            const attachFields = [
+                { name: 'componentCount', type: 'USHORT', value: components?.length || 0 }
+            ];
+            if (components) {
+                for (let compIdx = 0; compIdx < components.length; compIdx++) {
+                    const componentRecord = components[compIdx]; // array of markClassCount anchors
+                    for (let c = 0; c < markClassCount; c++) {
+                        const anchor = componentRecord ? componentRecord[c] : null;
+                        attachFields.push(
+                            { name: 'anchor_' + i + '_' + compIdx + '_' + c, type: 'TABLE', value: makeAnchor(anchor) }
+                        );
+                    }
+                }
+            }
+            ligatureAttachTables.push(new table.Table('ligatureAttach_' + i, attachFields));
+        }
+    }
+
+    const ligatureArrayFields = [
+        { name: 'ligatureCount', type: 'USHORT', value: ligatureAttachTables.length }
+    ];
+    for (let i = 0; i < ligatureAttachTables.length; i++) {
+        ligatureArrayFields.push(
+            { name: 'ligatureAttach_' + i, type: 'TABLE', value: ligatureAttachTables[i] }
+        );
+    }
+    const ligatureArrayTable = new table.Table('ligatureArray', ligatureArrayFields);
+
     return new table.Table('markToLigatureTable', [
-        {name: 'posFormat', type: 'USHORT', value: 1},
-        {name: 'markCoverageOffset', type: 'USHORT', value: 0},
-        {name: 'ligatureCoverageOffset', type: 'USHORT', value: 0},
-        {name: 'markClassCount', type: 'USHORT', value: subtable.markClassCount || 1},
-        {name: 'markArrayOffset', type: 'USHORT', value: 0},
-        {name: 'ligatureArrayOffset', type: 'USHORT', value: 0}
+        { name: 'posFormat', type: 'USHORT', value: 1 },
+        { name: 'markCoverage', type: 'TABLE', value: new table.Coverage(subtable.markCoverage) },
+        { name: 'ligatureCoverage', type: 'TABLE', value: new table.Coverage(subtable.ligatureCoverage) },
+        { name: 'markClassCount', type: 'USHORT', value: markClassCount },
+        { name: 'markArray', type: 'TABLE', value: markArrayTable },
+        { name: 'ligatureArray', type: 'TABLE', value: ligatureArrayTable }
     ]);
 };
 

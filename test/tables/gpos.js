@@ -393,6 +393,72 @@ describe('tables/gpos.js', function() {
         assert.deepEqual(reparsed, parsed);
     });
 
+    //// Parse: Lookup type 4 ////////////////////////////////////////////////
+    // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-4-mark-to-base-attachment-positioning-subtable
+
+    it('can parse lookup4 MarkToBase from hex', function() {
+        // 1 mark (0x300), 1 base (0x41), 1 mark class
+        // Mark anchor at (200, 700), base anchor at (250, 600)
+        const data = '00 01 00 0C 00 12 00 01 00 18 00 24 00 01 00 01 03 00 00 01 00 01 00 41 00 01 00 00 00 06 00 01 00 C8 02 BC 00 01 00 04 00 01 00 FA 02 58';
+        const result = parseLookup(4, data);
+        assert.equal(result.posFormat, 1);
+        assert.equal(result.markClassCount, 1);
+        assert.deepEqual(result.markCoverage, { format: 1, glyphs: [0x300] });
+        assert.deepEqual(result.baseCoverage, { format: 1, glyphs: [0x41] });
+        assert.equal(result.markArray.length, 1);
+        assert.equal(result.markArray[0].markClass, 0);
+        assert.equal(result.markArray[0].markAnchor.xCoordinate, 200);
+        assert.equal(result.markArray[0].markAnchor.yCoordinate, 700);
+        assert.equal(result.baseArray.length, 1);
+        assert.equal(result.baseArray[0][0].xCoordinate, 250);
+        assert.equal(result.baseArray[0][0].yCoordinate, 600);
+    });
+
+    //// Parse: Lookup type 5 ////////////////////////////////////////////////
+    // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-5-mark-to-ligature-attachment-positioning-subtable
+
+    it('can parse lookup5 MarkToLigature from hex', function() {
+        // 1 mark (0x300), 1 ligature (0xFB01 "fi"), 2 components, 1 mark class
+        // Mark anchor at (0, 700), component 0 anchor at (150, 650), component 1 anchor at (350, 680)
+        const data = '00 01 00 0C 00 12 00 01 00 18 00 24 00 01 00 01 03 00 00 01 00 01 FB 01 00 01 00 00 00 06 00 01 00 00 02 BC 00 01 00 04 00 02 00 06 00 0C 00 01 00 96 02 8A 00 01 01 5E 02 A8';
+        const result = parseLookup(5, data);
+        assert.equal(result.posFormat, 1);
+        assert.equal(result.markClassCount, 1);
+        assert.deepEqual(result.markCoverage, { format: 1, glyphs: [0x300] });
+        assert.deepEqual(result.ligatureCoverage, { format: 1, glyphs: [0xFB01] });
+        assert.equal(result.markArray.length, 1);
+        assert.equal(result.markArray[0].markClass, 0);
+        assert.equal(result.markArray[0].markAnchor.xCoordinate, 0);
+        assert.equal(result.markArray[0].markAnchor.yCoordinate, 700);
+        assert.equal(result.ligatureArray.length, 1);
+        assert.equal(result.ligatureArray[0].length, 2);  // 2 components
+        assert.equal(result.ligatureArray[0][0][0].xCoordinate, 150);
+        assert.equal(result.ligatureArray[0][0][0].yCoordinate, 650);
+        assert.equal(result.ligatureArray[0][1][0].xCoordinate, 350);
+        assert.equal(result.ligatureArray[0][1][0].yCoordinate, 680);
+    });
+
+    //// Parse: Lookup type 6 ////////////////////////////////////////////////
+    // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-6-mark-to-mark-attachment-positioning-subtable
+
+    it('can parse lookup6 MarkToMark from hex', function() {
+        // 1 mark1 (0x308 diaeresis), 1 mark2 (0x301 acute), 1 mark class
+        // Mark1 anchor at (0, 0), mark2 anchor at (0, 400)
+        const data = '00 01 00 0C 00 12 00 01 00 18 00 24 00 01 00 01 03 08 00 01 00 01 03 01 00 01 00 00 00 06 00 01 00 00 00 00 00 01 00 04 00 01 00 00 01 90';
+        const result = parseLookup(6, data);
+        assert.equal(result.posFormat, 1);
+        assert.equal(result.markClassCount, 1);
+        assert.deepEqual(result.mark1Coverage, { format: 1, glyphs: [0x308] });
+        assert.deepEqual(result.mark2Coverage, { format: 1, glyphs: [0x301] });
+        assert.equal(result.mark1Array.length, 1);
+        assert.equal(result.mark1Array[0].markClass, 0);
+        assert.equal(result.mark1Array[0].markAnchor.xCoordinate, 0);
+        assert.equal(result.mark1Array[0].markAnchor.yCoordinate, 0);
+        assert.equal(result.mark2Array.length, 1);
+        assert.equal(result.mark2Array[0][0].xCoordinate, 0);
+        assert.equal(result.mark2Array[0][0].yCoordinate, 400);
+    });
+
     //// Write: Lookup type 4 /////////////////////////////////////////////////
     // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-4-mark-to-base-attachment-positioning-subtable
 
@@ -495,6 +561,188 @@ describe('tables/gpos.js', function() {
         assert.equal(reparsed.baseArray[0][0].xCoordinate, 200);
         // Base[1] has null anchor (offset 0 → no anchor)
         assert.equal(reparsed.baseArray[1][0], null);
+    });
+
+    //// Write: Lookup type 5 /////////////////////////////////////////////////
+    // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-5-mark-to-ligature-attachment-positioning-subtable
+
+    it('can write lookup5 MarkToLigature', function() {
+        // Simple mark-to-ligature: 1 mark class, 1 mark (0x300 combining grave),
+        // 1 ligature (0x66 "fi" with 2 components)
+        const subtable = {
+            posFormat: 1,
+            markCoverage: { format: 1, glyphs: [0x300] },
+            ligatureCoverage: { format: 1, glyphs: [0xFB01] },  // fi ligature
+            markClassCount: 1,
+            markArray: [
+                { markClass: 0, markAnchor: { format: 1, xCoordinate: 0, yCoordinate: 700 } }
+            ],
+            ligatureArray: [
+                // LigatureAttach for "fi": 2 components, each with 1 anchor (class 0)
+                [
+                    [{ format: 1, xCoordinate: 150, yCoordinate: 650 }],  // component 0 ("f")
+                    [{ format: 1, xCoordinate: 350, yCoordinate: 680 }]   // component 1 ("i")
+                ]
+            ]
+        };
+        const encoded = makeLookup(5, subtable);
+
+        const reparsed = parseLookup(5, Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join(' '));
+        assert.equal(reparsed.posFormat, 1);
+        assert.equal(reparsed.markClassCount, 1);
+        assert.deepEqual(reparsed.markCoverage, { format: 1, glyphs: [0x300] });
+        assert.deepEqual(reparsed.ligatureCoverage, { format: 1, glyphs: [0xFB01] });
+        assert.equal(reparsed.markArray.length, 1);
+        assert.equal(reparsed.markArray[0].markClass, 0);
+        assert.equal(reparsed.markArray[0].markAnchor.xCoordinate, 0);
+        assert.equal(reparsed.markArray[0].markAnchor.yCoordinate, 700);
+        // LigatureAttach[0] should have 2 components
+        assert.equal(reparsed.ligatureArray.length, 1);
+        assert.equal(reparsed.ligatureArray[0].length, 2);  // 2 components
+        assert.equal(reparsed.ligatureArray[0][0][0].xCoordinate, 150);
+        assert.equal(reparsed.ligatureArray[0][0][0].yCoordinate, 650);
+        assert.equal(reparsed.ligatureArray[0][1][0].xCoordinate, 350);
+        assert.equal(reparsed.ligatureArray[0][1][0].yCoordinate, 680);
+    });
+
+    it('can write lookup5 MarkToLigature with multiple classes', function() {
+        // 2 mark classes (above, below), 2 marks, 1 ligature with 3 components
+        const subtable = {
+            posFormat: 1,
+            markCoverage: { format: 1, glyphs: [0x300, 0x327] },  // combining grave, combining cedilla
+            ligatureCoverage: { format: 1, glyphs: [0xFB03] },     // ffi ligature
+            markClassCount: 2,
+            markArray: [
+                { markClass: 0, markAnchor: { format: 1, xCoordinate: 0, yCoordinate: 700 } },   // grave → class 0 (above)
+                { markClass: 1, markAnchor: { format: 1, xCoordinate: 0, yCoordinate: 0 } }      // cedilla → class 1 (below)
+            ],
+            ligatureArray: [
+                // LigatureAttach for "ffi": 3 components, each with 2 anchors (class 0 above, class 1 below)
+                [
+                    // component 0 ("f")
+                    [
+                        { format: 1, xCoordinate: 100, yCoordinate: 650 },   // class 0 (above)
+                        { format: 1, xCoordinate: 100, yCoordinate: -80 }    // class 1 (below)
+                    ],
+                    // component 1 ("f")
+                    [
+                        { format: 1, xCoordinate: 250, yCoordinate: 660 },
+                        { format: 1, xCoordinate: 250, yCoordinate: -90 }
+                    ],
+                    // component 2 ("i")
+                    [
+                        { format: 1, xCoordinate: 400, yCoordinate: 680 },
+                        { format: 1, xCoordinate: 400, yCoordinate: -70 }
+                    ]
+                ]
+            ]
+        };
+        const encoded = makeLookup(5, subtable);
+
+        const reparsed = parseLookup(5, Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join(' '));
+        assert.equal(reparsed.markClassCount, 2);
+        assert.equal(reparsed.markArray.length, 2);
+        assert.equal(reparsed.markArray[0].markClass, 0);
+        assert.equal(reparsed.markArray[1].markClass, 1);
+        // LigatureAttach[0] should have 3 components
+        assert.equal(reparsed.ligatureArray.length, 1);
+        assert.equal(reparsed.ligatureArray[0].length, 3);
+        // Component 0, class 0 (above)
+        assert.equal(reparsed.ligatureArray[0][0][0].xCoordinate, 100);
+        assert.equal(reparsed.ligatureArray[0][0][0].yCoordinate, 650);
+        // Component 0, class 1 (below)
+        assert.equal(reparsed.ligatureArray[0][0][1].xCoordinate, 100);
+        assert.equal(reparsed.ligatureArray[0][0][1].yCoordinate, -80);
+        // Component 2, class 1 (below)
+        assert.equal(reparsed.ligatureArray[0][2][1].xCoordinate, 400);
+        assert.equal(reparsed.ligatureArray[0][2][1].yCoordinate, -70);
+    });
+
+    it('can write lookup5 MarkToLigature with null anchors', function() {
+        // Some components may not have anchors for all classes
+        const subtable = {
+            posFormat: 1,
+            markCoverage: { format: 1, glyphs: [0x300] },
+            ligatureCoverage: { format: 1, glyphs: [0xFB01, 0xFB02] },  // fi, fl ligatures
+            markClassCount: 1,
+            markArray: [
+                { markClass: 0, markAnchor: { format: 1, xCoordinate: 0, yCoordinate: 600 } }
+            ],
+            ligatureArray: [
+                // fi: 2 components, component 0 has anchor, component 1 has null
+                [
+                    [{ format: 1, xCoordinate: 150, yCoordinate: 650 }],
+                    [null]  // no anchor for "i" component
+                ],
+                // fl: 2 components, both have anchors
+                [
+                    [{ format: 1, xCoordinate: 160, yCoordinate: 640 }],
+                    [{ format: 1, xCoordinate: 320, yCoordinate: 660 }]
+                ]
+            ]
+        };
+        const encoded = makeLookup(5, subtable);
+
+        const reparsed = parseLookup(5, Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join(' '));
+        assert.equal(reparsed.ligatureArray.length, 2);
+        // fi ligature
+        assert.equal(reparsed.ligatureArray[0].length, 2);
+        assert.equal(reparsed.ligatureArray[0][0][0].xCoordinate, 150);
+        assert.equal(reparsed.ligatureArray[0][1][0], null);  // null anchor preserved
+        // fl ligature
+        assert.equal(reparsed.ligatureArray[1][0][0].xCoordinate, 160);
+        assert.equal(reparsed.ligatureArray[1][1][0].xCoordinate, 320);
+    });
+
+    it('can roundtrip lookup5 MarkToLigature', function() {
+        // Parse → make → re-parse roundtrip for mark-to-ligature
+        const subtable = {
+            posFormat: 1,
+            markCoverage: { format: 1, glyphs: [0x300, 0x301] },
+            ligatureCoverage: { format: 1, glyphs: [0xFB01] },
+            markClassCount: 2,
+            markArray: [
+                { markClass: 0, markAnchor: { format: 1, xCoordinate: 10, yCoordinate: 20 } },
+                { markClass: 1, markAnchor: { format: 1, xCoordinate: 30, yCoordinate: 40 } }
+            ],
+            ligatureArray: [
+                [
+                    [
+                        { format: 1, xCoordinate: 100, yCoordinate: 200 },
+                        { format: 1, xCoordinate: 300, yCoordinate: 400 }
+                    ],
+                    [
+                        { format: 1, xCoordinate: 500, yCoordinate: 600 },
+                        { format: 1, xCoordinate: 700, yCoordinate: 800 }
+                    ]
+                ]
+            ]
+        };
+        const encoded = makeLookup(5, subtable);
+        const reparsed = parseLookup(5, Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join(' '));
+
+        // Verify full roundtrip fidelity
+        assert.deepEqual(reparsed.markCoverage, subtable.markCoverage);
+        assert.deepEqual(reparsed.ligatureCoverage, subtable.ligatureCoverage);
+        assert.equal(reparsed.markClassCount, subtable.markClassCount);
+        assert.equal(reparsed.markArray.length, subtable.markArray.length);
+        for (let i = 0; i < subtable.markArray.length; i++) {
+            assert.equal(reparsed.markArray[i].markClass, subtable.markArray[i].markClass);
+            assert.equal(reparsed.markArray[i].markAnchor.xCoordinate, subtable.markArray[i].markAnchor.xCoordinate);
+            assert.equal(reparsed.markArray[i].markAnchor.yCoordinate, subtable.markArray[i].markAnchor.yCoordinate);
+        }
+        assert.equal(reparsed.ligatureArray.length, subtable.ligatureArray.length);
+        for (let lig = 0; lig < subtable.ligatureArray.length; lig++) {
+            assert.equal(reparsed.ligatureArray[lig].length, subtable.ligatureArray[lig].length);
+            for (let comp = 0; comp < subtable.ligatureArray[lig].length; comp++) {
+                for (let cls = 0; cls < subtable.markClassCount; cls++) {
+                    const expected = subtable.ligatureArray[lig][comp][cls];
+                    const actual = reparsed.ligatureArray[lig][comp][cls];
+                    assert.equal(actual.xCoordinate, expected.xCoordinate);
+                    assert.equal(actual.yCoordinate, expected.yCoordinate);
+                }
+            }
+        }
     });
 
     //// Write: Lookup type 6 /////////////////////////////////////////////////
