@@ -481,40 +481,77 @@ subtableMakers[2] = function makeLookup2(subtable) {
 
     if (subtable.posFormat === 1) {
         // PairPosFormat1: Individual pair adjustments
-        // Layout: posFormat, coverageOffset, vf1, vf2, pairSetCount, pairSetOffsets[], then subtable data
+        // Binary layout: posFormat(2), coverageOffset(2), vf1(2), vf2(2), pairSetCount(2),
+        //   pairSetOffsets[count](2 each), then pairSet data, then coverage data.
+        // IMPORTANT: pairSets must come BEFORE coverage in the data section to keep
+        // pairSet offsets within 16-bit range for large subtables.
+        // We use LITERAL encoding to control data layout precisely.
         const pairSets = subtable.pairSets || [];
 
-        // Build pair set sub-tables (each is a flat table with inline value records)
-        const pairSetTables = pairSets.map(function(pairs, i) {
+        // Pre-encode each pairSet into bytes
+        const pairSetBytes = pairSets.map(function(pairs) {
             pairs = pairs || [];
-            const fields = [
-                {name: 'pairValueCount', type: 'USHORT', value: pairs.length}
-            ];
+            const d = [];
+            // pairValueCount
+            d.push((pairs.length >> 8) & 0xff, pairs.length & 0xff);
             for (let j = 0; j < pairs.length; j++) {
                 const pair = pairs[j];
-                fields.push({name: 'secondGlyph' + j, type: 'USHORT', value: pair.secondGlyph});
-                if (subtable.valueFormat1 & 0x0001) fields.push({name: 'v1xP' + j, type: 'SHORT', value: pair.value1?.xPlacement || 0});
-                if (subtable.valueFormat1 & 0x0002) fields.push({name: 'v1yP' + j, type: 'SHORT', value: pair.value1?.yPlacement || 0});
-                if (subtable.valueFormat1 & 0x0004) fields.push({name: 'v1xA' + j, type: 'SHORT', value: pair.value1?.xAdvance || 0});
-                if (subtable.valueFormat1 & 0x0008) fields.push({name: 'v1yA' + j, type: 'SHORT', value: pair.value1?.yAdvance || 0});
-                if (subtable.valueFormat2 & 0x0001) fields.push({name: 'v2xP' + j, type: 'SHORT', value: pair.value2?.xPlacement || 0});
-                if (subtable.valueFormat2 & 0x0002) fields.push({name: 'v2yP' + j, type: 'SHORT', value: pair.value2?.yPlacement || 0});
-                if (subtable.valueFormat2 & 0x0004) fields.push({name: 'v2xA' + j, type: 'SHORT', value: pair.value2?.xAdvance || 0});
-                if (subtable.valueFormat2 & 0x0008) fields.push({name: 'v2yA' + j, type: 'SHORT', value: pair.value2?.yAdvance || 0});
+                d.push((pair.secondGlyph >> 8) & 0xff, pair.secondGlyph & 0xff);
+                if (subtable.valueFormat1 & 0x0001) { const v = pair.value1?.xPlacement || 0; d.push((v >> 8) & 0xff, v & 0xff); }
+                if (subtable.valueFormat1 & 0x0002) { const v = pair.value1?.yPlacement || 0; d.push((v >> 8) & 0xff, v & 0xff); }
+                if (subtable.valueFormat1 & 0x0004) { const v = pair.value1?.xAdvance || 0; d.push((v >> 8) & 0xff, v & 0xff); }
+                if (subtable.valueFormat1 & 0x0008) { const v = pair.value1?.yAdvance || 0; d.push((v >> 8) & 0xff, v & 0xff); }
+                if (subtable.valueFormat2 & 0x0001) { const v = pair.value2?.xPlacement || 0; d.push((v >> 8) & 0xff, v & 0xff); }
+                if (subtable.valueFormat2 & 0x0002) { const v = pair.value2?.yPlacement || 0; d.push((v >> 8) & 0xff, v & 0xff); }
+                if (subtable.valueFormat2 & 0x0004) { const v = pair.value2?.xAdvance || 0; d.push((v >> 8) & 0xff, v & 0xff); }
+                if (subtable.valueFormat2 & 0x0008) { const v = pair.value2?.yAdvance || 0; d.push((v >> 8) & 0xff, v & 0xff); }
             }
-            return new table.Table('pairSet' + i, fields);
+            return d;
         });
 
-        // Use TABLE type for coverage and pairSets — the Table encoder auto-computes offsets
+        // Pre-encode coverage table
+        const coverageTable = new table.Coverage(subtable.coverage);
+        const coverageBytes = encode.TABLE(coverageTable);
+
+        // Calculate layout: header + pairSetOffsets, then pairSet data, then coverage
+        const headerSize = 10 + pairSets.length * 2; // posFormat(2)+covOffset(2)+vf1(2)+vf2(2)+count(2)+offsets(2*N)
+        let pairSetDataOffset = headerSize;
+        const pairSetOffsets = [];
+        for (let i = 0; i < pairSetBytes.length; i++) {
+            pairSetOffsets.push(pairSetDataOffset);
+            pairSetDataOffset += pairSetBytes[i].length;
+        }
+        const coverageOffset = pairSetDataOffset;
+
+        // Build complete binary
+        const d = [];
+        // posFormat
+        d.push(0, 1);
+        // coverageOffset
+        d.push((coverageOffset >> 8) & 0xff, coverageOffset & 0xff);
+        // valueFormat1, valueFormat2
+        d.push((subtable.valueFormat1 >> 8) & 0xff, subtable.valueFormat1 & 0xff);
+        d.push((subtable.valueFormat2 >> 8) & 0xff, subtable.valueFormat2 & 0xff);
+        // pairSetCount
+        d.push((pairSets.length >> 8) & 0xff, pairSets.length & 0xff);
+        // pairSetOffsets
+        for (let i = 0; i < pairSetOffsets.length; i++) {
+            d.push((pairSetOffsets[i] >> 8) & 0xff, pairSetOffsets[i] & 0xff);
+        }
+        // pairSet data
+        for (let i = 0; i < pairSetBytes.length; i++) {
+            for (let j = 0; j < pairSetBytes[i].length; j++) {
+                d.push(pairSetBytes[i][j]);
+            }
+        }
+        // coverage data
+        for (let j = 0; j < coverageBytes.length; j++) {
+            d.push(coverageBytes[j]);
+        }
+
         return new table.Table('pairPosFormat1', [
-            {name: 'posFormat', type: 'USHORT', value: 1},
-            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
-            {name: 'valueFormat1', type: 'USHORT', value: subtable.valueFormat1},
-            {name: 'valueFormat2', type: 'USHORT', value: subtable.valueFormat2},
-            {name: 'pairSetCount', type: 'USHORT', value: pairSets.length}
-        ].concat(pairSetTables.map(function(pst, i) {
-            return {name: 'pairSet' + i, type: 'TABLE', value: pst};
-        })));
+            {name: 'data', type: 'LITERAL', value: d}
+        ]);
     } else {
         // PairPosFormat2: Class pair adjustments
         // Layout: posFormat, coverageOffset, vf1, vf2, classDef1Offset, classDef2Offset,
@@ -994,16 +1031,20 @@ subtableMakers[9] = function makeLookup9(subtable, extensionData) {
         }
 
         // If extensionData collector is provided, use two-phase encoding:
-        // return just the 8-byte header, collect actual data for deferred writing
+        // return just the 8-byte header, collect actual data for deferred writing.
+        // Use a unique sentinel as the offset placeholder so the header scanner
+        // can reliably distinguish extension headers from regular font data.
         if (extensionData) {
+            const idx = extensionData.actualData.length;
+            const sentinel = 0xEE5A0000 + idx; // unique per extension subtable
             extensionData.actualData.push(actualBytes);
-            extensionData.headerPositions.push(-1);
+            extensionData.sentinels.push(sentinel);
             extensionData.lookupTypes.push(extLookupType);
 
             return new table.Table('extensionPosTable', [
                 { name: 'posFormat', type: 'USHORT', value: 1 },
                 { name: 'extensionLookupType', type: 'USHORT', value: extLookupType },
-                { name: 'extensionOffset', type: 'ULONG', value: 0 }  // Placeholder - patched later
+                { name: 'extensionOffset', type: 'ULONG', value: sentinel }
             ]);
         }
 
@@ -1050,10 +1091,10 @@ function makeGposTable(gpos) {
     }
 
     // Has extension lookups — use two-phase encoding
-    // Phase 1: Collect extension data and create headers with placeholder offsets
+    // Phase 1: Collect extension data and create headers with sentinel offsets
     const extensionData = {
         actualData: [],
-        headerPositions: [],
+        sentinels: [],
         lookupTypes: []
     };
 
@@ -1076,27 +1117,29 @@ function makeGposTable(gpos) {
     let mainBytes = mainTable.encode();
 
     if (extensionData.actualData.length > 0) {
-        // Find all extension header positions by scanning for the pattern:
-        // posFormat=1 (USHORT) + valid lookupType 1-8 (USHORT) + offset=0 (ULONG)
+        // Find extension header positions by scanning for unique sentinel values.
+        // Each sentinel is 0xEE5A0000 + index, written as the 32-bit extensionOffset field.
         const headerPositions = [];
-        for (let i = 0; i <= mainBytes.length - 8; i++) {
-            if (mainBytes[i] === 0 && mainBytes[i + 1] === 1) {
-                const lookupType = (mainBytes[i + 2] << 8) | mainBytes[i + 3];
-                if (lookupType >= 1 && lookupType <= 8) {
-                    const offset = (mainBytes[i + 4] << 24) | (mainBytes[i + 5] << 16) |
-                                   (mainBytes[i + 6] << 8) | mainBytes[i + 7];
-                    if (offset === 0) {
-                        headerPositions.push(i);
-                    }
+        for (let idx = 0; idx < extensionData.sentinels.length; idx++) {
+            const sentinel = extensionData.sentinels[idx];
+            const b0 = (sentinel >> 24) & 0xff;
+            const b1 = (sentinel >> 16) & 0xff;
+            const b2 = (sentinel >> 8) & 0xff;
+            const b3 = sentinel & 0xff;
+            let found = false;
+            for (let i = 4; i <= mainBytes.length - 4; i++) {
+                if (mainBytes[i] === b0 && mainBytes[i + 1] === b1 &&
+                    mainBytes[i + 2] === b2 && mainBytes[i + 3] === b3) {
+                    // The sentinel is at the extensionOffset field (bytes 4-7 of the 8-byte header)
+                    headerPositions.push(i - 4);
+                    found = true;
+                    break;
                 }
             }
-        }
-
-        if (headerPositions.length !== extensionData.actualData.length) {
-            console.warn('GPOS Extension header detection mismatch (' +
-                headerPositions.length + ' found, ' + extensionData.actualData.length +
-                ' expected), using inline encoding');
-            return mainTable;
+            if (!found) {
+                console.warn('GPOS Extension sentinel not found for index ' + idx);
+                return mainTable;
+            }
         }
 
         // Calculate where extension data will be appended
