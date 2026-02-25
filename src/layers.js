@@ -178,8 +178,13 @@ export class LayerManager {
             }
 
             case 11: { // PaintColrGlyph - reference another color glyph's paint
-                const refLayers = this._getV1Layers(paint.glyphID);
-                layers.push(...refLayers);
+                const colr = font.tables.colr;
+                if (colr.baseGlyphPaintRecords) {
+                    const refRecord = binarySearch(colr.baseGlyphPaintRecords, 'glyphID', paint.glyphID);
+                    if (refRecord) {
+                        this._flattenPaint(refRecord.paint, layers, transform);
+                    }
+                }
                 break;
             }
 

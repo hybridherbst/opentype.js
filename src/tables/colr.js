@@ -887,43 +887,60 @@ function serializePaintNode(node) {
  * Build a flat LayerList and BaseGlyphList from baseGlyphPaintRecords.
  * Extracts PaintColrLayers → individual layer paints into a shared LayerList,
  * which is the structure expected by the binary format.
+ *
+ * Handles nested PaintColrLayers correctly: depth-first extracts sublayers
+ * into the LayerList before the parent layers, rewriting firstLayerIndex at
+ * every level.
  */
 function buildV1Tables(baseGlyphPaintRecords) {
-    // Collect all unique layer paints from PaintColrLayers nodes
+    // Shared flat LayerList — every PaintColrLayers' layers end up here
     const layerPaintBytes = []; // array of byte arrays, one per layer paint
-    
-    // For each base glyph, serialize its root paint
-    // If the root paint is PaintColrLayers, we need to extract its layers
-    // into the shared LayerList and rewrite the firstLayerIndex
     const baseGlyphEntries = []; // { glyphID, paintBytes }
-    
-    for (const record of baseGlyphPaintRecords) {
-        const paint = record.paint;
-        if (paint.format === PaintFormat.ColrLayers) {
-            // Extract layers into LayerList
+
+    /**
+     * Recursively walk a paint tree. When a PaintColrLayers node is found,
+     * its child layers are (after recursive processing) appended to the
+     * shared layerPaintBytes array and the node is rewritten with the
+     * correct firstLayerIndex.  All other node types are shallow-cloned
+     * with their child paint references recursively processed.
+     */
+    function extractLayers(paint) {
+        if (!paint || typeof paint !== 'object') return paint;
+
+        if (paint.format === PaintFormat.ColrLayers && paint.layers) {
+            // Depth-first: process each child layer so nested PaintColrLayers
+            // add their sublayers to the LayerList first.
+            const processedLayers = paint.layers.map(layer => extractLayers(layer));
+
+            // Now append the (rewritten) child layers contiguously.
             const firstIndex = layerPaintBytes.length;
-            for (const layer of paint.layers) {
-                layerPaintBytes.push(serializePaintNode(layer));
+            for (const pl of processedLayers) {
+                layerPaintBytes.push(serializePaintNode(pl));
             }
-            // Rewrite the PaintColrLayers with updated firstLayerIndex
-            const rewritten = {
+
+            return {
                 format: PaintFormat.ColrLayers,
                 numLayers: paint.layers.length,
                 firstLayerIndex: firstIndex,
             };
-            baseGlyphEntries.push({
-                glyphID: record.glyphID,
-                paintBytes: serializePaintNode(rewritten),
-            });
-        } else {
-            // Non-ColrLayers root: serialize directly
-            baseGlyphEntries.push({
-                glyphID: record.glyphID,
-                paintBytes: serializePaintNode(paint),
-            });
         }
+
+        // For every other format, shallow-clone and recurse into child paints.
+        const clone = Object.assign({}, paint);
+        if (clone.paint)    clone.paint    = extractLayers(clone.paint);
+        if (clone.source)   clone.source   = extractLayers(clone.source);
+        if (clone.backdrop) clone.backdrop = extractLayers(clone.backdrop);
+        return clone;
     }
-    
+
+    for (const record of baseGlyphPaintRecords) {
+        const processed = extractLayers(record.paint);
+        baseGlyphEntries.push({
+            glyphID: record.glyphID,
+            paintBytes: serializePaintNode(processed),
+        });
+    }
+
     return { baseGlyphEntries, layerPaintBytes };
 }
 
