@@ -82,7 +82,7 @@ const CompositeMode = {
  * @returns {{ extend: number, stops: Array }}
  */
 function parseColorLine(p, isVariable) {
-    const extend = p.parseUShort(); // 0=pad, 1=repeat, 2=reflect
+    const extend = p.parseByte(); // uint8 Extend enum: 0=pad, 1=repeat, 2=reflect
     const numStops = p.parseUShort();
     const stops = [];
     for (let i = 0; i < numStops; i++) {
@@ -496,8 +496,8 @@ function parseColrTable(data, start) {
  */
 function encodeColorLine(colorLine) {
     const bytes = [];
-    // extend: USHORT
-    bytes.push((colorLine.extend >> 8) & 0xFF, colorLine.extend & 0xFF);
+    // extend: uint8 (Extend enum)
+    bytes.push(colorLine.extend & 0xFF);
     // numStops: USHORT
     const numStops = colorLine.stops.length;
     bytes.push((numStops >> 8) & 0xFF, numStops & 0xFF);

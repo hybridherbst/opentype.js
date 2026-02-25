@@ -277,9 +277,15 @@ export class LayerManager {
             }
 
             case 32: { // PaintComposite
-                // For now, render source over backdrop (ignore composite mode)
+                // Flatten backdrop first, then source. Tag each source layer
+                // with the composite mode so the renderer can apply blending.
                 this._flattenPaint(paint.backdrop, layers, transform);
+                const sourceStart = layers.length;
                 this._flattenPaint(paint.source, layers, transform);
+                // Apply composite mode to every source layer
+                for (let i = sourceStart; i < layers.length; i++) {
+                    layers[i].compositeMode = paint.compositeMode;
+                }
                 break;
             }
 
