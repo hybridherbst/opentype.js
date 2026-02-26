@@ -515,17 +515,17 @@ function encodeColorLine(colorLine) {
 }
 
 /**
- * Serialize an Affine2x3 matrix to bytes (6 × Fixed = 24 bytes)
+ * Serialize an Affine2x3 matrix to bytes (6 × Fixed 16.16 = 24 bytes)
  * @param {{ xx, yx, xy, yy, dx, dy }} m
  * @returns {number[]}
  */
 function encodeAffine2x3(m) {
     const bytes = [];
     for (const key of ['xx', 'yx', 'xy', 'yy', 'dx', 'dy']) {
-        const val = m[key];
-        const intPart = Math.floor(val);
-        const fracPart = Math.round((val - intPart) * 65536);
-        const fixed = ((intPart & 0xFFFF) << 16) | (fracPart & 0xFFFF);
+        // Convert to Fixed 16.16: multiply by 65536 and round to nearest integer.
+        // Using Math.round avoids the Math.floor bug where tiny negative values
+        // like -1e-16 would floor to -1, corrupting the transform.
+        const fixed = Math.round(m[key] * 65536);
         bytes.push((fixed >> 24) & 0xFF, (fixed >> 16) & 0xFF, (fixed >> 8) & 0xFF, fixed & 0xFF);
     }
     return bytes;
