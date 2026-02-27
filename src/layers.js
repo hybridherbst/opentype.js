@@ -29,6 +29,14 @@ function composeTransformAroundCenter(m, cx, cy) {
     );
 }
 
+/**
+ * COLRv1 Angle values are encoded as F2Dot14 where 1.0 = 180 degrees.
+ * Convert to radians for JS Math trig functions.
+ */
+function colrAngleToRadians(angle) {
+    return (angle || 0) * Math.PI;
+}
+
 export class LayerManager {
     // private properties don't work with reify
     // @TODO: refactor once we migrated to ES6 modules, see https://github.com/opentypejs/opentype.js/pull/579
@@ -240,8 +248,9 @@ export class LayerManager {
             }
 
             case 24: case 25: { // PaintRotate
-                const cos = Math.cos(paint.angle * Math.PI * 2);
-                const sin = Math.sin(paint.angle * Math.PI * 2);
+                const radians = colrAngleToRadians(paint.angle);
+                const cos = Math.cos(radians);
+                const sin = Math.sin(radians);
                 const m = { xx: cos, yx: sin, xy: -sin, yy: cos, dx: 0, dy: 0 };
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
                 this._flattenPaint(paint.paint, layers, newTransform);
@@ -249,8 +258,9 @@ export class LayerManager {
             }
 
             case 26: case 27: { // PaintRotateAroundCenter
-                const cos = Math.cos(paint.angle * Math.PI * 2);
-                const sin = Math.sin(paint.angle * Math.PI * 2);
+                const radians = colrAngleToRadians(paint.angle);
+                const cos = Math.cos(radians);
+                const sin = Math.sin(radians);
                 const m = composeTransformAroundCenter(
                     { xx: cos, yx: sin, xy: -sin, yy: cos, dx: 0, dy: 0 },
                     paint.centerX, paint.centerY
@@ -261,8 +271,8 @@ export class LayerManager {
             }
 
             case 28: case 29: { // PaintSkew
-                const tanX = Math.tan(paint.xSkewAngle * Math.PI * 2);
-                const tanY = Math.tan(paint.ySkewAngle * Math.PI * 2);
+                const tanX = Math.tan(colrAngleToRadians(paint.xSkewAngle));
+                const tanY = Math.tan(colrAngleToRadians(paint.ySkewAngle));
                 const m = { xx: 1, yx: tanY, xy: tanX, yy: 1, dx: 0, dy: 0 };
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
                 this._flattenPaint(paint.paint, layers, newTransform);
@@ -270,8 +280,8 @@ export class LayerManager {
             }
 
             case 30: case 31: { // PaintSkewAroundCenter
-                const tanX = Math.tan(paint.xSkewAngle * Math.PI * 2);
-                const tanY = Math.tan(paint.ySkewAngle * Math.PI * 2);
+                const tanX = Math.tan(colrAngleToRadians(paint.xSkewAngle));
+                const tanY = Math.tan(colrAngleToRadians(paint.ySkewAngle));
                 const m = composeTransformAroundCenter(
                     { xx: 1, yx: tanY, xy: tanX, yy: 1, dx: 0, dy: 0 },
                     paint.centerX, paint.centerY
