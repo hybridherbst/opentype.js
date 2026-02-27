@@ -321,15 +321,44 @@ subtableParsers[8] = function parseLookup8() { return { error: 'GPOS Lookup 8 no
 // Extension Positioning subtable (lookup type 9)
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-9-extension-positioning-subtable
 subtableParsers[9] = function parseLookup9() {
-    const posFormat = this.parseUShort();
-    check.argument(posFormat === 1, 'GPOS Extension Positioning subtable identifier-format must be 1');
-    const extensionLookupType = this.parseUShort();
-    const extensionParser = new Parser(this.data, this.offset + this.parseULong());
+    let posFormat;
+    let extensionLookupType;
+    let extensionOffset;
+    try {
+        posFormat = this.parseUShort();
+        check.argument(posFormat === 1, 'GPOS Extension Positioning subtable identifier-format must be 1');
+        extensionLookupType = this.parseUShort();
+        extensionOffset = this.parseULong();
+    } catch (err) {
+        if (err instanceof RangeError) {
+            return { error: 'GPOS extension subtable truncated' };
+        }
+        throw err;
+    }
+
+    const extensionStart = this.offset + extensionOffset;
+    if (!subtableParsers[extensionLookupType]) {
+        return { error: 'Unsupported GPOS extension lookup type ' + extensionLookupType };
+    }
+    if (extensionOffset === 0 || extensionStart < 0 || extensionStart >= this.data.byteLength) {
+        return { error: 'Invalid GPOS extension offset ' + extensionOffset };
+    }
+
+    const extensionParser = new Parser(this.data, extensionStart);
+    let extension;
+    try {
+        extension = subtableParsers[extensionLookupType].call(extensionParser);
+    } catch (err) {
+        if (err instanceof RangeError) {
+            return { error: 'GPOS extension parse out of bounds' };
+        }
+        throw err;
+    }
     return {
         posFormat: 1,
         lookupType: extensionLookupType,
         extensionLookupType: extensionLookupType,
-        extension: subtableParsers[extensionLookupType].call(extensionParser)
+        extension: extension
     };
 };
 

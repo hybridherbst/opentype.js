@@ -162,14 +162,43 @@ subtableParsers[6] = function parseLookup6() {
 // https://www.microsoft.com/typography/OTSPEC/GSUB.htm#ES
 subtableParsers[7] = function parseLookup7() {
     // Extension Substitution subtable
-    const substFormat = this.parseUShort();
-    check.argument(substFormat === 1, 'GSUB Extension Substitution subtable identifier-format must be 1');
-    const extensionLookupType = this.parseUShort();
-    const extensionParser = new Parser(this.data, this.offset + this.parseULong());
+    let substFormat;
+    let extensionLookupType;
+    let extensionOffset;
+    try {
+        substFormat = this.parseUShort();
+        check.argument(substFormat === 1, 'GSUB Extension Substitution subtable identifier-format must be 1');
+        extensionLookupType = this.parseUShort();
+        extensionOffset = this.parseULong();
+    } catch (err) {
+        if (err instanceof RangeError) {
+            return { error: 'GSUB extension subtable truncated' };
+        }
+        throw err;
+    }
+
+    const extensionStart = this.offset + extensionOffset;
+    if (!subtableParsers[extensionLookupType]) {
+        return { error: 'Unsupported GSUB extension lookup type ' + extensionLookupType };
+    }
+    if (extensionOffset === 0 || extensionStart < 0 || extensionStart >= this.data.byteLength) {
+        return { error: 'Invalid GSUB extension offset ' + extensionOffset };
+    }
+
+    const extensionParser = new Parser(this.data, extensionStart);
+    let extension;
+    try {
+        extension = subtableParsers[extensionLookupType].call(extensionParser);
+    } catch (err) {
+        if (err instanceof RangeError) {
+            return { error: 'GSUB extension parse out of bounds' };
+        }
+        throw err;
+    }
     return {
         substFormat: 1,
         lookupType: extensionLookupType,
-        extension: subtableParsers[extensionLookupType].call(extensionParser)
+        extension: extension
     };
 };
 

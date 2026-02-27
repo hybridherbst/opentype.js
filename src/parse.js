@@ -553,8 +553,18 @@ Parser.prototype.parseValueRecordList = function() {
 Parser.prototype.parsePointer = function(description) {
     const structOffset = this.parseOffset16();
     if (structOffset > 0) {
-        // NULL offset => return undefined
-        return new Parser(this.data, this.offset + structOffset).parseStruct(description);
+        const absoluteOffset = this.offset + structOffset;
+        if (absoluteOffset < 0 || absoluteOffset >= this.data.byteLength) {
+            return undefined;
+        }
+        try {
+            return new Parser(this.data, absoluteOffset).parseStruct(description);
+        } catch (err) {
+            if (err instanceof RangeError) {
+                return undefined;
+            }
+            throw err;
+        }
     }
     return undefined;
 };
@@ -562,8 +572,18 @@ Parser.prototype.parsePointer = function(description) {
 Parser.prototype.parsePointer32 = function(description) {
     const structOffset = this.parseOffset32();
     if (structOffset > 0) {
-        // NULL offset => return undefined
-        return new Parser(this.data, this.offset + structOffset).parseStruct(description);
+        const absoluteOffset = this.offset + structOffset;
+        if (absoluteOffset < 0 || absoluteOffset >= this.data.byteLength) {
+            return undefined;
+        }
+        try {
+            return new Parser(this.data, absoluteOffset).parseStruct(description);
+        } catch (err) {
+            if (err instanceof RangeError) {
+                return undefined;
+            }
+            throw err;
+        }
     }
     return undefined;
 };
