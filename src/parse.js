@@ -815,14 +815,74 @@ Parser.prototype.parseLookupList = function(lookupTableParsers) {
 
 Parser.prototype.parseFeatureVariationsList = function() {
     return this.parsePointer32(function() {
+        const fvTableStart = this.offset;
         const majorVersion = this.parseUShort();
         const minorVersion = this.parseUShort();
         check.argument(majorVersion === 1 && minorVersion < 1, 'GPOS/GSUB feature variations table unknown.');
-        const featureVariations = this.parseRecordList32({
+
+        // Read the record offsets first
+        const rawRecords = this.parseRecordList32({
             conditionSetOffset: Parser.offset32,
             featureTableSubstitutionOffset: Parser.offset32
         });
-        return featureVariations;
+
+        // Now resolve each offset to actual data
+        const records = [];
+        for (const rec of rawRecords) {
+            const entry = { conditions: [], featureSubstitutions: [] };
+
+            // Parse ConditionSet table
+            if (rec.conditionSetOffset > 0) {
+                const csParser = new Parser(this.data, fvTableStart + rec.conditionSetOffset);
+                const conditionCount = csParser.parseUShort();
+                const conditionOffsets = [];
+                for (let i = 0; i < conditionCount; i++) {
+                    conditionOffsets.push(csParser.parseOffset32());
+                }
+                for (const off of conditionOffsets) {
+                    const cp = new Parser(this.data, fvTableStart + rec.conditionSetOffset + off);
+                    const format = cp.parseUShort();
+                    if (format === 1) {
+                        entry.conditions.push({
+                            format: 1,
+                            axisIndex: cp.parseUShort(),
+                            filterRangeMinValue: cp.parseF2Dot14(),
+                            filterRangeMaxValue: cp.parseF2Dot14()
+                        });
+                    }
+                }
+            }
+
+            // Parse FeatureTableSubstitution table
+            if (rec.featureTableSubstitutionOffset > 0) {
+                const ftsStart = fvTableStart + rec.featureTableSubstitutionOffset;
+                const ftsParser = new Parser(this.data, ftsStart);
+                const ftsMajor = ftsParser.parseUShort();
+                const ftsMinor = ftsParser.parseUShort();
+                const substitutionCount = ftsParser.parseUShort();
+                for (let i = 0; i < substitutionCount; i++) {
+                    const featureIndex = ftsParser.parseUShort();
+                    const alternateFeatureOffset = ftsParser.parseOffset32();
+                    // Parse alternate feature table (same format as FeatureTable)
+                    if (alternateFeatureOffset > 0) {
+                        const afp = new Parser(this.data, ftsStart + alternateFeatureOffset);
+                        const featureParams = afp.parseUShort(); // usually 0
+                        const lookupCount = afp.parseUShort();
+                        const lookupListIndices = [];
+                        for (let j = 0; j < lookupCount; j++) {
+                            lookupListIndices.push(afp.parseUShort());
+                        }
+                        entry.featureSubstitutions.push({
+                            featureIndex,
+                            lookupListIndices
+                        });
+                    }
+                }
+            }
+
+            records.push(entry);
+        }
+        return records;
     }) || [];
 };
 
