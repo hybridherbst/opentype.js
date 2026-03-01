@@ -12,6 +12,18 @@ describe('tables/cpal.js', function() {
         colorRecords: [0x8866BBAA, 0x00112233, 0x12345678, 0xDEADBEEF],
         colorRecordIndices: [0, 2],
     };
+    const dataV1 = '00 01 00 02 00 02 00 04 00 00 00 2C 00 00 00 02 00 00 00 1C 00 00 00 24 00 00 00 28 ' +
+        '00 00 00 01 00 00 00 02 01 00 01 01 02 00 02 01 ' +
+        '88 66 BB AA 00 11 22 33 12 34 56 78 DE AD BE EF';
+    const objV1 = {
+        version: 1,
+        numPaletteEntries: 2,
+        colorRecords: [0x8866BBAA, 0x00112233, 0x12345678, 0xDEADBEEF],
+        colorRecordIndices: [0, 2],
+        paletteTypes: [1, 2],
+        paletteLabels: [0x0100, 0x0101],
+        paletteEntryLabels: [0x0200, 0x0201],
+    };
     const font = new Font({
         familyName: 'test',
         styleName: 'Regular',
@@ -31,6 +43,16 @@ describe('tables/cpal.js', function() {
         const hexString = hex(cpal.make(obj).encode());
         cpal.parse(unhex(hexString), 0);
         assert.deepStrictEqual(data, hexString);
+    });
+
+    it('can parse cpal v1 table', function() {
+        assert.deepStrictEqual(objV1, cpal.parse(unhex(dataV1), 0));
+    });
+
+    it('can make cpal v1 table', function() {
+        const hexString = hex(cpal.make(objV1).encode());
+        cpal.parse(unhex(hexString), 0);
+        assert.deepStrictEqual(dataV1, hexString);
     });
     
     const colors = [

@@ -265,6 +265,31 @@ describe('tables/gpos.js', function() {
         assert.deepEqual(reparsed, parsed);
     });
 
+    it('can roundtrip lookup1 SinglePosFormat2 with device-only value records', function() {
+        const subtable = {
+            posFormat: 2,
+            coverage: {
+                format: 1,
+                glyphs: [0x4f]
+            },
+            values: [{
+                xPlaDevice: {
+                    type: 'device',
+                    startSize: 11,
+                    endSize: 15,
+                    deltaFormat: 1,
+                    deltaValues: [1, 1, 1, 1, 1]
+                }
+            }]
+        };
+
+        const encoded = makeLookup(1, subtable);
+        const reparsed = parseLookup(1, Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join(' '));
+
+        assert.equal(reparsed.posFormat, 2);
+        assert.ok(reparsed.values[0] && typeof reparsed.values[0] === 'object', 'device-only record should not be dropped');
+    });
+
     //// Write: Lookup type 2 /////////////////////////////////////////////////
     // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-2-pair-adjustment-positioning-subtable
 

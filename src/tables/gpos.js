@@ -461,6 +461,10 @@ function inferValueFormat(value) {
     if ('yPlacement' in value) format |= 0x0002;
     if ('xAdvance' in value) format |= 0x0004;
     if ('yAdvance' in value) format |= 0x0008;
+    if ('xPlaDevice' in value || 'xPlaDeviceOffset' in value) format |= 0x0010;
+    if ('yPlaDevice' in value || 'yPlaDeviceOffset' in value) format |= 0x0020;
+    if ('xAdvDevice' in value || 'xAdvDeviceOffset' in value) format |= 0x0040;
+    if ('yAdvDevice' in value || 'yAdvDeviceOffset' in value) format |= 0x0080;
     return format;
 }
 

@@ -11,43 +11,130 @@ import table from '../table.js';
 function parseCpalTable(data, start) {
     const p = new Parser(data, start);
     const version = p.parseShort();
-    if(version !== 0x0000) {
-        console.warn('Only CPALv0 is currently fully supported.');
-    }
     const numPaletteEntries = p.parseShort();
     const numPalettes = p.parseShort();
     const numColorRecords = p.parseShort();
     const colorRecordsArrayOffset = p.parseOffset32();
     const colorRecordIndices = p.parseUShortList(numPalettes);
+
+    let paletteTypes = [];
+    let paletteLabels = [];
+    let paletteEntryLabels = [];
+
+    if (version >= 1) {
+        const paletteTypesArrayOffset = p.parseOffset32();
+        const paletteLabelsArrayOffset = p.parseOffset32();
+        const paletteEntryLabelsArrayOffset = p.parseOffset32();
+
+        if (paletteTypesArrayOffset) {
+            p.relativeOffset = paletteTypesArrayOffset;
+            paletteTypes = p.parseULongList(numPalettes);
+        }
+
+        if (paletteLabelsArrayOffset) {
+            p.relativeOffset = paletteLabelsArrayOffset;
+            paletteLabels = p.parseUShortList(numPalettes);
+        }
+
+        if (paletteEntryLabelsArrayOffset) {
+            p.relativeOffset = paletteEntryLabelsArrayOffset;
+            paletteEntryLabels = p.parseUShortList(numPaletteEntries);
+        }
+    }
+
     p.relativeOffset = colorRecordsArrayOffset;
     const colorRecords = p.parseULongList(numColorRecords);
 
-    p.relativeOffset = colorRecordsArrayOffset;
-
-    return {
+    const result = {
         version,
         numPaletteEntries,
         colorRecords,
         colorRecordIndices
     };
+
+    if (version >= 1) {
+        result.paletteTypes = paletteTypes;
+        result.paletteLabels = paletteLabels;
+        result.paletteEntryLabels = paletteEntryLabels;
+    }
+
+    return result;
 }
 
-function makeCpalTable({ version = 0, numPaletteEntries = 0, colorRecords = [], colorRecordIndices = [0] }) {
-    check.argument(version === 0, 'Only CPALv0 are supported.');
+function makeCpalTable({
+    version = 0,
+    numPaletteEntries = 0,
+    colorRecords = [],
+    colorRecordIndices = [0],
+    paletteTypes = [],
+    paletteLabels = [],
+    paletteEntryLabels = []
+}) {
+    check.argument(version === 0 || version === 1, 'Only CPALv0 and CPALv1 are supported.');
     check.argument(colorRecords.length, 'No colorRecords given.');
     check.argument(colorRecordIndices.length, 'No colorRecordIndices given.');
     if (colorRecordIndices.length > 1) {
         check.argument(numPaletteEntries, 'Can\'t infer numPaletteEntries on multiple colorRecordIndices');
     }
-    return new table.Table('CPAL', [
+
+    const resolvedNumPaletteEntries = numPaletteEntries || colorRecords.length;
+    const numPalettes = colorRecordIndices.length;
+
+    if (version === 1) {
+        check.argument(
+            paletteTypes.length === 0 || paletteTypes.length === numPalettes,
+            `paletteTypes must have ${numPalettes} entries when provided.`
+        );
+        check.argument(
+            paletteLabels.length === 0 || paletteLabels.length === numPalettes,
+            `paletteLabels must have ${numPalettes} entries when provided.`
+        );
+        check.argument(
+            paletteEntryLabels.length === 0 || paletteEntryLabels.length === resolvedNumPaletteEntries,
+            `paletteEntryLabels must have ${resolvedNumPaletteEntries} entries when provided.`
+        );
+    }
+
+    const fields = [
         { name: 'version', type: 'USHORT', value: version },
-        { name: 'numPaletteEntries', type: 'USHORT', value: numPaletteEntries || colorRecords.length },
-        { name: 'numPalettes', type: 'USHORT', value: colorRecordIndices.length },
+        { name: 'numPaletteEntries', type: 'USHORT', value: resolvedNumPaletteEntries },
+        { name: 'numPalettes', type: 'USHORT', value: numPalettes },
         { name: 'numColorRecords', type: 'USHORT', value: colorRecords.length },
-        { name: 'colorRecordsArrayOffset', type: 'ULONG', value: 12 + 2 * colorRecordIndices.length },
-        ...colorRecordIndices.map((palette, i) => ({ name: 'colorRecordIndices_' + i, type: 'USHORT', value: palette })),
-        ...colorRecords.map((color, i) => ({ name: 'colorRecords_' + i, type: 'ULONG', value: color })),
-    ]);
+        {
+            name: 'colorRecordsArrayOffset',
+            type: 'ULONG',
+            value: version === 0
+                ? 12 + 2 * numPalettes
+                : 12 + 2 * numPalettes + 12 +
+                  (paletteTypes.length ? 4 * numPalettes : 0) +
+                  (paletteLabels.length ? 2 * numPalettes : 0) +
+                  (paletteEntryLabels.length ? 2 * resolvedNumPaletteEntries : 0)
+        },
+        ...colorRecordIndices.map((palette, i) => ({ name: 'colorRecordIndices_' + i, type: 'USHORT', value: palette }))
+    ];
+
+    if (version === 1) {
+        let nextOffset = 12 + 2 * numPalettes + 12;
+        const paletteTypesOffset = paletteTypes.length ? nextOffset : 0;
+        if (paletteTypes.length) nextOffset += 4 * numPalettes;
+        const paletteLabelsOffset = paletteLabels.length ? nextOffset : 0;
+        if (paletteLabels.length) nextOffset += 2 * numPalettes;
+        const paletteEntryLabelsOffset = paletteEntryLabels.length ? nextOffset : 0;
+
+        fields.push(
+            { name: 'paletteTypesArrayOffset', type: 'ULONG', value: paletteTypesOffset },
+            { name: 'paletteLabelsArrayOffset', type: 'ULONG', value: paletteLabelsOffset },
+            { name: 'paletteEntryLabelsArrayOffset', type: 'ULONG', value: paletteEntryLabelsOffset }
+        );
+
+        fields.push(...paletteTypes.map((value, i) => ({ name: 'paletteTypes_' + i, type: 'ULONG', value })));
+        fields.push(...paletteLabels.map((value, i) => ({ name: 'paletteLabels_' + i, type: 'USHORT', value })));
+        fields.push(...paletteEntryLabels.map((value, i) => ({ name: 'paletteEntryLabels_' + i, type: 'USHORT', value })));
+    }
+
+    fields.push(...colorRecords.map((color, i) => ({ name: 'colorRecords_' + i, type: 'ULONG', value: color })));
+
+    return new table.Table('CPAL', fields);
 }
 
 function parseCPALColor(bgra) {
