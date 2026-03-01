@@ -2,7 +2,6 @@
 // https://learn.microsoft.com/en-us/typography/opentype/spec/colr
 
 import { Parser } from '../parse.js';
-import check from '../check.js';
 import table from '../table.js';
 
 // ── COLRv1 Paint format constants ──────────────────────────────────────────────
@@ -587,7 +586,6 @@ function writeF2Dot14(bytes, val) {
  */
 function serializePaintNode(node) {
     const bytes = [];
-    const subTables = []; // { bytes, relativeTo: 'paint' | 'self' }
     
     bytes.push(node.format);
 
@@ -691,7 +689,6 @@ function serializePaintNode(node) {
 
         case PaintFormat.Transform:
         case PaintFormat.VarTransform: {
-            const isVar = node.format === PaintFormat.VarTransform;
             const childBytes = serializePaintNode(node.paint);
             const transformBytes = encodeAffine2x3(node.transform);
             const paintOffsetPos = bytes.length;
@@ -992,10 +989,7 @@ function makeColrTable(colr) {
     const layerListStart = v0DataStart + v0BaseGlyphsSize + v0LayerRecordsSize;
     
     // Build LayerList binary: count(4) + offsets(4 × numPaints) + paint bytes
-    const layerListHeader = []; // count + offset array
-    const layerListPaints = []; // concatenated paint bytes
     const layerOffsetArraySize = 4 + layerPaintBytes.length * 4;
-    let layerPaintDataOffset = layerOffsetArraySize;
     
     // Write count
     const numLayerPaints = layerPaintBytes.length;

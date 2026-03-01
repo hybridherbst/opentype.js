@@ -857,8 +857,8 @@ Parser.prototype.parseFeatureVariationsList = function() {
             if (rec.featureTableSubstitutionOffset > 0) {
                 const ftsStart = fvTableStart + rec.featureTableSubstitutionOffset;
                 const ftsParser = new Parser(this.data, ftsStart);
-                const ftsMajor = ftsParser.parseUShort();
-                const ftsMinor = ftsParser.parseUShort();
+                ftsParser.parseUShort();
+                ftsParser.parseUShort();
                 const substitutionCount = ftsParser.parseUShort();
                 for (let i = 0; i < substitutionCount; i++) {
                     const featureIndex = ftsParser.parseUShort();
@@ -866,7 +866,7 @@ Parser.prototype.parseFeatureVariationsList = function() {
                     // Parse alternate feature table (same format as FeatureTable)
                     if (alternateFeatureOffset > 0) {
                         const afp = new Parser(this.data, ftsStart + alternateFeatureOffset);
-                        const featureParams = afp.parseUShort(); // usually 0
+                        afp.parseUShort(); // featureParams (usually 0)
                         const lookupCount = afp.parseUShort();
                         const lookupListIndices = [];
                         for (let j = 0; j < lookupCount; j++) {

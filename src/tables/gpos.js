@@ -423,36 +423,6 @@ function makeCoverageTable(coverage) {
     return new table.Coverage(coverage);
 }
 
-// Helper to create a Value Record
-// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#value-record
-function makeValueRecord(value, valueFormat) {
-    if (!value || valueFormat === 0) return null;
-    
-    const fields = [];
-    
-    if (valueFormat & 0x0001) {
-        fields.push({name: 'xPlacement', type: 'SHORT', value: value.xPlacement || 0});
-    }
-    if (valueFormat & 0x0002) {
-        fields.push({name: 'yPlacement', type: 'SHORT', value: value.yPlacement || 0});
-    }
-    if (valueFormat & 0x0004) {
-        fields.push({name: 'xAdvance', type: 'SHORT', value: value.xAdvance || 0});
-    }
-    if (valueFormat & 0x0008) {
-        fields.push({name: 'yAdvance', type: 'SHORT', value: value.yAdvance || 0});
-    }
-    // Device/VariationIndex tables: write offset 0 (not supported in TABLE mode)
-    if (valueFormat & 0x0010) fields.push({name: 'xPlaDeviceOffset', type: 'USHORT', value: 0});
-    if (valueFormat & 0x0020) fields.push({name: 'yPlaDeviceOffset', type: 'USHORT', value: 0});
-    if (valueFormat & 0x0040) fields.push({name: 'xAdvDeviceOffset', type: 'USHORT', value: 0});
-    if (valueFormat & 0x0080) fields.push({name: 'yAdvDeviceOffset', type: 'USHORT', value: 0});
-    
-    if (fields.length === 0) return null;
-    
-    return new table.Table('valueRecord', fields);
-}
-
 // Helper to infer valueFormat bitmask from parsed value record fields
 function inferValueFormat(value) {
     if (!value) return 0;
@@ -1134,28 +1104,28 @@ subtableMakers[7] = function makeLookup7(subtable) {
             { name: 'classDefOffset', type: 'USHORT', value: 0 },
             { name: 'posClassSetCount', type: 'USHORT', value: subtable.classSets?.length || 0 }
         ].concat(coverageTable ? [{ name: 'coverage', type: 'TABLE', value: coverageTable }] : [])
-         .concat(classDefTable ? [{ name: 'classDef', type: 'TABLE', value: classDefTable }] : [])
-         .concat(table.tableList('posClassSet', subtable.classSets || [], function(posClassSet) {
-            if (!posClassSet) {
-                return new table.Table('NULL', null);
-            }
-            return new table.Table('posClassSetTable', table.tableList('posClassRule', posClassSet, function(posClassRule) {
-                let tableData = [
-                    { name: 'glyphCount', type: 'USHORT', value: (posClassRule.classes?.length || 0) + 1 },
-                    { name: 'posCount', type: 'USHORT', value: posClassRule.posLookupRecords?.length || 0 }
-                ];
-
-                tableData = tableData.concat(table.ushortList('classSequence', posClassRule.classes, (posClassRule.classes?.length || 0) + 1));
-
-                for (let i = 0; i < (posClassRule.posLookupRecords?.length || 0); i++) {
-                    const record = posClassRule.posLookupRecords[i];
-                    tableData = tableData
-                        .concat({ name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex })
-                        .concat({ name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex });
+            .concat(classDefTable ? [{ name: 'classDef', type: 'TABLE', value: classDefTable }] : [])
+            .concat(table.tableList('posClassSet', subtable.classSets || [], function(posClassSet) {
+                if (!posClassSet) {
+                    return new table.Table('NULL', null);
                 }
-                return new table.Table('posClassRuleTable', tableData);
-            }));
-        })));
+                return new table.Table('posClassSetTable', table.tableList('posClassRule', posClassSet, function(posClassRule) {
+                    let tableData = [
+                        { name: 'glyphCount', type: 'USHORT', value: (posClassRule.classes?.length || 0) + 1 },
+                        { name: 'posCount', type: 'USHORT', value: posClassRule.posLookupRecords?.length || 0 }
+                    ];
+
+                    tableData = tableData.concat(table.ushortList('classSequence', posClassRule.classes, (posClassRule.classes?.length || 0) + 1));
+
+                    for (let i = 0; i < (posClassRule.posLookupRecords?.length || 0); i++) {
+                        const record = posClassRule.posLookupRecords[i];
+                        tableData = tableData
+                            .concat({ name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex })
+                            .concat({ name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex });
+                    }
+                    return new table.Table('posClassRuleTable', tableData);
+                }));
+            })));
     } else if (subtable.posFormat === 3) {
         let tableData = [
             { name: 'posFormat', type: 'USHORT', value: 3 },
@@ -1189,20 +1159,14 @@ subtableMakers[7] = function makeLookup7(subtable) {
 subtableMakers[8] = function makeLookup8(subtable) {
     // Format 1: Coverage-based chaining context
     if (subtable.posFormat === 1) {
-        const backtrackGlyphs = subtable.backtrackCoverage?.glyphs || [];
-        const inputGlyphs = subtable.inputCoverage?.glyphs || [];
-        const lookaheadGlyphs = subtable.lookaheadCoverage?.glyphs || [];
-        
         // Build Coverage tables
         const backtrackCoverageTable = makeCoverageTable(subtable.backtrackCoverage);
         const inputCoverageTable = makeCoverageTable(subtable.inputCoverage);
-        const lookaheadCoverageTable = makeCoverageTable(subtable.lookaheadCoverage);
         
         // Calculate sizes
         const headerSize = 6; // posFormat + backtrackCount + inputCount + lookaheadCount + reserved
         const backtrackSize = backtrackCoverageTable?.sizeOf() || 0;
         const inputSize = inputCoverageTable?.sizeOf() || 0;
-        const lookaheadSize = lookaheadCoverageTable?.sizeOf() || 0;
         
         // Build position rules if present
         const posRules = subtable.posRuleSet || [];
@@ -1230,28 +1194,28 @@ subtableMakers[8] = function makeLookup8(subtable) {
             { name: 'lookaheadClassDefOffset', type: 'USHORT', value: 0 },
             { name: 'chainPosClassSetCount', type: 'USHORT', value: subtable.chainClassSet?.length || 0 }
         ].concat(coverageTable ? [{ name: 'coverage', type: 'TABLE', value: coverageTable }] : [])
-         .concat(backtrackClassDef ? [{ name: 'backtrackClassDef', type: 'TABLE', value: backtrackClassDef }] : [])
-         .concat(inputClassDef ? [{ name: 'inputClassDef', type: 'TABLE', value: inputClassDef }] : [])
-         .concat(lookaheadClassDef ? [{ name: 'lookaheadClassDef', type: 'TABLE', value: lookaheadClassDef }] : [])
-         .concat(table.tableList('chainPosClassSet', subtable.chainClassSet || [], function(chainPosClassSet) {
-            if (!chainPosClassSet) {
-                return new table.Table('NULL', null);
-            }
-            return new table.Table('chainPosClassSetTable', table.tableList('chainPosClassRule', chainPosClassSet, function(chainPosClassRule) {
-                let tableData = table.ushortList('backtrackClass', chainPosClassRule.backtrack, chainPosClassRule.backtrack?.length || 0)
-                    .concat(table.ushortList('inputClass', chainPosClassRule.input, (chainPosClassRule.input?.length || 0) + 1))
-                    .concat(table.ushortList('lookaheadClass', chainPosClassRule.lookahead, chainPosClassRule.lookahead?.length || 0))
-                    .concat(table.ushortList('posCount', [], chainPosClassRule.posLookupRecords?.length || 0));
-
-                for (let i = 0; i < (chainPosClassRule.posLookupRecords?.length || 0); i++) {
-                    const record = chainPosClassRule.posLookupRecords[i];
-                    tableData = tableData
-                        .concat({ name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex })
-                        .concat({ name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex });
+            .concat(backtrackClassDef ? [{ name: 'backtrackClassDef', type: 'TABLE', value: backtrackClassDef }] : [])
+            .concat(inputClassDef ? [{ name: 'inputClassDef', type: 'TABLE', value: inputClassDef }] : [])
+            .concat(lookaheadClassDef ? [{ name: 'lookaheadClassDef', type: 'TABLE', value: lookaheadClassDef }] : [])
+            .concat(table.tableList('chainPosClassSet', subtable.chainClassSet || [], function(chainPosClassSet) {
+                if (!chainPosClassSet) {
+                    return new table.Table('NULL', null);
                 }
-                return new table.Table('chainPosClassRuleTable', tableData);
-            }));
-        })));
+                return new table.Table('chainPosClassSetTable', table.tableList('chainPosClassRule', chainPosClassSet, function(chainPosClassRule) {
+                    let tableData = table.ushortList('backtrackClass', chainPosClassRule.backtrack, chainPosClassRule.backtrack?.length || 0)
+                        .concat(table.ushortList('inputClass', chainPosClassRule.input, (chainPosClassRule.input?.length || 0) + 1))
+                        .concat(table.ushortList('lookaheadClass', chainPosClassRule.lookahead, chainPosClassRule.lookahead?.length || 0))
+                        .concat(table.ushortList('posCount', [], chainPosClassRule.posLookupRecords?.length || 0));
+
+                    for (let i = 0; i < (chainPosClassRule.posLookupRecords?.length || 0); i++) {
+                        const record = chainPosClassRule.posLookupRecords[i];
+                        tableData = tableData
+                            .concat({ name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex })
+                            .concat({ name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex });
+                    }
+                    return new table.Table('chainPosClassRuleTable', tableData);
+                }));
+            })));
     } else if (subtable.posFormat === 3) {
         let tableData = [
             { name: 'posFormat', type: 'USHORT', value: 3 },
