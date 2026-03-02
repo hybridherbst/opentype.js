@@ -149,19 +149,45 @@ function loadFromUrl(url, callback) {
  * @param  {Number}
  * @return {Object[]}
  */
-function parseOpenTypeTableEntries(data, numTables) {
+function parseOpenTypeTableEntries(data, numTables, directoryOffset = 0) {
     const tableEntries = [];
-    let p = 12;
+    let p = directoryOffset + 12;
     for (let i = 0; i < numTables; i += 1) {
         const tag = parse.getTag(data, p);
         const checksum = parse.getULong(data, p + 4);
-        const offset = parse.getULong(data, p + 8);
+        const tableOffset = parse.getULong(data, p + 8);
         const length = parse.getULong(data, p + 12);
-        tableEntries.push({tag: tag, checksum: checksum, offset: offset, length: length, compression: false});
+        tableEntries.push({tag: tag, checksum: checksum, offset: tableOffset, length: length, compression: false});
         p += 16;
     }
 
     return tableEntries;
+}
+
+/**
+ * Parse TTC (TrueType Collection) header and resolve the selected face offset.
+ * @param {DataView} data
+ * @param {Object} opt
+ * @return {{numFonts: number, index: number, fontOffset: number}}
+ */
+function parseTTCHeader(data, opt = {}) {
+    const numFonts = parse.getULong(data, 8);
+    if (numFonts < 1) {
+        throw new Error('Invalid TTC: no fonts in collection');
+    }
+
+    const requestedIndex = opt.collectionIndex ?? opt.ttcIndex ?? opt.fontIndex ?? 0;
+    const index = Number.parseInt(requestedIndex, 10);
+    if (!Number.isInteger(index) || index < 0 || index >= numFonts) {
+        throw new Error(`TTC font index out of range (${index}); collection has ${numFonts} font(s)`);
+    }
+
+    const fontOffset = parse.getULong(data, 12 + (index * 4));
+    if (fontOffset <= 0 || fontOffset >= data.byteLength) {
+        throw new Error(`Invalid TTC font offset ${fontOffset} for index ${index}`);
+    }
+
+    return { numFonts, index, fontOffset };
 }
 
 /**
@@ -235,43 +261,54 @@ function uncompressTable(data, tableEntry) {
  * @return {boolean} result.isValid - Whether the font signature was recognized
  * @return {Object[]} result.tableEntries - Full table entry objects (tag, offset, length, etc.)
  */
-function listTables(buffer) {
+function listTables(buffer, opt = {}) {
     if (buffer.constructor !== ArrayBuffer) {
         buffer = new Uint8Array(buffer).buffer;
     }
     const data = new DataView(buffer, 0);
-    const signature = parse.getTag(data, 0);
+    let headerOffset = 0;
+    let signature = parse.getTag(data, 0);
     const result = {
         tags: new Set(),
         isTrueType: false,
         isCFF: false,
         isWOFF: false,
+        isCollection: false,
         isValid: false,
         tableEntries: []
     };
+
+    if (signature === 'ttcf') {
+        const ttc = parseTTCHeader(data, opt);
+        result.isCollection = true;
+        result.collectionNumFonts = ttc.numFonts;
+        result.collectionIndex = ttc.index;
+        headerOffset = ttc.fontOffset;
+        signature = parse.getTag(data, headerOffset);
+    }
 
     let numTables;
     if (signature === String.fromCharCode(0, 1, 0, 0) || signature === 'true' || signature === 'typ1') {
         result.isTrueType = true;
         result.isValid = true;
-        numTables = parse.getUShort(data, 4);
-        result.tableEntries = parseOpenTypeTableEntries(data, numTables);
+        numTables = parse.getUShort(data, headerOffset + 4);
+        result.tableEntries = parseOpenTypeTableEntries(data, numTables, headerOffset);
     } else if (signature === 'OTTO') {
         result.isCFF = true;
         result.isValid = true;
-        numTables = parse.getUShort(data, 4);
-        result.tableEntries = parseOpenTypeTableEntries(data, numTables);
+        numTables = parse.getUShort(data, headerOffset + 4);
+        result.tableEntries = parseOpenTypeTableEntries(data, numTables, headerOffset);
     } else if (signature === 'wOFF') {
         result.isWOFF = true;
         result.isValid = true;
-        const flavor = parse.getTag(data, 4);
+        const flavor = parse.getTag(data, headerOffset + 4);
         if (flavor === String.fromCharCode(0, 1, 0, 0)) {
             result.isTrueType = true;
         } else if (flavor === 'OTTO') {
             result.isCFF = true;
         }
-        numTables = parse.getUShort(data, 12);
-        result.tableEntries = parseWOFFTableEntries(data, numTables);
+        numTables = parse.getUShort(data, headerOffset + 12);
+        result.tableEntries = parseWOFFTableEntries(new DataView(buffer, headerOffset), numTables);
     } else {
         return result; // invalid signature
     }
@@ -303,20 +340,33 @@ function parseBuffer(buffer, opt={}) {
     // OpenType fonts use big endian byte ordering.
     // We can't rely on typed array view types, because they operate with the endianness of the host computer.
     // Instead we use DataViews where we can specify endianness.
-    const data = new DataView(buffer, 0);
+    let data = new DataView(buffer, 0);
+    let tableDirectoryOffset = 0;
     let numTables;
     let tableEntries = [];
-    const signature = parse.getTag(data, 0);
+    let signature = parse.getTag(data, 0);
+
+    if (signature === 'ttcf') {
+        const ttc = parseTTCHeader(data, opt);
+        tableDirectoryOffset = ttc.fontOffset;
+        signature = parse.getTag(data, tableDirectoryOffset);
+        font.collection = {
+            index: ttc.index,
+            numFonts: ttc.numFonts,
+            format: 'ttc'
+        };
+    }
+
     if (signature === String.fromCharCode(0, 1, 0, 0) || signature === 'true' || signature === 'typ1') {
         font.outlinesFormat = 'truetype';
-        numTables = parse.getUShort(data, 4);
-        tableEntries = parseOpenTypeTableEntries(data, numTables);
+        numTables = parse.getUShort(data, tableDirectoryOffset + 4);
+        tableEntries = parseOpenTypeTableEntries(data, numTables, tableDirectoryOffset);
     } else if (signature === 'OTTO') {
         font.outlinesFormat = 'cff';
-        numTables = parse.getUShort(data, 4);
-        tableEntries = parseOpenTypeTableEntries(data, numTables);
+        numTables = parse.getUShort(data, tableDirectoryOffset + 4);
+        tableEntries = parseOpenTypeTableEntries(data, numTables, tableDirectoryOffset);
     } else if (signature === 'wOFF') {
-        const flavor = parse.getTag(data, 4);
+        const flavor = parse.getTag(data, tableDirectoryOffset + 4);
         if (flavor === String.fromCharCode(0, 1, 0, 0)) {
             font.outlinesFormat = 'truetype';
         } else if (flavor === 'OTTO') {
@@ -325,8 +375,8 @@ function parseBuffer(buffer, opt={}) {
             throw new Error('Unsupported OpenType flavor ' + signature);
         }
 
-        numTables = parse.getUShort(data, 12);
-        tableEntries = parseWOFFTableEntries(data, numTables);
+        numTables = parse.getUShort(data, tableDirectoryOffset + 12);
+        tableEntries = parseWOFFTableEntries(new DataView(buffer, tableDirectoryOffset), numTables);
     } else if (signature === 'wOF2') {
         var issue = 'https://github.com/opentypejs/opentype.js/issues/183#issuecomment-1147228025';
         throw new Error('WOFF2 require an external decompressor library, see examples at: ' + issue);
