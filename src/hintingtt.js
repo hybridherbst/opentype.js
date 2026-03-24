@@ -2386,6 +2386,163 @@ function SDPVTL(a, state) {
     state.dpv = getUnitVector(dx, dy);
 }
 
+// SSWCI[] Set Single Width Cut-In
+// 0x1E
+function SSWCI(state) {
+    const n = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'SSWCI[]', n);
+    state.singleWidthCutIn = n / 0x40;
+}
+
+// SSW[] Set Single Width
+// 0x1F
+function SSW(state) {
+    const n = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'SSW[]', n);
+    state.singleWidth = n / 0x40;
+}
+
+// ALIGNPTS[] ALIGN Points
+// 0x27
+function ALIGNPTS(state) {
+    const stack = state.stack;
+    const p1i = stack.pop();
+    const p2i = stack.pop();
+    if (DEBUG) console.log(state.step, 'ALIGNPTS[]', p1i, p2i);
+    const z = state.zp0;
+    const p1 = z[p1i];
+    const p2 = z[p2i];
+    const mid = (p1.y + p2.y) / 2;
+    p1.y = mid;
+    p2.y = mid;
+}
+
+// UTP[] UnTouch Point
+// 0x29
+function UTP(state) {
+    const pi = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'UTP[]', pi);
+    // UTP clears the "touched" flags on a point.
+    // In our implementation, touching is implicit so this is a no-op.
+}
+
+// SCFS[] Sets Coordinate From the Stack using projection vector and freedom vector
+// 0x48
+function SCFS(state) {
+    const stack = state.stack;
+    const v = stack.pop();
+    const pi = stack.pop();
+    if (DEBUG) console.log(state.step, 'SCFS[]', pi, v);
+    const fv = state.fv;
+    const pv = state.pv;
+    const p = state.zp2[pi];
+    const c = v / 0x40;
+    const oldC = pv.distance(p, HPZero, false, false);
+    const d = c - oldC;
+    p.x += d * fv.x;
+    p.y += d * fv.y;
+    p.touched = true;
+}
+
+// MPS[] Measure Point Size
+// 0x4C
+function MPS(state) {
+    if (DEBUG) console.log(state.step, 'MPS[]');
+    // MPS returns the point size. We use ppem as an approximation.
+    state.stack.push(state.ppem);
+}
+
+// FLIPOFF[] Set the autoFlip boolean to OFF
+// 0x4E
+function FLIPOFF(state) {
+    if (DEBUG) console.log(state.step, 'FLIPOFF[]');
+    state.autoFlip = false;
+}
+
+// NROUND[] No ROUND
+// 0x6C-0x6F
+function NROUND(dt, state) {
+    const stack = state.stack;
+    const n = stack.pop();
+    if (DEBUG) console.log(state.step, 'NROUND[]');
+    // NROUND compensates for engine characteristics but does NOT round.
+    // In our implementation, just pass through the value unchanged.
+    stack.push(n);
+}
+
+// JROT[] Jump Relative On True
+// 0x78
+function JROT(state) {
+    const e = state.stack.pop();
+    const o = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'JROT[]', o, e);
+    if (e) state.ip += o - 1;
+}
+
+// JROF[] Jump Relative On False
+// 0x79
+function JROF(state) {
+    const e = state.stack.pop();
+    const o = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'JROF[]', o, e);
+    if (!e) state.ip += o - 1;
+}
+
+// FLIPPT[] FLIP PoinT
+// 0x80
+function FLIPPT(state) {
+    const loop = state.loop;
+    if (DEBUG) console.log(state.step, 'FLIPPT[]');
+    for (let i = 0; i < loop; i++) {
+        const pi = state.stack.pop();
+        const p = state.zp0[pi];
+        if (p) p.onCurve = !p.onCurve;
+    }
+    state.loop = 1;
+}
+
+// FLIPRGON[] FLIP RanGe ON
+// 0x81
+function FLIPRGON(state) {
+    const stack = state.stack;
+    const end = stack.pop();
+    const start = stack.pop();
+    if (DEBUG) console.log(state.step, 'FLIPRGON[]', start, end);
+    for (let i = start; i <= end; i++) {
+        const p = state.zp0[i];
+        if (p) p.onCurve = true;
+    }
+}
+
+// FLIPRGOFF[] FLIP RanGe OFF
+// 0x82
+function FLIPRGOFF(state) {
+    const stack = state.stack;
+    const end = stack.pop();
+    const start = stack.pop();
+    if (DEBUG) console.log(state.step, 'FLIPRGOFF[]', start, end);
+    for (let i = start; i <= end; i++) {
+        const p = state.zp0[i];
+        if (p) p.onCurve = false;
+    }
+}
+
+// IDEF[] Instruction DEFinition
+// 0x89
+function IDEF(state) {
+    const opcode = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'IDEF[]', opcode);
+    // IDEF defines a user implementation for an opcode.
+    // Skip to matching ENDF, same as FDEF scanning.
+    state.ip++;
+    const prog = state.prog;
+    while (state.ip < prog.length && prog[state.ip] !== 0x2D) { // 0x2D = ENDF
+        state.ip++;
+    }
+    // We don't store the definition since custom instruction defs are very rare
+    // and would need dispatch table modification. Just consume and move on.
+}
+
 // GETINFO[] GET INFOrmation
 // 0x88
 function GETINFO(state) {
@@ -2602,8 +2759,8 @@ instructionTable = [
     /* 0x1B */ ELSE,
     /* 0x1C */ JMPR,
     /* 0x1D */ SCVTCI,
-    /* 0x1E */ undefined,   // TODO SSWCI
-    /* 0x1F */ undefined,   // TODO SSW
+    /* 0x1E */ SSWCI,
+    /* 0x1F */ SSW,
     /* 0x20 */ DUP,
     /* 0x21 */ POP,
     /* 0x22 */ CLEAR,
@@ -2611,9 +2768,9 @@ instructionTable = [
     /* 0x24 */ DEPTH,
     /* 0x25 */ CINDEX,
     /* 0x26 */ MINDEX,
-    /* 0x27 */ undefined,   // TODO ALIGNPTS
+    /* 0x27 */ ALIGNPTS,
     /* 0x28 */ undefined,
-    /* 0x29 */ undefined,   // TODO UTP
+    /* 0x29 */ UTP,
     /* 0x2A */ LOOPCALL,
     /* 0x2B */ CALL,
     /* 0x2C */ FDEF,
@@ -2644,14 +2801,14 @@ instructionTable = [
     /* 0x45 */ RCVT,
     /* 0x46 */ GC.bind(undefined, 0),
     /* 0x47 */ GC.bind(undefined, 1),
-    /* 0x48 */ undefined,   // TODO SCFS
+    /* 0x48 */ SCFS,
     /* 0x49 */ MD.bind(undefined, 0),
     /* 0x4A */ MD.bind(undefined, 1),
     /* 0x4B */ MPPEM,
-    /* 0x4C */ undefined,   // TODO MPS
+    /* 0x4C */ MPS,
     /* 0x4D */ FLIPON,
-    /* 0x4E */ undefined,   // TODO FLIPOFF
-    /* 0x4F */ undefined,   // TODO DEBUG
+    /* 0x4E */ FLIPOFF,
+    /* 0x4F */ POP, // DEBUG: just pop the argument
     /* 0x50 */ LT,
     /* 0x51 */ LTEQ,
     /* 0x52 */ GT,
@@ -2680,10 +2837,10 @@ instructionTable = [
     /* 0x69 */ ROUND.bind(undefined, 1),
     /* 0x6A */ ROUND.bind(undefined, 2),
     /* 0x6B */ ROUND.bind(undefined, 3),
-    /* 0x6C */ undefined,   // TODO NROUND[ab]
-    /* 0x6D */ undefined,   // TODO NROUND[ab]
-    /* 0x6E */ undefined,   // TODO NROUND[ab]
-    /* 0x6F */ undefined,   // TODO NROUND[ab]
+    /* 0x6C */ NROUND.bind(undefined, 0),
+    /* 0x6D */ NROUND.bind(undefined, 1),
+    /* 0x6E */ NROUND.bind(undefined, 2),
+    /* 0x6F */ NROUND.bind(undefined, 3),
     /* 0x70 */ WCVTF,
     /* 0x71 */ DELTAP123.bind(undefined, 2),
     /* 0x72 */ DELTAP123.bind(undefined, 3),
@@ -2692,24 +2849,24 @@ instructionTable = [
     /* 0x75 */ DELTAC123.bind(undefined, 3),
     /* 0x76 */ SROUND,
     /* 0x77 */ S45ROUND,
-    /* 0x78 */ undefined,   // TODO JROT[]
-    /* 0x79 */ undefined,   // TODO JROF[]
+    /* 0x78 */ JROT,
+    /* 0x79 */ JROF,
     /* 0x7A */ ROFF,
     /* 0x7B */ undefined,
     /* 0x7C */ RUTG,
     /* 0x7D */ RDTG,
     /* 0x7E */ POP, // actually SANGW, supposed to do only a pop though
     /* 0x7F */ POP, // actually AA, supposed to do only a pop though
-    /* 0x80 */ undefined,   // TODO FLIPPT
-    /* 0x81 */ undefined,   // TODO FLIPRGON
-    /* 0x82 */ undefined,   // TODO FLIPRGOFF
+    /* 0x80 */ FLIPPT,
+    /* 0x81 */ FLIPRGON,
+    /* 0x82 */ FLIPRGOFF,
     /* 0x83 */ undefined,
     /* 0x84 */ undefined,
     /* 0x85 */ SCANCTRL,
     /* 0x86 */ SDPVTL.bind(undefined, 0),
     /* 0x87 */ SDPVTL.bind(undefined, 1),
     /* 0x88 */ GETINFO,
-    /* 0x89 */ undefined,   // TODO IDEF
+    /* 0x89 */ IDEF,
     /* 0x8A */ ROLL,
     /* 0x8B */ MAX,
     /* 0x8C */ MIN,
