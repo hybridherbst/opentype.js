@@ -580,16 +580,17 @@ function encodeSimpleGlyphFromPoints(glyph) {
         onCurve: pt.onCurve
     }));
     
-    return encodePointsToGlyf(encodingPoints, contourEnds);
+    return encodePointsToGlyf(encodingPoints, contourEnds, glyph.instructions);
 }
 
 /**
  * Encode points and contour ends to TrueType glyf format.
  * @param {Array} points - Array of {x, y, onCurve} objects
  * @param {Array} contourEnds - Array of contour end indices
+ * @param {Array} [instructions] - Optional array of instruction bytes to include
  * @returns {Uint8Array} The encoded glyph data
  */
-function encodePointsToGlyf(points, contourEnds) {
+function encodePointsToGlyf(points, contourEnds, instructions) {
     if (points.length === 0 || contourEnds.length === 0) {
         return new Uint8Array(0);
     }
@@ -641,17 +642,10 @@ function encodePointsToGlyf(points, contourEnds) {
     }
     
     // Calculate total size
-    // Header: 10 bytes (numberOfContours, xMin, yMin, xMax, yMax)
-    // endPtsOfContours: 2 * numberOfContours bytes
-    // instructionLength: 2 bytes
-    // instructions: 0 bytes (no instructions)
-    // flags: flags.length bytes (no RLE for simplicity)
-    // xCoordinates: xCoords.length bytes
-    // yCoordinates: yCoords.length bytes
-    
+    const instrBytes = instructions || [];
     const headerSize = 10;
     const endPtsSize = 2 * numberOfContours;
-    const instructionSize = 2;
+    const instructionSize = 2 + instrBytes.length;
     const flagsSize = flags.length;
     const totalSize = headerSize + endPtsSize + instructionSize + flagsSize + xCoords.length + yCoords.length;
     
@@ -671,8 +665,11 @@ function encodePointsToGlyf(points, contourEnds) {
         view.setUint16(offset, end); offset += 2;
     }
     
-    // instructionLength (0 = no instructions)
-    view.setUint16(offset, 0); offset += 2;
+    // instructionLength and instructions
+    view.setUint16(offset, instrBytes.length); offset += 2;
+    for (const b of instrBytes) {
+        data[offset++] = b;
+    }
     
     // Flags
     for (const f of flags) {
