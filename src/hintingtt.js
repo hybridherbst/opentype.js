@@ -28,10 +28,9 @@
 import glyf from './tables/glyf.js';
 
 /*
-* turn on for intensive debugging.
+* Set to true for intensive debugging of hinting execution.
 */
-/* global DEBUG */
-//const DEBUG = true;
+const DEBUG = false;
 
 let instructionTable;
 let exec;
