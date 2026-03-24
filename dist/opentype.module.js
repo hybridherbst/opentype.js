@@ -17704,6 +17704,8 @@ function roundToDoubleGrid(v) {
   return Math.sign(v) * Math.round(Math.abs(v * 2)) / 2;
 }
 function roundToHalfGrid(v) {
+  if (v === 0)
+    return 0;
   return Math.sign(v) * (Math.round(Math.abs(v) + 0.5) - 0.5);
 }
 function roundUpToGrid(v) {
@@ -17999,7 +18001,14 @@ var defaultState = {
   // loops some instructions
   minDis: 1,
   // minimum distance
-  autoFlip: true
+  autoFlip: true,
+  singleWidth: 0,
+  // single width value (set by SSW)
+  singleWidthCutIn: 0,
+  // single width cut-in (set by SSWCI)
+  scanControl: false,
+  scanType: 0,
+  instructControl: 0
 };
 function State(env, prog) {
   this.env = env;
@@ -18184,12 +18193,15 @@ execComponent = function(glyph, state, xScale, yScale) {
       console.log(i, gZone[i].x, gZone[i].y);
     }
   }
+  const font = state.font;
   gZone.push(
     new HPoint(0, 0),
-    new HPoint(Math.round(glyph.advanceWidth * xScale), 0)
+    new HPoint(Math.round(glyph.advanceWidth * xScale), 0),
+    new HPoint(0, Math.round((font.ascender || 0) * yScale)),
+    new HPoint(0, Math.round((font.descender || 0) * yScale))
   );
   exec(state);
-  gZone.length -= 2;
+  gZone.length -= 4;
   if (DEBUG) {
     console.log("FINISHED GLYPH", state.stack);
     for (let i = 0; i < pLen; i++) {
@@ -18600,7 +18612,7 @@ function MDAP(round, state) {
 }
 function IUP(v, state) {
   const z2 = state.z2;
-  const pLen = z2.length - 2;
+  const pLen = z2.length - 4;
   let cp;
   let pp;
   let np;
@@ -18616,8 +18628,9 @@ function IUP(v, state) {
     np = cp.nextTouched(v);
     if (pp === np) {
       v.setRelative(cp, cp, v.distance(pp, pp, false, true), v, true);
+    } else {
+      v.interpolate(cp, pp, np, v);
     }
-    v.interpolate(cp, pp, np, v);
   }
 }
 function SHP(a, state) {
@@ -18806,9 +18819,11 @@ function MIAP(round, state) {
   }
   let d = pv.distance(p, HPZero);
   if (round) {
-    if (Math.abs(d - cv) < state.cvCutIn)
+    if (Math.abs(d - cv) <= state.cvCutIn)
       d = cv;
     d = state.round(d);
+  } else {
+    d = cv;
   }
   fv.setRelative(p, HPZero, d, pv);
   if (state.zp0 === 0) {
@@ -19287,17 +19302,29 @@ function ALIGNPTS(state) {
   const p2i = stack.pop();
   if (DEBUG)
     console.log(state.step, "ALIGNPTS[]", p1i, p2i);
-  const z = state.zp0;
-  const p1 = z[p1i];
-  const p2 = z[p2i];
-  const mid = (p1.y + p2.y) / 2;
-  p1.y = mid;
-  p2.y = mid;
+  const p1 = state.z1[p1i];
+  const p2 = state.z0[p2i];
+  const pv = state.pv;
+  const fv = state.fv;
+  const d1 = pv.distance(p1, p2);
+  const d2 = d1 / 2;
+  fv.setRelative(p1, p1, -d2, pv);
+  fv.setRelative(p2, p2, d2, pv);
+  fv.touch(p1);
+  fv.touch(p2);
 }
 function UTP(state) {
   const pi = state.stack.pop();
   if (DEBUG)
     console.log(state.step, "UTP[]", pi);
+  const p = state.z0[pi];
+  if (p) {
+    const fv = state.fv;
+    if (fv.x && "xTouched" in p)
+      p.xTouched = false;
+    if (fv.y && "yTouched" in p)
+      p.yTouched = false;
+  }
 }
 function SCFS(state) {
   const stack = state.stack;
@@ -19307,13 +19334,11 @@ function SCFS(state) {
     console.log(state.step, "SCFS[]", pi, v);
   const fv = state.fv;
   const pv = state.pv;
-  const p = state.zp2[pi];
+  const p = state.z2[pi];
   const c = v / 64;
   const oldC = pv.distance(p, HPZero, false, false);
-  const d = c - oldC;
-  p.x += d * fv.x;
-  p.y += d * fv.y;
-  p.touched = true;
+  fv.setRelative(p, p, c - oldC, pv);
+  fv.touch(p);
 }
 function MPS(state) {
   if (DEBUG)
@@ -19494,16 +19519,29 @@ function MDRP_MIRP(indirect, setRp0, keepD, ro, dt, state) {
   let cv;
   d = od = pv.distance(p, rp, true, true);
   sign = d >= 0 ? 1 : -1;
-  d = Math.abs(d);
   if (indirect) {
-    cv = state.cvt[cvte];
-    if (ro && Math.abs(d - cv) < state.cvCutIn)
+    cv = Math.abs(state.cvt[cvte]);
+    d = Math.abs(d);
+    if (state.autoFlip) {
+      if (sign * state.cvt[cvte] < 0)
+        cv = -state.cvt[cvte];
+    }
+    if (ro && Math.abs(d - cv) <= state.cvCutIn) {
       d = cv;
+    }
+    if (state.singleWidth && Math.abs(d - state.singleWidth) < (state.singleWidthCutIn || 0)) {
+      d = state.singleWidth;
+    }
+  } else {
+    d = Math.abs(d);
+    if (state.singleWidth && Math.abs(d - state.singleWidth) < (state.singleWidthCutIn || 0)) {
+      d = state.singleWidth;
+    }
   }
-  if (keepD && d < md)
-    d = md;
   if (ro)
     d = state.round(d);
+  if (keepD && d < md)
+    d = md;
   fv.setRelative(p, rp, sign * d, pv);
   fv.touch(p);
   if (DEBUG) {

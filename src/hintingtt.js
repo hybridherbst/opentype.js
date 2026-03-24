@@ -92,6 +92,7 @@ function roundToDoubleGrid(v) {
 * Rounding to half grid.
 */
 function roundToHalfGrid(v) {
+    if (v === 0) return 0;
     return Math.sign(v) * (Math.round(Math.abs(v) + 0.5) - 0.5);
 }
 
@@ -532,7 +533,12 @@ const defaultState = {
     deltaShift: 0.125,
     loop: 1,             // loops some instructions
     minDis: 1,           // minimum distance
-    autoFlip: true
+    autoFlip: true,
+    singleWidth: 0,      // single width value (set by SSW)
+    singleWidthCutIn: 0, // single width cut-in (set by SSWCI)
+    scanControl: false,
+    scanType: 0,
+    instructControl: 0
 };
 
 /*
@@ -803,15 +809,20 @@ execComponent = function(glyph, state, xScale, yScale)
         }
     }
 
+    // Add 4 phantom points per the TT spec:
+    // N: origin, N+1: advance width, N+2: top, N+3: bottom
+    const font = state.font;
     gZone.push(
         new HPoint(0, 0),
-        new HPoint(Math.round(glyph.advanceWidth * xScale), 0)
+        new HPoint(Math.round(glyph.advanceWidth * xScale), 0),
+        new HPoint(0, Math.round((font.ascender || 0) * yScale)),
+        new HPoint(0, Math.round((font.descender || 0) * yScale))
     );
 
     exec(state);
 
-    // Removes the extra points.
-    gZone.length -= 2;
+    // Removes the phantom points.
+    gZone.length -= 4;
 
     if (DEBUG) {
         console.log('FINISHED GLYPH', state.stack);
@@ -1464,7 +1475,7 @@ function MDAP(round, state) {
 // 0x30
 function IUP(v, state) {
     const z2 = state.z2;
-    const pLen = z2.length - 2;
+    const pLen = z2.length - 4; // exclude 4 phantom points
     let cp;
     let pp;
     let np;
@@ -1486,12 +1497,11 @@ function IUP(v, state) {
 
         if (pp === np) {
             // only one point on the contour has been touched
-            // so simply moves the point like that
-
+            // so simply shift the point by the same amount
             v.setRelative(cp, cp, v.distance(pp, pp, false, true), v, true);
+        } else {
+            v.interpolate(cp, pp, np, v);
         }
-
-        v.interpolate(cp, pp, np, v);
     }
 }
 
@@ -1725,9 +1735,12 @@ function MIAP(round, state) {
     let d = pv.distance(p, HPZero);
 
     if (round) {
-        if (Math.abs(d - cv) < state.cvCutIn) d = cv;
-
+        // CVT cut-in: use CVT value if close enough to current position
+        if (Math.abs(d - cv) <= state.cvCutIn) d = cv;
         d = state.round(d);
+    } else {
+        // MIAP[0]: move point to CVT value unconditionally (no cut-in, no rounding)
+        d = cv;
     }
 
     fv.setRelative(p, HPZero, d, pv);
@@ -2408,12 +2421,17 @@ function ALIGNPTS(state) {
     const p1i = stack.pop();
     const p2i = stack.pop();
     if (DEBUG) console.log(state.step, 'ALIGNPTS[]', p1i, p2i);
-    const z = state.zp0;
-    const p1 = z[p1i];
-    const p2 = z[p2i];
-    const mid = (p1.y + p2.y) / 2;
-    p1.y = mid;
-    p2.y = mid;
+    const p1 = state.z1[p1i];
+    const p2 = state.z0[p2i];
+    const pv = state.pv;
+    const fv = state.fv;
+    const d1 = pv.distance(p1, p2);
+    const d2 = d1 / 2;
+    // Move p1 closer to p2 by half the distance, and p2 by the other half
+    fv.setRelative(p1, p1, -d2, pv);
+    fv.setRelative(p2, p2, d2, pv);
+    fv.touch(p1);
+    fv.touch(p2);
 }
 
 // UTP[] UnTouch Point
@@ -2421,8 +2439,16 @@ function ALIGNPTS(state) {
 function UTP(state) {
     const pi = state.stack.pop();
     if (DEBUG) console.log(state.step, 'UTP[]', pi);
-    // UTP clears the "touched" flags on a point.
-    // In our implementation, touching is implicit so this is a no-op.
+    // UTP clears the "touched" flags along the freedom vector.
+    // The touch mechanism in opentype.js uses the fv.touch(p) method
+    // which sets xTouched/yTouched on the HPoint. To untouch, we need
+    // to check if the point has those properties and clear them.
+    const p = state.z0[pi];
+    if (p) {
+        const fv = state.fv;
+        if (fv.x && 'xTouched' in p) p.xTouched = false;
+        if (fv.y && 'yTouched' in p) p.yTouched = false;
+    }
 }
 
 // SCFS[] Sets Coordinate From the Stack using projection vector and freedom vector
@@ -2434,13 +2460,11 @@ function SCFS(state) {
     if (DEBUG) console.log(state.step, 'SCFS[]', pi, v);
     const fv = state.fv;
     const pv = state.pv;
-    const p = state.zp2[pi];
+    const p = state.z2[pi];
     const c = v / 0x40;
     const oldC = pv.distance(p, HPZero, false, false);
-    const d = c - oldC;
-    p.x += d * fv.x;
-    p.y += d * fv.y;
-    p.touched = true;
+    fv.setRelative(p, p, c - oldC, pv);
+    fv.touch(p);
 }
 
 // MPS[] Measure Point Size
@@ -2686,18 +2710,38 @@ function MDRP_MIRP(indirect, setRp0, keepD, ro, dt, state) {
     d = od = pv.distance(p, rp, true, true);
     sign = d >= 0 ? 1 : -1; // Math.sign would be 0 in case of 0
 
-    // TODO consider autoFlip
-    d = Math.abs(d);
-
     if (indirect) {
-        cv = state.cvt[cvte];
+        cv = Math.abs(state.cvt[cvte]);
+        d = Math.abs(d);
 
-        if (ro && Math.abs(d - cv) < state.cvCutIn) d = cv;
+        // Auto-flip: ensure CVT distance sign matches original distance sign
+        if (state.autoFlip) {
+            if (sign * state.cvt[cvte] < 0) cv = -state.cvt[cvte];
+        }
+
+        // CVT cut-in: use CVT value if close enough to original distance
+        if (ro && Math.abs(d - cv) <= state.cvCutIn) {
+            d = cv;
+        }
+
+        // Single-width cut-in
+        if (state.singleWidth && Math.abs(d - state.singleWidth) < (state.singleWidthCutIn || 0)) {
+            d = state.singleWidth;
+        }
+    } else {
+        d = Math.abs(d);
+
+        // Single-width cut-in for MDRP
+        if (state.singleWidth && Math.abs(d - state.singleWidth) < (state.singleWidthCutIn || 0)) {
+            d = state.singleWidth;
+        }
     }
 
-    if (keepD && d < md) d = md;
-
+    // Round BEFORE minimum distance (spec order: cut-in, round, min-distance)
     if (ro) d = state.round(d);
+
+    // Minimum distance enforcement (after rounding)
+    if (keepD && d < md) d = md;
 
     fv.setRelative(p, rp, sign * d, pv);
     fv.touch(p);
