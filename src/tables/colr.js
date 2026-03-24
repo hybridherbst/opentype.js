@@ -78,12 +78,12 @@ const CompositeMode = {
  * Parse a ColorLine (gradient color stops)
  * @param {Parser} p - parser positioned at the ColorLine
  * @param {boolean} isVariable - whether this is a VarColorLine
- * @returns {{ extend: number, stops: Array }}
+ * @returns {{ extend: number, colorStops: Array }}
  */
 function parseColorLine(p, isVariable) {
     const extend = p.parseByte(); // uint8 Extend enum: 0=pad, 1=repeat, 2=reflect
     const numStops = p.parseUShort();
-    const stops = [];
+    const colorStops = [];
     for (let i = 0; i < numStops; i++) {
         const stop = {
             stopOffset: p.parseF2Dot14(),
@@ -93,9 +93,9 @@ function parseColorLine(p, isVariable) {
         if (isVariable) {
             stop.varIndexBase = p.parseULong();
         }
-        stops.push(stop);
+        colorStops.push(stop);
     }
-    return { extend, stops };
+    return { extend, colorStops };
 }
 
 /**
@@ -490,7 +490,7 @@ function parseColrTable(data, start) {
 
 /**
  * Serialize a ColorLine to bytes
- * @param {{ extend, stops }} colorLine
+ * @param {{ extend, colorStops }} colorLine
  * @returns {number[]} byte array
  */
 function encodeColorLine(colorLine) {
@@ -498,9 +498,9 @@ function encodeColorLine(colorLine) {
     // extend: uint8 (Extend enum)
     bytes.push(colorLine.extend & 0xFF);
     // numStops: USHORT
-    const numStops = colorLine.stops.length;
+    const numStops = colorLine.colorStops.length;
     bytes.push((numStops >> 8) & 0xFF, numStops & 0xFF);
-    for (const stop of colorLine.stops) {
+    for (const stop of colorLine.colorStops) {
         // stopOffset: F2Dot14 (int16)
         const stopVal = Math.round(stop.stopOffset * 16384);
         bytes.push((stopVal >> 8) & 0xFF, stopVal & 0xFF);
