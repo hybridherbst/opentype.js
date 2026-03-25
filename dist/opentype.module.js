@@ -17950,8 +17950,14 @@ UnitVector.prototype.setRelative = function(p, rp, d, pv, org) {
   const fvs = this.slope;
   const px = p.x;
   const py = p.y;
-  p.x = (fvs * px - pvns * rpdx + rpdy - py) / (fvs - pvns);
-  p.y = fvs * (p.x - px) + py;
+  const denom = fvs - pvns;
+  if (Math.abs(denom) < 1e-6) {
+    p.x += d * this.x;
+    p.y += d * this.y;
+  } else {
+    p.x = (fvs * px - pvns * rpdx + rpdy - py) / denom;
+    p.y = fvs * (p.x - px) + py;
+  }
 };
 UnitVector.prototype.touch = function(p) {
   p.xTouched = true;
@@ -18193,15 +18199,12 @@ execComponent = function(glyph, state, xScale, yScale) {
       console.log(i, gZone[i].x, gZone[i].y);
     }
   }
-  const font = state.font;
   gZone.push(
     new HPoint(0, 0),
-    new HPoint(Math.round(glyph.advanceWidth * xScale), 0),
-    new HPoint(0, Math.round((font.ascender || 0) * yScale)),
-    new HPoint(0, Math.round((font.descender || 0) * yScale))
+    new HPoint(Math.round(glyph.advanceWidth * xScale), 0)
   );
   exec(state);
-  gZone.length -= 4;
+  gZone.length -= 2;
   if (DEBUG) {
     console.log("FINISHED GLYPH", state.stack);
     for (let i = 0; i < pLen; i++) {
@@ -18582,8 +18585,8 @@ function MINDEX(state) {
   stack.push(stack.splice(stack.length - k, 1)[0]);
 }
 function FDEF(state) {
-  if (state.env !== "fpgm")
-    throw new Error("FDEF not allowed here");
+  if (state.env === "glyf")
+    throw new Error("FDEF not allowed in glyf programs");
   const stack = state.stack;
   const prog = state.prog;
   let ip = state.ip;
@@ -18612,7 +18615,7 @@ function MDAP(round, state) {
 }
 function IUP(v, state) {
   const z2 = state.z2;
-  const pLen = z2.length - 4;
+  const pLen = z2.length - 2;
   let cp;
   let pp;
   let np;
@@ -18670,8 +18673,10 @@ function SHC(a, state) {
     console.log(state.step, "SHC[" + a + "]", ci);
   const d = pv.distance(rp, rp, false, true);
   do {
-    if (p !== rp)
+    if (p !== rp) {
       fv.setRelative(p, p, d, pv);
+      fv.touch(p);
+    }
     p = p.nextPointOnContour;
   } while (p !== sp);
 }
@@ -18900,7 +18905,8 @@ function GC(a, state) {
   const p = state.z2[pi];
   if (DEBUG)
     console.log(state.step, "GC[" + a + "]", pi);
-  stack.push(state.dpv.distance(p, HPZero, a, false) * 64);
+  const v = a ? state.dpv : state.pv;
+  stack.push(v.distance(p, HPZero, a, false) * 64);
 }
 function MD(a, state) {
   const stack = state.stack;
@@ -18908,7 +18914,8 @@ function MD(a, state) {
   const pi1 = stack.pop();
   const p2 = state.z1[pi2];
   const p1 = state.z0[pi1];
-  const d = state.dpv.distance(p1, p2, a, a);
+  const v = a ? state.dpv : state.pv;
+  const d = v.distance(p1, p2, a, a);
   if (DEBUG)
     console.log(state.step, "MD[" + a + "]", pi2, pi1, "->", d);
   state.stack.push(Math.round(d * 64));
@@ -19379,7 +19386,7 @@ function FLIPPT(state) {
     console.log(state.step, "FLIPPT[]");
   for (let i = 0; i < loop; i++) {
     const pi = state.stack.pop();
-    const p = state.zp0[pi];
+    const p = state.z0[pi];
     if (p)
       p.onCurve = !p.onCurve;
   }
@@ -19392,7 +19399,7 @@ function FLIPRGON(state) {
   if (DEBUG)
     console.log(state.step, "FLIPRGON[]", start, end);
   for (let i = start; i <= end; i++) {
-    const p = state.zp0[i];
+    const p = state.z0[i];
     if (p)
       p.onCurve = true;
   }
@@ -19404,7 +19411,7 @@ function FLIPRGOFF(state) {
   if (DEBUG)
     console.log(state.step, "FLIPRGOFF[]", start, end);
   for (let i = start; i <= end; i++) {
-    const p = state.zp0[i];
+    const p = state.z0[i];
     if (p)
       p.onCurve = false;
   }
@@ -19526,8 +19533,11 @@ function MDRP_MIRP(indirect, setRp0, keepD, ro, dt, state) {
       if (sign * state.cvt[cvte] < 0)
         cv = -state.cvt[cvte];
     }
-    if (ro && Math.abs(d - cv) <= state.cvCutIn) {
-      d = cv;
+    if (ro) {
+      if (Math.abs(d - cv) <= state.cvCutIn)
+        d = cv;
+    } else {
+      d = Math.abs(cv);
     }
     if (state.singleWidth && Math.abs(d - state.singleWidth) < (state.singleWidthCutIn || 0)) {
       d = state.singleWidth;

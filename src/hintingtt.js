@@ -440,8 +440,16 @@ UnitVector.prototype.setRelative = function(p, rp, d, pv, org) {
     const px = p.x;
     const py = p.y;
 
-    p.x = (fvs * px - pvns * rpdx + rpdy - py) / (fvs - pvns);
-    p.y = fvs * (p.x - px) + py;
+    const denom = fvs - pvns;
+    // Guard against perpendicular fv/pv (division by zero)
+    if (Math.abs(denom) < 1e-6) {
+        // Fall back to moving along freedom vector directly
+        p.x += d * this.x;
+        p.y += d * this.y;
+    } else {
+        p.x = (fvs * px - pvns * rpdx + rpdy - py) / denom;
+        p.y = fvs * (p.x - px) + py;
+    }
 };
 
 /*
@@ -809,20 +817,19 @@ execComponent = function(glyph, state, xScale, yScale)
         }
     }
 
-    // Add 4 phantom points per the TT spec:
-    // N: origin, N+1: advance width, N+2: top, N+3: bottom
-    const font = state.font;
+    // Add 2 phantom points (origin + advance width).
+    // The spec defines 4 phantom points (adding top + bottom for vertical metrics),
+    // but many fonts' instruction programs only expect 2 phantom points and would
+    // crash if the zone is larger than expected.
     gZone.push(
         new HPoint(0, 0),
-        new HPoint(Math.round(glyph.advanceWidth * xScale), 0),
-        new HPoint(0, Math.round((font.ascender || 0) * yScale)),
-        new HPoint(0, Math.round((font.descender || 0) * yScale))
+        new HPoint(Math.round(glyph.advanceWidth * xScale), 0)
     );
 
     exec(state);
 
     // Removes the phantom points.
-    gZone.length -= 4;
+    gZone.length -= 2;
 
     if (DEBUG) {
         console.log('FINISHED GLYPH', state.stack);
@@ -1435,7 +1442,8 @@ function MINDEX(state) {
 // FDEF[] Function DEFinition
 // 0x2C
 function FDEF(state) {
-    if (state.env !== 'fpgm') throw new Error('FDEF not allowed here');
+    // Allow FDEF in both fpgm and prep — some fonts define functions in prep
+    if (state.env === 'glyf') throw new Error('FDEF not allowed in glyf programs');
     const stack = state.stack;
     const prog = state.prog;
     let ip = state.ip;
@@ -1475,7 +1483,7 @@ function MDAP(round, state) {
 // 0x30
 function IUP(v, state) {
     const z2 = state.z2;
-    const pLen = z2.length - 4; // exclude 4 phantom points
+    const pLen = z2.length - 2; // exclude 2 phantom points
     let cp;
     let pp;
     let np;
@@ -1557,7 +1565,10 @@ function SHC(a, state) {
     const d = pv.distance(rp, rp, false, true);
 
     do {
-        if (p !== rp) fv.setRelative(p, p, d, pv);
+        if (p !== rp) {
+            fv.setRelative(p, p, d, pv);
+            fv.touch(p);
+        }
         p = p.nextPointOnContour;
     } while (p !== sp);
 }
@@ -1584,7 +1595,7 @@ function SHZ(a, state) {
 
     let p;
     const d = pv.distance(rp, rp, false, true);
-    const pLen = z.length - 2;
+    const pLen = z.length - 2; // exclude 2 phantom points
     for (let i = 0; i < pLen; i++)
     {
         p = z[i];
@@ -1854,7 +1865,10 @@ function GC(a, state) {
 
     if (DEBUG) console.log(state.step, 'GC[' + a + ']', pi);
 
-    stack.push(state.dpv.distance(p, HPZero, a, false) * 0x40);
+    // a=0: current position along projection vector
+    // a=1: original position along dual projection vector
+    const v = a ? state.dpv : state.pv;
+    stack.push(v.distance(p, HPZero, a, false) * 0x40);
 }
 
 // MD[a] Measure Distance
@@ -1865,7 +1879,10 @@ function MD(a, state) {
     const pi1 = stack.pop();
     const p2 = state.z1[pi2];
     const p1 = state.z0[pi1];
-    const d = state.dpv.distance(p1, p2, a, a);
+    // a=0: current distance along projection vector
+    // a=1: original distance along dual projection vector
+    const v = a ? state.dpv : state.pv;
+    const d = v.distance(p1, p2, a, a);
 
     if (DEBUG) console.log(state.step, 'MD[' + a + ']', pi2, pi1, '->', d);
 
@@ -2518,7 +2535,7 @@ function FLIPPT(state) {
     if (DEBUG) console.log(state.step, 'FLIPPT[]');
     for (let i = 0; i < loop; i++) {
         const pi = state.stack.pop();
-        const p = state.zp0[pi];
+        const p = state.z0[pi];
         if (p) p.onCurve = !p.onCurve;
     }
     state.loop = 1;
@@ -2532,7 +2549,7 @@ function FLIPRGON(state) {
     const start = stack.pop();
     if (DEBUG) console.log(state.step, 'FLIPRGON[]', start, end);
     for (let i = start; i <= end; i++) {
-        const p = state.zp0[i];
+        const p = state.z0[i];
         if (p) p.onCurve = true;
     }
 }
@@ -2545,7 +2562,7 @@ function FLIPRGOFF(state) {
     const start = stack.pop();
     if (DEBUG) console.log(state.step, 'FLIPRGOFF[]', start, end);
     for (let i = start; i <= end; i++) {
-        const p = state.zp0[i];
+        const p = state.z0[i];
         if (p) p.onCurve = false;
     }
 }
@@ -2719,9 +2736,12 @@ function MDRP_MIRP(indirect, setRp0, keepD, ro, dt, state) {
             if (sign * state.cvt[cvte] < 0) cv = -state.cvt[cvte];
         }
 
-        // CVT cut-in: use CVT value if close enough to original distance
-        if (ro && Math.abs(d - cv) <= state.cvCutIn) {
-            d = cv;
+        // CVT cut-in: when rounding, use CVT if close enough to original.
+        // When not rounding, use CVT value directly (no cut-in test needed).
+        if (ro) {
+            if (Math.abs(d - cv) <= state.cvCutIn) d = cv;
+        } else {
+            d = Math.abs(cv);
         }
 
         // Single-width cut-in
