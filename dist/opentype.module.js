@@ -18824,11 +18824,9 @@ function MIAP(round, state) {
   }
   let d = pv.distance(p, HPZero);
   if (round) {
-    if (Math.abs(d - cv) <= state.cvCutIn)
+    if (Math.abs(d - cv) < state.cvCutIn)
       d = cv;
     d = state.round(d);
-  } else {
-    d = cv;
   }
   fv.setRelative(p, HPZero, d, pv);
   if (state.zp0 === 0) {
@@ -19526,32 +19524,16 @@ function MDRP_MIRP(indirect, setRp0, keepD, ro, dt, state) {
   let cv;
   d = od = pv.distance(p, rp, true, true);
   sign = d >= 0 ? 1 : -1;
+  d = Math.abs(d);
   if (indirect) {
-    cv = Math.abs(state.cvt[cvte]);
-    d = Math.abs(d);
-    if (state.autoFlip) {
-      if (sign * state.cvt[cvte] < 0)
-        cv = -state.cvt[cvte];
-    }
-    if (ro) {
-      if (Math.abs(d - cv) <= state.cvCutIn)
-        d = cv;
-    } else {
-      d = Math.abs(cv);
-    }
-    if (state.singleWidth && Math.abs(d - state.singleWidth) < (state.singleWidthCutIn || 0)) {
-      d = state.singleWidth;
-    }
-  } else {
-    d = Math.abs(d);
-    if (state.singleWidth && Math.abs(d - state.singleWidth) < (state.singleWidthCutIn || 0)) {
-      d = state.singleWidth;
-    }
+    cv = state.cvt[cvte];
+    if (ro && Math.abs(d - cv) < state.cvCutIn)
+      d = cv;
   }
-  if (ro)
-    d = state.round(d);
   if (keepD && d < md)
     d = md;
+  if (ro)
+    d = state.round(d);
   fv.setRelative(p, rp, sign * d, pv);
   fv.touch(p);
   if (DEBUG) {

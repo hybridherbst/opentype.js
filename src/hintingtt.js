@@ -1746,12 +1746,8 @@ function MIAP(round, state) {
     let d = pv.distance(p, HPZero);
 
     if (round) {
-        // CVT cut-in: use CVT value if close enough to current position
-        if (Math.abs(d - cv) <= state.cvCutIn) d = cv;
+        if (Math.abs(d - cv) < state.cvCutIn) d = cv;
         d = state.round(d);
-    } else {
-        // MIAP[0]: move point to CVT value unconditionally (no cut-in, no rounding)
-        d = cv;
     }
 
     fv.setRelative(p, HPZero, d, pv);
@@ -2727,41 +2723,16 @@ function MDRP_MIRP(indirect, setRp0, keepD, ro, dt, state) {
     d = od = pv.distance(p, rp, true, true);
     sign = d >= 0 ? 1 : -1; // Math.sign would be 0 in case of 0
 
+    d = Math.abs(d);
+
     if (indirect) {
-        cv = Math.abs(state.cvt[cvte]);
-        d = Math.abs(d);
-
-        // Auto-flip: ensure CVT distance sign matches original distance sign
-        if (state.autoFlip) {
-            if (sign * state.cvt[cvte] < 0) cv = -state.cvt[cvte];
-        }
-
-        // CVT cut-in: when rounding, use CVT if close enough to original.
-        // When not rounding, use CVT value directly (no cut-in test needed).
-        if (ro) {
-            if (Math.abs(d - cv) <= state.cvCutIn) d = cv;
-        } else {
-            d = Math.abs(cv);
-        }
-
-        // Single-width cut-in
-        if (state.singleWidth && Math.abs(d - state.singleWidth) < (state.singleWidthCutIn || 0)) {
-            d = state.singleWidth;
-        }
-    } else {
-        d = Math.abs(d);
-
-        // Single-width cut-in for MDRP
-        if (state.singleWidth && Math.abs(d - state.singleWidth) < (state.singleWidthCutIn || 0)) {
-            d = state.singleWidth;
-        }
+        cv = state.cvt[cvte];
+        if (ro && Math.abs(d - cv) < state.cvCutIn) d = cv;
     }
 
-    // Round BEFORE minimum distance (spec order: cut-in, round, min-distance)
-    if (ro) d = state.round(d);
-
-    // Minimum distance enforcement (after rounding)
     if (keepD && d < md) d = md;
+
+    if (ro) d = state.round(d);
 
     fv.setRelative(p, rp, sign * d, pv);
     fv.touch(p);
