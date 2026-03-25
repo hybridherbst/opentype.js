@@ -17137,6 +17137,8 @@ var VariationManager = class {
     this.process = new VariationProcessor(this.font);
     this.activateDefaultVariation();
     this.getTransform = this.process.getTransform.bind(this.process);
+    this._hvarTuples = [];
+    this._hvarTupleMap = /* @__PURE__ */ new Map();
   }
   /**
    * Tries to determine the default instance and sets its variation data as the font.defaultRenderOptions.
@@ -17501,14 +17503,10 @@ var VariationManager = class {
     }
     const defaultPeakTuple = new Array(axisCount).fill(0);
     defaultPeakTuple[axisIndex] = 1;
-    const advanceWidthDeltasMin = [];
-    const advanceWidthDeltasMax = [];
-    let hasMinDeltas = false;
-    let hasMaxDeltas = false;
+    const hvarTuples = [];
+    const hvarTupleMap = /* @__PURE__ */ new Map();
     for (let i = 0; i < font.glyphs.length; i++) {
       const glyph = font.glyphs.get(i);
-      advanceWidthDeltasMin[i] = 0;
-      advanceWidthDeltasMax[i] = 0;
       const hasSimpleOutlines = glyph && glyph.path && glyph.path.commands && glyph.path.commands.length > 0;
       const isComposite = glyph && glyph.isComposite;
       if (!hasSimpleOutlines && !isComposite) {
@@ -17521,14 +17519,18 @@ var VariationManager = class {
       const deltaArray = Array.isArray(deltaResult) ? deltaResult : [deltaResult];
       for (const item of deltaArray) {
         if (item.advanceWidthDelta !== void 0 && item.advanceWidthDelta !== 0) {
-          const peakValue = item.peakTuple ? item.peakTuple.length === 1 ? item.peakTuple[0] : item.peakTuple[axisIndex] : 1;
-          if (peakValue === 1) {
-            advanceWidthDeltasMax[i] = item.advanceWidthDelta;
-            hasMaxDeltas = true;
-          } else if (peakValue === -1) {
-            advanceWidthDeltasMin[i] = item.advanceWidthDelta;
-            hasMinDeltas = true;
+          const peak = item.peakTuple || defaultPeakTuple;
+          const tupleKey = peak.join(",");
+          let tupleIdx = hvarTupleMap.get(tupleKey);
+          if (tupleIdx === void 0) {
+            tupleIdx = hvarTuples.length;
+            hvarTuples.push({ peakTuple: [...peak], deltas: [] });
+            hvarTupleMap.set(tupleKey, tupleIdx);
           }
+          while (hvarTuples[tupleIdx].deltas.length <= i) {
+            hvarTuples[tupleIdx].deltas.push(0);
+          }
+          hvarTuples[tupleIdx].deltas[i] = item.advanceWidthDelta;
         }
         if (!item.deltas && !item.deltasY) {
           continue;
@@ -17561,8 +17563,26 @@ var VariationManager = class {
     const minPeakTuple = new Array(axisCount).fill(0);
     minPeakTuple[axisIndex] = -1;
     gvar.sharedTuples.push([...minPeakTuple]);
-    if (hasMinDeltas || hasMaxDeltas) {
-      this._generateHvarTable(axisIndex, advanceWidthDeltasMin, advanceWidthDeltasMax, hasMinDeltas, hasMaxDeltas);
+    for (const tuple of hvarTuples) {
+      const key = tuple.peakTuple.join(",");
+      let existIdx = this._hvarTupleMap.get(key);
+      if (existIdx !== void 0) {
+        const existing = this._hvarTuples[existIdx];
+        for (let i = 0; i < tuple.deltas.length; i++) {
+          if (tuple.deltas[i]) {
+            while (existing.deltas.length <= i)
+              existing.deltas.push(0);
+            existing.deltas[i] = (existing.deltas[i] || 0) + tuple.deltas[i];
+          }
+        }
+      } else {
+        existIdx = this._hvarTuples.length;
+        this._hvarTuples.push({ peakTuple: [...tuple.peakTuple], deltas: [...tuple.deltas] });
+        this._hvarTupleMap.set(key, existIdx);
+      }
+    }
+    if (this._hvarTuples.length > 0) {
+      this._generateHvarTableMultiAxis(this._hvarTuples, font.glyphs.length);
     }
   }
   /**
@@ -17630,6 +17650,65 @@ var VariationManager = class {
             deltaSets
           }
         ]
+      },
+      advanceWidth: {
+        format: 0,
+        map: deltaSets.map((_, i) => ({ outerIndex: 0, innerIndex: i }))
+      }
+    };
+  }
+  /**
+   * Finalize HVAR table after all axes have been added.
+   * Must be called after all addAxis() calls to generate the HVAR table
+   * with accumulated advance width deltas from ALL axes.
+   */
+  finalizeHvar() {
+    if (this._hvarTuples.length > 0) {
+      this._generateHvarTableMultiAxis(this._hvarTuples, this.font.glyphs.length);
+    }
+  }
+  /**
+   * Generate HVAR table supporting multiple axes.
+   * Creates one region per unique peakTuple from the delta generator.
+   */
+  _generateHvarTableMultiAxis(hvarTuples, glyphCount) {
+    const font = this.font;
+    const axisCount = font.tables.fvar.axes.length;
+    const variationRegions = [];
+    const regionIndexes = [];
+    for (let r = 0; r < hvarTuples.length; r++) {
+      const peak = hvarTuples[r].peakTuple;
+      const regionAxes = [];
+      for (let a = 0; a < axisCount; a++) {
+        const p = peak[a] || 0;
+        if (p > 0) {
+          regionAxes.push({ startCoord: 0, peakCoord: p, endCoord: p });
+        } else if (p < 0) {
+          regionAxes.push({ startCoord: p, peakCoord: p, endCoord: 0 });
+        } else {
+          regionAxes.push({ startCoord: 0, peakCoord: 0, endCoord: 0 });
+        }
+      }
+      variationRegions.push({ regionAxes });
+      regionIndexes.push(r);
+    }
+    const deltaSets = [];
+    for (let i = 0; i < glyphCount; i++) {
+      const row = [];
+      for (let r = 0; r < hvarTuples.length; r++) {
+        row.push(Math.round(hvarTuples[r].deltas[i] || 0));
+      }
+      deltaSets.push(row);
+    }
+    font.tables.hvar = {
+      version: [1, 0],
+      itemVariationStore: {
+        format: 1,
+        variationRegions,
+        itemVariationSubtables: [{
+          regionIndexes,
+          deltaSets
+        }]
       },
       advanceWidth: {
         format: 0,
