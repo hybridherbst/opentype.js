@@ -41,6 +41,7 @@
     "esbuild": "^0.20.0",
     "eslint": "^8.56.0",
     "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-jsdoc": "^62.8.1",
     "mocha": "^11.0.0",
     "typescript": "^6.0.2"
   },
@@ -69,17 +70,37 @@
     ],
     "plugins": [
       "eslint-plugin-local-rules",
-      "eslint-plugin-import"
+      "eslint-plugin-import",
+      "jsdoc"
     ],
     "extends": "eslint:recommended",
     "parserOptions": {
       "ecmaVersion": 2022,
       "sourceType": "module"
     },
+    "settings": {
+      "jsdoc": {
+        "mode": "typescript",
+        "preferredTypes": {
+          "any": {
+            "message": "Use a specific type or define a @typedef instead of `any`.",
+            "replacement": false
+          },
+          "Object": {
+            "message": "Use `Record<string, X>` or define a @typedef instead of bare `Object`.",
+            "replacement": false
+          }
+        }
+      }
+    },
     "rules": {
       "import/no-cycle": [
         "error"
       ],
+      "jsdoc/check-types": ["error", {
+        "noDefaults": true,
+        "unifyParentAndChildTypeChecks": true
+      }],
       "indent": [
         "error",
         4,
