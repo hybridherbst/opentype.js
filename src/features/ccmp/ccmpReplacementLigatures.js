@@ -1,4 +1,5 @@
-import { ContextParams } from '../../tokenizer.js';
+import * as _tokenizer from '../../tokenizer.js';
+const ContextParams = /** @type {any} */ (_tokenizer).ContextParams;
 import applySubstitution from '../applySubstitution.js';
 
 // @TODO: use commonFeatureUtils.js for reduction of code duplication
@@ -16,13 +17,13 @@ function getContextParams(tokens, index) {
 
 /**
  * Apply ccmp replacement ligatures to a context range
- * @param {ContextRange} range a range of tokens
+ * @param {any} range a range of tokens
  */
 function ccmpReplacementLigatures(range) {
     const script = 'delf';
     const tag = 'ccmp';
     let tokens = this.tokenizer.getRangeTokens(range);
-    let contextParams = getContextParams(tokens);
+    let contextParams = getContextParams(tokens, 0);
     for(let index = 0; index < contextParams.context.length; index++) {
         if (!this.query.getFeature({tag, script, contextParams})){
             continue;
@@ -36,7 +37,7 @@ function ccmpReplacementLigatures(range) {
                 const action = substitutions[i];
                 applySubstitution(action, tokens, index);
             }
-            contextParams = getContextParams(tokens);
+            contextParams = getContextParams(tokens, 0);
         }
     }
 }

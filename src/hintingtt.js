@@ -592,7 +592,7 @@ Hinting.prototype.exec = function(glyph, ppem) {
     const font = this.font;
     let prepState = this._prepState;
 
-    if (!prepState || prepState.ppem !== ppem) {
+    if (!prepState || /** @type {any} */ (prepState).ppem !== ppem) {
         let fpgmState = this._fpgmState;
 
         if (!fpgmState) {
@@ -604,12 +604,12 @@ Hinting.prototype.exec = function(glyph, ppem) {
             this._fpgmState =
                 new State('fpgm', font.tables.fpgm);
 
-            fpgmState.funcs = [ ];
-            fpgmState.font = font;
+            /** @type {any} */ (fpgmState).funcs = [ ];
+            /** @type {any} */ (fpgmState).font = font;
 
             if (DEBUG) {
                 console.log('---EXEC FPGM---');
-                fpgmState.step = -1;
+                /** @type {any} */ (fpgmState).step = -1;
             }
 
             try {
@@ -630,24 +630,24 @@ Hinting.prototype.exec = function(glyph, ppem) {
         this._prepState =
             new State('prep', font.tables.prep);
 
-        prepState.ppem = ppem;
+        /** @type {any} */ (prepState).ppem = ppem;
 
         // Creates a copy of the cvt table
         // and scales it to the current ppem setting.
         const oCvt = font.variation && font.variation.process.getCvarTransform() || font.tables.cvt;
         if (oCvt) {
-            const cvt = prepState.cvt = new Array(oCvt.length);
+            const cvt = /** @type {any} */ (prepState).cvt = new Array(oCvt.length);
             const scale = ppem / font.unitsPerEm;
             for (let c = 0; c < oCvt.length; c++) {
                 cvt[c] = oCvt[c] * scale;
             }
         } else {
-            prepState.cvt = [];
+            /** @type {any} */ (prepState).cvt = [];
         }
 
         if (DEBUG) {
             console.log('---EXEC PREP---');
-            prepState.step = -1;
+            /** @type {any} */ (prepState).step = -1;
         }
 
         try {
@@ -677,13 +677,14 @@ Hinting.prototype.exec = function(glyph, ppem) {
 /*
 * Executes the hinting program for a glyph.
 */
-execGlyph = function(glyph, prepState) {
+execGlyph = function(glyph, /** @type {any} */ prepState) {
     // original point positions
     const xScale = prepState.ppem / prepState.font.unitsPerEm;
     const yScale = xScale;
     let components = glyph.components;
     let contours;
     let gZone;
+    /** @type {any} */
     let state;
 
     State.prototype = prepState;

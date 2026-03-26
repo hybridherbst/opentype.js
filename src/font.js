@@ -42,29 +42,32 @@ function createDefaultNamesInfo(options) {
 /**
  * @typedef FontOptions
  * @type Object
- * @property {Boolean} empty - whether to create a new empty font
- * @property {string} familyName
- * @property {string} styleName
- * @property {string=} fullName
- * @property {string=} postScriptName
- * @property {string=} designer
- * @property {string=} designerURL
- * @property {string=} manufacturer
- * @property {string=} manufacturerURL
- * @property {string=} license
- * @property {string=} licenseURL
- * @property {string=} version
- * @property {string=} description
- * @property {string=} copyright
- * @property {string=} trademark
- * @property {Number} unitsPerEm
- * @property {Number} ascender
- * @property {Number} descender
- * @property {Number} createdTimestamp
- * @property {Number} weightClass
- * @property {Number} italicAngle
- * @property {string=} widthClass
- * @property {string=} fsSelection
+ * @property {boolean} [empty] - whether to create a new empty font
+ * @property {string} [familyName]
+ * @property {string} [styleName]
+ * @property {string} [fullName]
+ * @property {string} [postScriptName]
+ * @property {string} [designer]
+ * @property {string} [designerURL]
+ * @property {string} [manufacturer]
+ * @property {string} [manufacturerURL]
+ * @property {string} [license]
+ * @property {string} [licenseURL]
+ * @property {string} [version]
+ * @property {string} [description]
+ * @property {string} [copyright]
+ * @property {string} [trademark]
+ * @property {Number} [unitsPerEm]
+ * @property {Number} [ascender]
+ * @property {Number} [descender]
+ * @property {Number} [createdTimestamp]
+ * @property {Number} [weightClass]
+ * @property {Number} [italicAngle]
+ * @property {string} [widthClass]
+ * @property {string|number} [fsSelection]
+ * @property {Object} [tables]
+ * @property {number[]} [panose]
+ * @property {Array} [glyphs]
  */
 
 /**
@@ -73,7 +76,7 @@ function createDefaultNamesInfo(options) {
  * or to get a path representing the text.
  * @exports opentype.Font
  * @class
- * @param {FontOptions} options
+ * @param {any} options
  * @constructor
  */
 function Font(options) {
@@ -102,18 +105,18 @@ function Font(options) {
 
         let selection = 0;
         if (options.fsSelection) {
-            selection = options.fsSelection;
+            selection = /** @type {number} */ (options.fsSelection);
         } else {
             if (this.italicAngle < 0) {
-                selection |= this.fsSelectionValues.ITALIC;
+                selection |= Font.prototype.fsSelectionValues.ITALIC;
             } else if (this.italicAngle > 0) {
-                selection |= this.fsSelectionValues.OBLIQUE;
+                selection |= Font.prototype.fsSelectionValues.OBLIQUE;
             }
             if (this.weightClass >= 600) {
-                selection |= this.fsSelectionValues.BOLD;
+                selection |= Font.prototype.fsSelectionValues.BOLD;
             }
             if (selection == 0) {
-                selection = this.fsSelectionValues.REGULAR;
+                selection = Font.prototype.fsSelectionValues.REGULAR;
             }
         }
 
@@ -123,8 +126,8 @@ function Font(options) {
 
         this.tables = Object.assign(options.tables, {
             os2: Object.assign({
-                usWeightClass: options.weightClass || this.usWeightClasses.MEDIUM,
-                usWidthClass: options.widthClass || this.usWidthClasses.MEDIUM,
+                usWeightClass: options.weightClass || Font.prototype.usWeightClasses.MEDIUM,
+                usWidthClass: options.widthClass || Font.prototype.usWidthClasses.MEDIUM,
                 bFamilyType: options.panose[0] || 0,
                 bSerifStyle: options.panose[1] || 0,
                 bWeight: options.panose[2] || 0,
@@ -184,6 +187,22 @@ function Font(options) {
     this.options = options || {};
 }
 
+// Declare dynamic properties used across the codebase
+/** @type {string|undefined} */
+Font.prototype.outlinesFormat = undefined;
+/** @type {Object|undefined} */
+Font.prototype.glyphNames = undefined;
+/** @type {Object|undefined} */
+Font.prototype.kerningPairs = undefined;
+/** @type {Object|undefined} */
+Font.prototype.collection = undefined;
+/** @type {number|undefined} */
+Font.prototype.numberOfHMetrics = undefined;
+/** @type {number|undefined} */
+Font.prototype.numGlyphs = undefined;
+/** @type {Object|undefined} */
+Font.prototype.metas = undefined;
+
 /**
  * Check if the font has a glyph for the given character.
  * @param  {string} c
@@ -209,7 +228,7 @@ Font.prototype.charToGlyphIndex = function(s) {
  * Note that this function assumes that there is a one-to-one mapping between
  * the given character and a glyph; for complex scripts this might not be the case.
  * @param  {string} c
- * @return {opentype.Glyph}
+ * @return {Glyph}
  */
 Font.prototype.charToGlyph = function(c) {
     const glyphIndex = this.charToGlyphIndex(c);
@@ -242,7 +261,7 @@ Font.prototype.instantiate = function(coordsOrName) {
 
     // Copy glyphs with deltas baked
     const coords = typeof coordsOrName === 'string'
-        ? (this.variation && this.variation.process.getInstanceCoordsByName && this.variation.process.getInstanceCoordsByName(coordsOrName))
+        ? (this.variation && /** @type {any} */ (this.variation.process).getInstanceCoordsByName && /** @type {any} */ (this.variation.process).getInstanceCoordsByName(coordsOrName))
         : coordsOrName;
 
     for (let i = 0; i < this.glyphs.length; i++) {
@@ -368,7 +387,7 @@ Font.prototype.stringToGlyphIndexes = function(s, options) {
  * length of the given string.
  * @param  {string} s
  * @param  {GlyphRenderOptions} [options]
- * @return {opentype.Glyph[]}
+ * @return {Glyph[]}
  */
 Font.prototype.stringToGlyphs = function(s, options) {
     const indexes = this.stringToGlyphIndexes(s, options);
@@ -394,7 +413,7 @@ Font.prototype.nameToGlyphIndex = function(name) {
 
 /**
  * @param  {string} name
- * @return {opentype.Glyph}
+ * @return {Glyph}
  */
 Font.prototype.nameToGlyph = function(name) {
     const glyphIndex = this.nameToGlyphIndex(name);
@@ -426,24 +445,23 @@ Font.prototype.glyphIndexToName = function(gid) {
  * between glyphs.
  * For GPOS kerning, this method uses the default script and language, which covers
  * most use cases. To have greater control, use font.position.getKerningValue .
- * @param  {opentype.Glyph} leftGlyph
- * @param  {opentype.Glyph} rightGlyph
+ * @param  {Glyph|number} leftGlyph
+ * @param  {Glyph|number} rightGlyph
  * @return {Number}
  */
 Font.prototype.getKerningValue = function(leftGlyph, rightGlyph) {
-    leftGlyph = leftGlyph.index || leftGlyph;
-    rightGlyph = rightGlyph.index || rightGlyph;
+    leftGlyph = /** @type {any} */ (leftGlyph).index || leftGlyph;
+    rightGlyph = /** @type {any} */ (rightGlyph).index || rightGlyph;
     const gposKerning = this.position.defaultKerningTables;
     if (gposKerning) {
-        return this.position.getKerningValue(gposKerning, leftGlyph, rightGlyph);
+        return this.position.getKerningValue(gposKerning, /** @type {any} */ (leftGlyph), /** @type {any} */ (rightGlyph));
     }
     // "kern" table
     return this.kerningPairs[leftGlyph + ',' + rightGlyph] || 0;
 };
 
 /**
- * @typedef GlyphRenderOptions
- * @type Object
+ * @typedef {Object} GlyphRenderOptions
  * @property {string} [script] - script used to determine which features to apply. By default, 'DFLT' or 'latn' is used.
  *                               See https://www.microsoft.com/typography/otspec/scripttags.htm
  * @property {string} [language='dflt'] - language system used to determine which features to apply.
@@ -452,9 +470,12 @@ Font.prototype.getKerningValue = function(leftGlyph, rightGlyph) {
  * @property {object} [features] - OpenType Layout feature tags. Used to enable or disable the features of the given script/language system.
  *                                 See https://www.microsoft.com/typography/otspec/featuretags.htm
  * @property {boolean} [hinting=false] - whether to apply font hinting to the outlines
- * @property {integer} [usePalette=0] For COLR/CPAL fonts, the zero-based index of the color palette to use. (Use `Font.palettes.get()` to get the available palettes)
+ * @property {number} [usePalette=0] For COLR/CPAL fonts, the zero-based index of the color palette to use. (Use `Font.palettes.get()` to get the available palettes)
  * @property {boolean} [drawLayers=true] For COLR/CPAL fonts, this can be turned to false in order to draw the fallback glyphs instead
  * @property {boolean} [drawSVG=true] For SVG fonts, this can be turned to false in order to draw the fallback glyphs instead
+ * @property {Object} [variation] - Variation coordinates for variable fonts
+ * @property {number} [letterSpacing] - Additional letter spacing as a fraction of fontSize
+ * @property {number} [tracking] - Tracking value in thousandths of an em
  */
 Font.prototype.defaultRenderOptions = {
     kerning: true,
@@ -480,8 +501,8 @@ Font.prototype.defaultRenderOptions = {
  * @param  {number} [x=0] - Horizontal position of the beginning of the text.
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
  * @param  {number} [fontSize=72] - Font size in pixels. We scale the glyph units by `1 / unitsPerEm * fontSize`.
- * @param  {GlyphRenderOptions=} options
- * @param  {Function} callback
+ * @param  {GlyphRenderOptions} [options]
+ * @param  {Function} [callback]
  */
 Font.prototype.forEachGlyph = function(text, x, y, fontSize, options, callback) {
     x = x !== undefined ? x : 0;
@@ -498,7 +519,7 @@ Font.prototype.forEachGlyph = function(text, x, y, fontSize, options, callback) 
     const glyphs = this.stringToGlyphs(text, options);
     let kerningLookups;
     if (options.kerning) {
-        const script = options.script || this.position.getDefaultScriptName();
+        const script = options.script || /** @type {any} */ (this.position).getDefaultScriptName();
         kerningLookups = this.position.getKerningTables(script, options.language);
     }
     
@@ -514,7 +535,7 @@ Font.prototype.forEachGlyph = function(text, x, y, fontSize, options, callback) 
                 const delta = this.variation.process.getVariableAdjustment(
                     glyph.index, 'hvar', 'advanceWidth', explicitVariation
                 );
-                advanceWidth = Math.round((glyph._advanceWidth !== undefined ? glyph._advanceWidth : glyph.advanceWidth) + delta);
+                advanceWidth = Math.round((/** @type {any} */ (glyph)._advanceWidth !== undefined ? /** @type {any} */ (glyph)._advanceWidth : glyph.advanceWidth) + delta);
             } catch (e) {
                 // If HVAR lookup fails, use the glyph's advanceWidth as-is
             }
@@ -549,18 +570,20 @@ Font.prototype.forEachGlyph = function(text, x, y, fontSize, options, callback) 
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
  * @param  {number} [fontSize=72] - Font size in pixels. We scale the glyph units by `1 / unitsPerEm * fontSize`.
  * @param  {GlyphRenderOptions=} options
- * @return {opentype.Path}
+ * @return {Path}
  */
 Font.prototype.getPath = function(text, x, y, fontSize, options) {
     options = Object.assign({}, this.defaultRenderOptions, options);
+    /** @type {any} */
     const fullPath = new Path();
     fullPath._layers = [];
-    applyPaintType(this, fullPath, fontSize);
+    applyPaintType(this, fullPath);
     if (fullPath.stroke) {
         const scale = 1 / (fullPath.unitsPerEm || 1000) * fontSize;
         fullPath.strokeWidth *= scale;
     }
     this.forEachGlyph(text, x, y, fontSize, options, (glyph, gX, gY, gFontSize) => {
+        /** @type {any} */
         const glyphPath = glyph.getPath(gX, gY, gFontSize, options, this);
         if ( options.drawSVG || options.drawLayers ) {
             const layers = glyphPath._layers;
@@ -584,7 +607,7 @@ Font.prototype.getPath = function(text, x, y, fontSize, options) {
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
  * @param  {number} [fontSize=72] - Font size in pixels. We scale the glyph units by `1 / unitsPerEm * fontSize`.
  * @param  {GlyphRenderOptions=} options
- * @return {opentype.Path[]}
+ * @return {Path[]}
  */
 Font.prototype.getPaths = function(text, x, y, fontSize, options) {
     options = Object.assign({}, this.defaultRenderOptions, options);
@@ -736,7 +759,7 @@ Font.prototype.validate = function() {
  * This structure contains all the necessary tables and metadata to create a binary OTF file.
  * @param {Object} [options] - Options for table generation
  * @param {number} [options.postFormat] - Post table format (2 = with glyph names, 3 = without)
- * @return {opentype.Table}
+ * @return {Object}
  */
 Font.prototype.toTables = function(options) {
     return sfnt.fontToTable(this, options);
@@ -793,12 +816,12 @@ Font.prototype.download = function(fileName) {
             console.warn('Font file could not be downloaded. Try using a different browser.');
         }
     } else {
-        const buffer = Buffer.alloc(arrayBuffer.byteLength);
+        const buffer = /** @type {any} */ (globalThis).Buffer.alloc(arrayBuffer.byteLength);
         const view = new Uint8Array(arrayBuffer);
         for (let i = 0; i < buffer.length; ++i) {
             buffer[i] = view[i];
         }
-        import('fs').then(fs => fs.writeFileSync(fileName, buffer)).catch(() => {
+        import(/** @type {any} */ ('fs')).then(fs => fs.writeFileSync(fileName, buffer)).catch(() => {
             console.warn('Font file could not be written (fs unavailable).');
         });
     }

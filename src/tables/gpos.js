@@ -10,6 +10,7 @@ const subtableParsers = new Array(10);         // subtableParsers[0] is unused
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-1-single-adjustment-positioning-subtable
 // this = Parser instance
+/** @this {Parser} */
 subtableParsers[1] = function parseLookup1() {
     const subtableStart = this.offset + this.relativeOffset;
     const posformat = this.parseUShort();
@@ -39,6 +40,7 @@ subtableParsers[1] = function parseLookup1() {
 };
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-2-pair-adjustment-positioning-subtable
+/** @this {Parser} */
 subtableParsers[2] = function parseLookup2() {
     const subtableStart = this.offset + this.relativeOffset;
     const posFormat = this.parseUShort();
@@ -116,9 +118,11 @@ subtableParsers[2] = function parseLookup2() {
 };
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-3-cursive-attachment-positioning-subtable
+/** @this {Parser} */
 subtableParsers[3] = function parseLookup3() { return { error: 'GPOS Lookup 3 not supported' }; };
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-4-mark-to-base-attachment-positioning-subtable
+/** @this {Parser} */
 subtableParsers[4] = function parseLookup4() {
     const subtableStart = this.offset + this.relativeOffset;
     const posFormat = this.parseUShort();
@@ -182,6 +186,7 @@ subtableParsers[4] = function parseLookup4() {
 };
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-5-mark-to-ligature-attachment-positioning-subtable
+/** @this {Parser} */
 subtableParsers[5] = function parseLookup5() {
     const subtableStart = this.offset + this.relativeOffset;
     const posFormat = this.parseUShort();
@@ -254,6 +259,7 @@ subtableParsers[5] = function parseLookup5() {
 };
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-6-mark-to-mark-attachment-positioning-subtable
+/** @this {Parser} */
 subtableParsers[6] = function parseLookup6() {
     const subtableStart = this.offset + this.relativeOffset;
     const posFormat = this.parseUShort();
@@ -316,10 +322,13 @@ subtableParsers[6] = function parseLookup6() {
     };
 };
 
+/** @this {Parser} */
 subtableParsers[7] = function parseLookup7() { return { error: 'GPOS Lookup 7 not supported' }; };
+/** @this {Parser} */
 subtableParsers[8] = function parseLookup8() { return { error: 'GPOS Lookup 8 not supported' }; };
 // Extension Positioning subtable (lookup type 9)
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-9-extension-positioning-subtable
+/** @this {Parser} */
 subtableParsers[9] = function parseLookup9() {
     let posFormat;
     let extensionLookupType;
@@ -825,7 +834,7 @@ subtableMakers[3] = function makeLookup3(subtable) {
     check.assert(subtable.posFormat === 1, 'Lookup type 3 posFormat must be 1.');
 
     const coverageTable = makeCoverageTable(subtable.coverage);
-    const coverageSize = coverageTable?.sizeOf() || 0;
+    const coverageSize = /** @type {any} */ (coverageTable)?.sizeOf() || 0;
     const entryExitCount = subtable.entryExitRecords?.length || 0;
 
     const anchorTables = [];
@@ -995,6 +1004,7 @@ subtableMakers[5] = function makeLookup5(subtable) {
         }
     }
 
+    /** @type {Array<{name: string, type: string, value: any}>} */
     const ligatureArrayFields = [
         { name: 'ligatureCount', type: 'USHORT', value: ligatureAttachTables.length }
     ];
@@ -1165,8 +1175,8 @@ subtableMakers[8] = function makeLookup8(subtable) {
         
         // Calculate sizes
         const headerSize = 6; // posFormat + backtrackCount + inputCount + lookaheadCount + reserved
-        const backtrackSize = backtrackCoverageTable?.sizeOf() || 0;
-        const inputSize = inputCoverageTable?.sizeOf() || 0;
+        const backtrackSize = /** @type {any} */ (backtrackCoverageTable)?.sizeOf() || 0;
+        const inputSize = /** @type {any} */ (inputCoverageTable)?.sizeOf() || 0;
         
         // Build position rules if present
         const posRules = subtable.posRuleSet || [];

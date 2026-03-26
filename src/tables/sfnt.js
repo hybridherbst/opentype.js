@@ -73,6 +73,7 @@ function makeSfntTable(tables) {
     const hasGlyf = tables.some(t => t.tableName === 'glyf');
     const version = hasGlyf ? '\x00\x01\x00\x00' : 'OTTO';
     
+    /** @type {any} */
     const sfnt = new table.Table('sfnt', [
         {name: 'version', type: 'TAG', value: version},
         {name: 'numTables', type: 'USHORT', value: 0},
@@ -100,6 +101,7 @@ function makeSfntTable(tables) {
         const t = tables[i];
         check.argument(t.tableName.length === 4, 'Table name' + t.tableName + ' is invalid.');
         const tableLength = t.sizeOf();
+        /** @type {any} */
         const tableRecord = makeTableRecord(t.tableName, computeCheckSum(t.encode()), offset, tableLength);
         recordFields.push({name: tableRecord.tag + ' Table Record', type: 'RECORD', value: tableRecord});
         tableFields.push({name: t.tableName + ' table', type: 'RECORD', value: t});
@@ -112,7 +114,7 @@ function makeSfntTable(tables) {
     }
 
     // Table records need to be sorted alphabetically.
-    recordFields.sort(function(r1, r2) {
+    recordFields.sort(function(/** @type {any} */ r1, /** @type {any} */ r2) {
         if (r1.value.tag > r2.value.tag) {
             return 1;
         } else {
@@ -152,7 +154,7 @@ function average(vs) {
 /**
  * Compute maxp table values from glyphs for TrueType fonts.
  * These values are required for proper font validation on macOS.
- * @param {GlyphSet} glyphs - The font's glyph set
+ * @param {any} glyphs - The font's glyph set
  * @returns {Object} maxp values: maxPoints, maxContours, etc.
  */
 function computeMaxpValues(glyphs) {
@@ -340,6 +342,7 @@ function fontToSfntTable(font, options = {}) {
     // Convert fontRevision to 16.16 fixed-point format for FIXED encoding
     const fontRevisionFixed = Math.round(fontRevision * 65536);
 
+    /** @type {any} */
     const headTable = head.make({
         flags: 3, // 00000011 (baseline for font at y=0; left sidebearing point at x=0)
         unitsPerEm: font.unitsPerEm,

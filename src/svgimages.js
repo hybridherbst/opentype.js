@@ -25,10 +25,10 @@ import { isGzip, unGzip } from './util.js';
 
 export class SVGImageManager {
     /**
-     * @param {opentype.Font} font
+     * @param {any} font
      */
     constructor(font) {
-        /** @type {opentype.Font} */
+        /** @type {any} */
         this.font = font;
         /** @type {WeakMap<Uint8Array, SVGDocCacheEntry>} */
         this.cache = new WeakMap();
@@ -36,7 +36,7 @@ export class SVGImageManager {
 
     /**
      * @param {number} glyphIndex
-     * @returns {SvgImage | undefined}
+     * @returns {SVGImage | undefined}
      */
     get(glyphIndex) {
         const svgImageCacheEntry = this.getOrCreateSvgImageCacheEntry(glyphIndex);
@@ -45,7 +45,7 @@ export class SVGImageManager {
 
     /**
      * @param {number} glyphIndex
-     * @returns {Promise<SvgImage> | undefined}
+     * @returns {Promise<SVGImage> | undefined}
      */
     getAsync(glyphIndex) {
         const svgImageCacheEntry = this.getOrCreateSvgImageCacheEntry(glyphIndex);
@@ -100,7 +100,7 @@ function createSvgDocCacheEntry(svgBuf) {
 }
 
 /**
- * @param {opentype.Font} font
+ * @param {any} font
  * @param {Promise<SVGTemplate>} svgTemplatePromise
  * @param {number} glyphIndex
  * @returns {SVGImageCacheEntry}
@@ -112,7 +112,7 @@ function createSvgImageCacheEntry(font, svgTemplatePromise, glyphIndex) {
             if (typeof svgTemplate === 'string') {
                 svgText = svgTemplate;
             } else {
-                svgTemplate[4] = glyphIndex;
+                svgTemplate[4] = /** @type {any} */ (glyphIndex);
                 svgText = svgTemplate.join('');
             }
             const svgImage = makeSvgImage(svgText, font.unitsPerEm);
@@ -148,7 +148,7 @@ function decodeSvgDocumentWithTinyInflate(buf) {
 */
 function decodeSvgDocumentWithDecompressionStream(buf) {
     if (isGzip(buf)) {
-        return new Response(new Response(buf).body.pipeThrough(new DecompressionStream('gzip'))).text();
+        return new Response(new Response(/** @type {any} */ (buf)).body.pipeThrough(new DecompressionStream('gzip'))).text();
     }
     try {
         return Promise.resolve(new TextDecoder().decode(buf));
@@ -188,7 +188,7 @@ export function makeSvgTemplate(text) {
 export function makeSvgImage(text, unitsPerEm) {
     const svgDocument = new DOMParser().parseFromString(text, 'image/svg+xml');
     /** @type {SVGSVGElement} */
-    const svg = svgDocument.documentElement;
+    const svg = /** @type {any} */ (svgDocument.documentElement);
     const viewBoxVal = svg.viewBox.baseVal;
     const widthVal = svg.width.baseVal;
     const heightVal = svg.height.baseVal;
@@ -221,8 +221,8 @@ export function makeSvgImage(text, unitsPerEm) {
     const height = bbox.height * yScale;
 
     svg.setAttribute('viewBox', [bbox.x, bbox.y, bbox.width, bbox.height].join(' '));
-    if (xScale !== 1) svg.setAttribute('width', width);
-    if (yScale !== 1) svg.setAttribute('height', height);
+    if (xScale !== 1) svg.setAttribute('width', /** @type {any} */ (width));
+    if (yScale !== 1) svg.setAttribute('height', /** @type {any} */ (height));
 
     const image = new Image(width, height);
     image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.outerHTML);

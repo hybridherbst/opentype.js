@@ -44,7 +44,7 @@ encode.BYTE = function(v) {
 };
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.BYTE = constant(1);
 
@@ -59,7 +59,7 @@ encode.CHAR = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.CHAR = constant(1);
 
@@ -103,7 +103,7 @@ encode.USHORT = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.USHORT = constant(2);
 
@@ -123,7 +123,7 @@ encode.SHORT = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.SHORT = constant(2);
 
@@ -138,7 +138,7 @@ encode.UINT24 = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.UINT24 = constant(3);
 
@@ -153,7 +153,7 @@ encode.ULONG = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.ULONG = constant(4);
 
@@ -173,7 +173,7 @@ encode.LONG = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.LONG = constant(4);
 
@@ -215,7 +215,7 @@ encode.LONGDATETIME = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.LONGDATETIME = constant(8);
 
@@ -234,7 +234,7 @@ encode.TAG = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.TAG = constant(4);
 
@@ -294,7 +294,7 @@ encode.NUMBER16 = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.NUMBER16 = constant(3);
 
@@ -311,7 +311,7 @@ encode.NUMBER32 = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.NUMBER32 = constant(5);
 
@@ -830,7 +830,7 @@ encode.PACKEDPOINTS = function(points, allPoints = false) {
 // The values should be objects containing name / type / value.
 /**
  * @param {Array} l
- * @param {Function} countEncoder - encoder for the array count, defaults to 'Card16'
+ * @param {string} [countEncoder] - encoder for the array count, defaults to 'Card16'
  * @returns {Array}
  */
 encode.INDEX = function(l, countEncoder = 'Card16') {
@@ -1107,7 +1107,7 @@ sizeOf.OBJECT = function(v) {
  * Convert a table object to bytes.
  * A table contains a list of fields containing the metadata (name, type and default value).
  * The table itself has the field values set as attributes.
- * @param {opentype.Table} table
+ * @param {Object} table
  * @returns {Array}
  */
 encode.TABLE = function(table) {
@@ -1166,7 +1166,7 @@ encode.TABLE = function(table) {
 };
 
 /**
- * @param {opentype.Table} table
+ * @param {Object} table
  * @returns {number}
  */
 sizeOf.TABLE = function(table) {

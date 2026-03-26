@@ -2,7 +2,8 @@
  * Apply Thai Glyph Composition feature to tokens
  */
 
-import { ContextParams } from '../../tokenizer.js';
+import * as _tokenizer from '../../tokenizer.js';
+const ContextParams = /** @type {any} */ (_tokenizer).ContextParams;
 import applySubstitution from '../applySubstitution.js';
 
 /**
@@ -17,7 +18,7 @@ function getContextParams(tokens, index) {
 
 /**
   * Apply Thai required glyphs composition substitutions
-  * @param {ContextRange} range a range of tokens
+  * @param {any} range a range of tokens
   */
 function thaiGlyphComposition(range) {
     const script = 'thai';

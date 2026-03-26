@@ -645,8 +645,8 @@ function parseBlend(operands) {
 
 /**
  * Applies path styles according to a CFF font's PaintType
- * @param {Font} font 
- * @param {Path} path 
+ * @param {any} font
+ * @param {any} path
  * @returns {Number} paintType
  */
 function applyPaintType(font, path) {
@@ -759,7 +759,7 @@ function parseCFFCharstring(font, glyph, code, version, coords) {
             newPath.fill = path.fill;
             newPath.stroke = path.stroke;
             newPath.strokeWidth = path.strokeWidth;
-            if (path._layers) newPath._layers = path._layers;
+            if (/** @type {any} */ (path)._layers) /** @type {any} */ (newPath)._layers = /** @type {any} */ (path)._layers;
             return newPath;
         };
     }
@@ -1203,7 +1203,7 @@ function parseCFFCharstring(font, glyph, code, version, coords) {
                     }
 
                     var n = stack.pop();
-                    var axisCount = blendVector ? blendVector.length : vstore.itemVariationSubtables[vsindex].regionIndexes.length;
+                    var axisCount = blendVector ? blendVector.length : /** @type {any} */ (vstore).itemVariationSubtables[vsindex].regionIndexes.length;
                     var deltaSetCount = n * axisCount;
                     var delta = stack.length - deltaSetCount;
                     var deltaSetIndex = delta - n;
@@ -1624,6 +1624,7 @@ function parseCFFFDSelect(data, start, nGlyphs, fdArrayCount, version) {
 
 // Parse the `CFF` table, which contains the glyph outlines in PostScript format.
 function parseCFFTable(data, start, font, opt) {
+    /** @type {any} */
     let resultTable;
     const header = parseCFFHeader(data, start);
     if (header.formatMajor === 2) {
@@ -1733,7 +1734,9 @@ function parseCFFTable(data, start, font, opt) {
     }
 
     if (header.formatMajor < 2) {
+        /** @type {any} */
         let charset = [];
+        /** @type {any} */
         let encoding = [];
 
         if (topDict.charset === 0) {
@@ -1766,12 +1769,12 @@ function parseCFFTable(data, start, font, opt) {
     if (opt.lowMemory) {
         font._push = function (i) {
             const charString = getCffIndexObject(i, charStringsIndex.offsets, data, start + topDict.charStrings, undefined, header.formatMajor);
-            font.glyphs.push(i, glyphset.cffGlyphLoader(font, i, parseCFFCharstring, charString, header.formatMajor));
+            font.glyphs.push(i, glyphset.cffGlyphLoader(font, i, parseCFFCharstring, /** @type {any} */ (charString), header.formatMajor));
         };
     } else {
         for (let i = 0; i < font.nGlyphs; i += 1) {
             const charString = charStringsIndex.objects[i];
-            font.glyphs.push(i, glyphset.cffGlyphLoader(font, i, parseCFFCharstring, charString, header.formatMajor));
+            font.glyphs.push(i, glyphset.cffGlyphLoader(font, i, parseCFFCharstring, /** @type {any} */ (charString), header.formatMajor));
         }
     }
 
@@ -1806,6 +1809,7 @@ function encodeString(s, strings) {
     return sid;
 }
 
+/** @returns {any} */
 function makeHeader(versionMajor) {
     // @TODO: if we have gvar data, we'll need to use the CFF2 format
     return new table.Record('Header', [
@@ -1820,6 +1824,7 @@ function makeHeader(versionMajor) {
 }
 
 function makeNameIndex(fontNames) {
+    /** @type {any} */
     const t = new table.Record('Name INDEX', [
         { name: 'names', type: 'INDEX', value: [] }
     ]);
@@ -1893,6 +1898,7 @@ function makeDict(meta, attrs, strings) {
 
 // The Top DICT houses the global font attributes.
 function makeTopDict(attrs, strings, version) {
+    /** @type {any} */
     const t = new table.Record('Top DICT', [
         { name: 'dict', type: 'DICT', value: {} }
     ]);
@@ -1901,6 +1907,7 @@ function makeTopDict(attrs, strings, version) {
 }
 
 function makeTopDictIndex(topDict) {
+    /** @type {any} */
     const t = new table.Record('Top DICT INDEX', [
         { name: 'topDicts', type: 'INDEX', value: [] }
     ]);
@@ -1909,6 +1916,7 @@ function makeTopDictIndex(topDict) {
 }
 
 function makeStringIndex(strings) {
+    /** @type {any} */
     const t = new table.Record('String INDEX', [
         { name: 'strings', type: 'INDEX', value: [] }
     ]);
@@ -1920,6 +1928,7 @@ function makeStringIndex(strings) {
     return t;
 }
 
+/** @returns {any} */
 function makeGlobalSubrIndex(version) {
     return new table.Record('Global Subr INDEX', [
         { name: 'subrs', type: version > 1 ? 'INDEX32' : 'INDEX', value: [] }
@@ -2144,6 +2153,7 @@ function glyphToOps(glyph, version, font) {
 }
 
 function makeCharStringsIndex(glyphs, version) {
+    /** @type {any} */
     const t = new table.Record('CharStrings INDEX', [
         { name: 'charStrings', type: version > 1 ? 'INDEX32' : 'INDEX', value: [] }
     ]);
@@ -2159,6 +2169,7 @@ function makeCharStringsIndex(glyphs, version) {
 }
 
 function makeFontDictIndex(fontDicts) {
+    /** @type {any} */
     const t = new table.Record('Font DICT INDEX', [
         { name: 'fontDicts', type: 'INDEX32', value: [] }
     ]);
@@ -2170,6 +2181,7 @@ function makeFontDictIndex(fontDicts) {
 }
 
 function makeFontDict(attrs, strings) {
+    /** @type {any} */
     const t = new table.Record('Font DICT', [
         { name: 'dict', type: 'DICT', value: {} }
     ]);
@@ -2178,6 +2190,7 @@ function makeFontDict(attrs, strings) {
 }
 
 function makePrivateDict(attrs, strings, version) {
+    /** @type {any} */
     const t = new table.Record('Private DICT', [
         { name: 'dict', type: 'DICT', value: {} }
     ]);
@@ -2206,6 +2219,7 @@ function makeCFFTable(glyphs, options, version) {
     ];
 
 
+    /** @type {any} */
     const t = new table.Table(cffVersion > 1 ? 'CFF2' : 'CFF ', tableFields);
 
     const fontScale = 1 / options.unitsPerEm;
@@ -2327,6 +2341,7 @@ function makeCFFTable(glyphs, options, version) {
                 const privAttrs = Object.assign({}, fd._privateDict || {});
                 privateTables.push(makePrivateDict(privAttrs, strings, 2));
                 if (fd._subrs && fd._subrs.length) {
+                    /** @type {any} */
                     const idx = new table.Record('Local Subr INDEX', [{ name: 'subrs', type: 'INDEX32', value: [] }]);
                     idx.subrs = fd._subrs.map((bytes, j) => ({ name: `subr_${i}_${j}`, type: 'LITERAL', value: bytes }));
                     localSubrIndexes.push(idx);

@@ -32,7 +32,7 @@ function getPathDefinition(glyph, path) {
 
 /**
  * @typedef GlyphOptions
- * @type Object
+ * @property {number} [index]
  * @property {string} [name] - The glyph name
  * @property {number} [unicode]
  * @property {Array} [unicodes]
@@ -42,6 +42,9 @@ function getPathDefinition(glyph, path) {
  * @property {number} [yMax]
  * @property {number} [advanceWidth]
  * @property {number} [leftSideBearing]
+ * @property {any} [path]
+ * @property {any} [points]
+ * @property {any} [font]
  */
 
 // A Glyph is an individual mark that often corresponds to a character.
@@ -131,7 +134,8 @@ Glyph.prototype.addUnicode = function(unicode) {
 
 /**
  * Calculate the minimum bounding box for this glyph.
- * @return {opentype.BoundingBox}
+ * @this {any}
+ * @return {any}
  */
 Glyph.prototype.getBoundingBox = function() {
     return this.path.getBoundingBox();
@@ -139,12 +143,13 @@ Glyph.prototype.getBoundingBox = function() {
 
 /**
  * Convert the glyph to a Path we can draw on a drawing context.
+ * @this {any}
  * @param  {number} [x=0] - Horizontal position of the beginning of the text.
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
  * @param  {number} [fontSize=72] - Font size in pixels. We scale the glyph units by `1 / unitsPerEm * fontSize`.
- * @param  {GlyphRenderOptions=} options - xScale, yScale to stretch the glyph.
- * @param  {opentype.Font} font if hinting is to be used, or CPAL/COLR / variation needs to be rendered, the font
- * @return {opentype.Path}
+ * @param  {any} [options] - xScale, yScale to stretch the glyph.
+ * @param  {any} [font] if hinting is to be used, or CPAL/COLR / variation needs to be rendered, the font
+ * @return {any}
  */
 Glyph.prototype.getPath = function(x, y, fontSize, options, font) {
     x = x !== undefined ? x : 0;
@@ -185,10 +190,12 @@ Glyph.prototype.getPath = function(x, y, fontSize, options, font) {
         if (yScale === undefined) yScale = scale;
     }
     
+    /** @type {any} */
     const p = new Path();
     if ( options.drawSVG ) {
         const svgImage = this.getSvgImage(font);
         if ( svgImage ) {
+            /** @type {any} */
             const layer = new Path();
             layer._image = {
                 image: svgImage.image,
@@ -264,8 +271,7 @@ Glyph.prototype.getPath = function(x, y, fontSize, options, font) {
 };
 
 /**
- * 
- * @param {opentype.Font} font 
+ * @param {any} font
  * @returns {Array}
  */
 Glyph.prototype.getLayers = function(font) {
@@ -276,8 +282,8 @@ Glyph.prototype.getLayers = function(font) {
 };
 
 /**
- * @param {opentype.Font} font
- * @returns {import('./svgimages.js').SVGImage | undefined}
+ * @param {any} font
+ * @returns {any}
  */
 Glyph.prototype.getSvgImage = function(font) {
     if(!font) {
@@ -290,6 +296,7 @@ Glyph.prototype.getSvgImage = function(font) {
  * Split the glyph into contours.
  * This function is here for backwards compatibility, and to
  * provide raw access to the TrueType glyph outlines.
+ * @this {any}
  * @param {Array|null} [transformedPoints=null] Use the supplied transformed points from a glyph variation instead of the regular glyph points
  * @return {Array}
  */
@@ -318,6 +325,7 @@ Glyph.prototype.getContours = function(transformedPoints = null) {
 
 /**
  * Calculate the xMin/yMin/xMax/yMax/lsb/rsb for a Glyph.
+ * @this {any}
  * @return {Object}
  */
 Glyph.prototype.getMetrics = function() {
@@ -382,8 +390,8 @@ Glyph.prototype.getMetrics = function() {
  * @param  {number} [x=0] - Horizontal position of the beginning of the text.
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
  * @param  {number} [fontSize=72] - Font size in pixels. We scale the glyph units by `1 / unitsPerEm * fontSize`.
- * @param  {Object=} options - xScale, yScale to stretch the glyph.
- * @param  {opentype.Font} font - if hinting is to be used, or CPAL/COLR / variation needs to be rendered, the font
+ * @param  {Object} [options] - xScale, yScale to stretch the glyph.
+ * @param  {any} [font] - if hinting is to be used, or CPAL/COLR / variation needs to be rendered, the font
  */
 Glyph.prototype.draw = function(ctx, x, y, fontSize, options, font) {
     options = Object.assign({}, font.defaultRenderOptions, options);
@@ -394,12 +402,13 @@ Glyph.prototype.draw = function(ctx, x, y, fontSize, options, font) {
 /**
  * Draw the points of the glyph.
  * On-curve points will be drawn in blue, off-curve points will be drawn in red.
+ * @this {any}
  * @param  {CanvasRenderingContext2D} ctx - A 2D drawing context, like Canvas.
  * @param  {number} [x=0] - Horizontal position of the beginning of the text.
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
  * @param  {number} [fontSize=72] - Font size in pixels. We scale the glyph units by `1 / unitsPerEm * fontSize`.
- * @param  {GlyphRenderOptions=} options
- * @param  {opentype.Font} font - used to get the default render options, may be needed for variable fonts in the future
+ * @param  {any} [options]
+ * @param  {any} [font] - used to get the default render options, may be needed for variable fonts in the future
  */
 Glyph.prototype.drawPoints = function(ctx, x, y, fontSize, options, font) {
     options = Object.assign({}, font && font.defaultRenderOptions, options);
@@ -465,6 +474,7 @@ Glyph.prototype.drawPoints = function(ctx, x, y, fontSize, options, font) {
  * Black lines indicate the origin of the coordinate system (point 0,0).
  * Blue lines indicate the glyph bounding box.
  * Green line indicates the advance width of the glyph.
+ * @this {any}
  * @param  {CanvasRenderingContext2D} ctx - A 2D drawing context, like Canvas.
  * @param  {number} [x=0] - Horizontal position of the beginning of the text.
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
@@ -505,8 +515,9 @@ Glyph.prototype.drawMetrics = function(ctx, x, y, fontSize) {
 
 /**
  * Convert the Glyph's Path to a string of path data instructions
+ * @this {any}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true, variation:undefined}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
- * @param  {opentype.Font} font - A font object is required if variation is to be applied in order to get the variation data from the tables
+ * @param  {any} [font] - A font object is required if variation is to be applied in order to get the variation data from the tables
  * @return {string}
  * @see Path.toPathData
  */
@@ -527,8 +538,9 @@ Glyph.prototype.toPathData = function(options, font) {
 
 /**
  * Sets the path data from an SVG path element or path notation
+ * @this {any}
  * @param  {string|SVGPathElement} pathData
- * @param  {object} options
+ * @param  {object} [options]
  */
 Glyph.prototype.fromSVG = function(pathData, options = {}) {
     return this.path.fromSVG(pathData, options);
@@ -536,8 +548,9 @@ Glyph.prototype.fromSVG = function(pathData, options = {}) {
 
 /**
  * Convert the Glyph's Path to an SVG <path> element, as a string.
+ * @this {any}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true, variation:undefined}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
- * @param  {opentype.Font} font - A font object is required if variation is to be applied in order to get the variation data from the tables 
+ * @param  {any} [font] - A font object is required if variation is to be applied in order to get the variation data from the tables
  * @return {string}
  */
 Glyph.prototype.toSVG = function(options, font) {
@@ -547,8 +560,9 @@ Glyph.prototype.toSVG = function(options, font) {
 
 /**
  * Convert the path to a DOM element.
+ * @this {any}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true, variation:undefined}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
- * @param  {opentype.Font} font - A font object is required if variation is to be applied in order to get the variation data from the tables 
+ * @param  {any} [font] - A font object is required if variation is to be applied in order to get the variation data from the tables
  * @return {SVGPathElement}
  */
 Glyph.prototype.toDOMElement = function(options, font) {

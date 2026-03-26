@@ -14,7 +14,7 @@ const axisRecordStruct = {
 const axisValueParsers = new Array(5);
 
 // https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/STAT_delta#axis-value-table-format-1
-axisValueParsers[1] = function axisValueParser1() {
+axisValueParsers[1] = /** @this {any} */ function axisValueParser1() {
     return {
         axisIndex: this.parseUShort(),
         flags: this.parseUShort(),
@@ -24,7 +24,7 @@ axisValueParsers[1] = function axisValueParser1() {
 };
 
 // https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/STAT_delta#axis-value-table-format-2
-axisValueParsers[2] = function axisValueParser2() {
+axisValueParsers[2] = /** @this {any} */ function axisValueParser2() {
     return {
         axisIndex: this.parseUShort(),
         flags: this.parseUShort(),
@@ -36,7 +36,7 @@ axisValueParsers[2] = function axisValueParser2() {
 };
 
 // https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/STAT_delta#axis-value-table-format-3
-axisValueParsers[3] = function axisValueParser3() {
+axisValueParsers[3] = /** @this {any} */ function axisValueParser3() {
     return {
         axisIndex: this.parseUShort(),
         flags: this.parseUShort(),
@@ -48,7 +48,7 @@ axisValueParsers[3] = function axisValueParser3() {
 };
 
 // https://learn.microsoft.com/en-us/typography/opentype/otspec191alpha/STAT_delta#axis-value-table-format-4
-axisValueParsers[4] = function axisValueParser4() {
+axisValueParsers[4] = /** @this {any} */ function axisValueParser4() {
     const axisCount = this.parseUShort();
     return {
         flags: this.parseUShort(),
@@ -217,11 +217,11 @@ function makeSTATTable(STAT) {
         {name: 'elidedFallbackNameID', type: 'USHORT', value: STAT.elidedFallbackNameID},
     ]);
 
-    result.designAxesOffset = result.offsetToAxisValueOffsets = result.sizeOf();
+    /** @type {any} */ (result).designAxesOffset = /** @type {any} */ (result).offsetToAxisValueOffsets = result.sizeOf();
 
     for (let i = 0; i < STAT.axes.length; i++) {
         const axisRecord = makeSTATAxisRecord(i, STAT.axes[i]);
-        result.offsetToAxisValueOffsets += axisRecord.sizeOf();
+        /** @type {any} */ (result).offsetToAxisValueOffsets += axisRecord.sizeOf();
         result.fields = result.fields.concat(axisRecord.fields);
     }
 

@@ -853,7 +853,7 @@ function makeNameTable(names, ltag, options = {}) {
         }
     }
 
-    nameRecords.sort(function(a, b) {
+    nameRecords.sort(function(/** @type {any} */ a, /** @type {any} */ b) {
         return ((a.platformID - b.platformID) ||
                 (a.encodingID - b.encodingID) ||
                 (a.languageID - b.languageID) ||

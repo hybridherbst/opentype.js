@@ -112,7 +112,7 @@ function encodeTupleVariationHeader(header, axisCount, variationDataSize) {
  * Make a cvar table from parsed cvar data
  * @param {object} cvar - The parsed cvar table data
  * @param {object} fvar - The fvar table (for axis count)
- * @returns {table.Table|undefined}
+ * @returns {any}
  */
 function makeCvarTable(cvar, fvar) {
     if (!cvar || !cvar.headers || cvar.headers.length === 0) {

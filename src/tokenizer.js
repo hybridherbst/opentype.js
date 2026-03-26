@@ -41,15 +41,8 @@ function ContextChecker(contextName, checkStart, checkEnd) {
 }
 
 /**
- * @typedef ContextParams
- * @type Object
- * @property {array} context context items
- * @property {number} currentIndex current item index
- */
-
-/**
  * Create a context params
- * @param {array} context a list of items
+ * @param {Array} context a list of items
  * @param {number} currentIndex current item index
  */
 function ContextParams(context, currentIndex) {
@@ -173,7 +166,7 @@ Tokenizer.prototype.composeRUD = function (RUDs) {
  * Replace a range of tokens with a list of tokens
  * @param {number} startIndex range start index
  * @param {number} offset range offset
- * @param {token} tokens a list of tokens to replace
+ * @param {Array} tokens a list of tokens to replace
  * @param {boolean} silent dispatch events and update context ranges
  */
 Tokenizer.prototype.replaceRange = function (startIndex, offset, tokens, silent) {
@@ -181,7 +174,7 @@ Tokenizer.prototype.replaceRange = function (startIndex, offset, tokens, silent)
     const isTokenType = tokens.every(token => token instanceof Token);
     if (!isNaN(startIndex) && this.inboundIndex(startIndex) && isTokenType) {
         const replaced = this.tokens.splice.apply(
-            this.tokens, [startIndex, offset].concat(tokens)
+            this.tokens, /** @type {any} */ ([startIndex, offset]).concat(tokens)
         );
         if (!silent) this.dispatch('replaceToken', [startIndex, offset, tokens]);
         return [replaced, tokens];
@@ -193,7 +186,7 @@ Tokenizer.prototype.replaceRange = function (startIndex, offset, tokens, silent)
 /**
  * Replace a token with another token
  * @param {number} index token index
- * @param {token} token a token to replace
+ * @param {any} token a token to replace
  * @param {boolean} silent dispatch events and update context ranges
  */
 Tokenizer.prototype.replaceToken = function (index, token, silent) {
@@ -246,7 +239,7 @@ Tokenizer.prototype.insertToken = function (tokens, index, silent) {
     );
     if (tokenType) {
         this.tokens.splice.apply(
-            this.tokens, [index, 0].concat(tokens)
+            this.tokens, /** @type {any} */ ([index, 0]).concat(tokens)
         );
         if (!silent) this.dispatch('insertToken', [tokens, index]);
         return tokens;
@@ -291,7 +284,7 @@ Event.prototype.subscribe = function (eventHandler) {
 
 /**
  * Unsubscribe an event handler
- * @param {string} subsId subscription id
+ * @param {number} subsId subscription id
  */
 Event.prototype.unsubscribe = function (subsId) {
     this.subscribers.splice(subsId, 1);
@@ -330,7 +323,7 @@ ContextParams.prototype.get = function (offset) {
 
 /**
  * Converts a context range into a string value
- * @param {contextRange} range a context range
+ * @param {ContextRange} range a context range
  */
 Tokenizer.prototype.rangeToText = function (range) {
     if (range instanceof ContextRange) {
@@ -416,7 +409,7 @@ Tokenizer.prototype.registerContextChecker = function(contextName, contextStartC
 
 /**
  * Gets a context range tokens
- * @param {contextRange} range a context range
+ * @param {ContextRange} range a context range
  */
 Tokenizer.prototype.getRangeTokens = function(range) {
     const endIndex = range.startIndex + range.endOffset;
@@ -474,7 +467,7 @@ Tokenizer.prototype.setEndOffset = function (offset, contextName) {
     const startIndex = this.getContext(contextName).openRange.startIndex;
     let range = new ContextRange(startIndex, offset, contextName);
     const ranges = this.getContext(contextName).ranges;
-    range.rangeId = `${contextName}.${ranges.length}`;
+    /** @type {any} */ (range).rangeId = `${contextName}.${ranges.length}`;
     ranges.push(range);
     this.getContext(contextName).openRange = null;
     return range;
@@ -482,7 +475,7 @@ Tokenizer.prototype.setEndOffset = function (offset, contextName) {
 
 /**
  * Runs a context check on the current context
- * @param {contextParams} contextParams current context params
+ * @param {ContextParams} contextParams current context params
  */
 Tokenizer.prototype.runContextCheck = function(contextParams) {
     const index = contextParams.index;
@@ -526,4 +519,5 @@ Tokenizer.prototype.tokenize = function (text) {
 };
 
 export default Tokenizer;
-export { Token, Event, ContextRange, ContextParams };
+export { Token, Event, ContextRange };
+export { ContextParams };

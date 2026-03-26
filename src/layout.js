@@ -95,13 +95,13 @@ Layout.prototype = {
 
     /**
      * Get or create the Layout table (GSUB, GPOS etc).
-     * @param  {boolean} create - Whether to create a new one.
+     * @param  {boolean} [create] - Whether to create a new one.
      * @return {Object} The GSUB or GPOS table.
      */
     getTable: function(create) {
         let layout = this.font.tables[this.tableName];
         if (!layout && create) {
-            layout = this.font.tables[this.tableName] = this.createDefaultTable();
+            layout = this.font.tables[this.tableName] = /** @type {any} */ (this).createDefaultTable();
         }
         return layout;
     },
@@ -141,7 +141,7 @@ Layout.prototype = {
      * Returns all LangSysRecords in the given script.
      * @instance
      * @param {string} [script='DFLT']
-     * @param {boolean} create - forces the creation of this script table if it doesn't exist.
+     * @param {boolean} [create] - forces the creation of this script table if it doesn't exist.
      * @return {Object} An object with tag and script properties.
      */
     getScriptTable: function(script, create) {
@@ -171,7 +171,7 @@ Layout.prototype = {
      * @instance
      * @param {string} [script='DFLT']
      * @param {string} [language='dlft']
-     * @param {boolean} create - forces the creation of this langSysTable if it doesn't exist.
+     * @param {boolean} [create] - forces the creation of this langSysTable if it doesn't exist.
      * @return {Object}
      */
     getLangSysTable: function(script, language, create) {
@@ -199,8 +199,8 @@ Layout.prototype = {
      * @instance
      * @param {string} [script='DFLT']
      * @param {string} [language='dlft']
-     * @param {string} feature - One of the codes listed at https://www.microsoft.com/typography/OTSPEC/featurelist.htm
-     * @param {boolean} create - forces the creation of the feature table if it doesn't exist.
+     * @param {string} [feature] - One of the codes listed at https://www.microsoft.com/typography/OTSPEC/featurelist.htm
+     * @param {boolean} [create] - forces the creation of the feature table if it doesn't exist.
      * @return {Object}
      */
     getFeatureTable: function(script, language, feature, create) {
@@ -239,9 +239,9 @@ Layout.prototype = {
      * @instance
      * @param {string} [script='DFLT']
      * @param {string} [language='dlft']
-     * @param {string} feature - 4-letter feature code
-     * @param {number} lookupType - 1 to 8 (not 7 - extension lookups are unwrapped)
-     * @param {boolean} create - forces the creation of the lookup table if it doesn't exist, with no subtables.
+     * @param {string} [feature] - 4-letter feature code
+     * @param {number} [lookupType] - 1 to 8 (not 7 - extension lookups are unwrapped)
+     * @param {boolean} [create] - forces the creation of the lookup table if it doesn't exist, with no subtables.
      * @return {Object[]}
      */
     getLookupTables: function(script, language, feature, lookupType, create) {

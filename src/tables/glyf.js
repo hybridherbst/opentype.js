@@ -80,7 +80,7 @@ function parseGlyph(glyph, data, start) {
             if (numberOfCoordinates > 0) {
                 for (let i = 0; i < numberOfCoordinates; i += 1) {
                     flag = flags[i];
-                    point = {};
+                    point = /** @type {any} */ ({});
                     point.onCurve = !!(flag & 1);
                     point.lastPointOfContour = endPointIndices.indexOf(i) >= 0;
                     points.push(point);
@@ -525,7 +525,7 @@ function pathToPoints(path, tolerance = 1) {
 
 /**
  * Encode a single simple glyph to TrueType glyf format.
- * @param {Glyph} glyph - The glyph to encode
+ * @param {any} glyph - The glyph to encode
  * @returns {Uint8Array} The encoded glyph data
  */
 function encodeSimpleGlyph(glyph) {
@@ -552,7 +552,7 @@ function encodeSimpleGlyph(glyph) {
 
 /**
  * Encode a glyph from its original TrueType points.
- * @param {Glyph} glyph - The glyph with original points data
+ * @param {any} glyph - The glyph with original points data
  * @returns {Uint8Array} The encoded glyph data
  */
 function encodeSimpleGlyphFromPoints(glyph) {
@@ -691,7 +691,7 @@ function encodePointsToGlyf(points, contourEnds, instructions) {
 
 /**
  * Encode a composite glyph
- * @param {Glyph} glyph - The composite glyph to encode
+ * @param {any} glyph - The composite glyph to encode
  * @returns {Uint8Array} The encoded glyph data
  */
 function encodeCompositeGlyph(glyph) {
@@ -811,7 +811,7 @@ function encodeCompositeGlyph(glyph) {
 
 /**
  * Make a glyf table from a GlyphSet.
- * @param {GlyphSet} glyphs - The glyphs to encode
+ * @param {any} glyphs - The glyphs to encode
  * @returns {Object} { glyfTable: Table, locaTable: Array }
  */
 function makeGlyfTable(glyphs) {

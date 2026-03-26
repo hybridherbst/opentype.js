@@ -75,7 +75,7 @@ function parseKernTable(data, start) {
  * Make a kern table from kerning pairs.
  * Creates a Windows format (version 0) kern table with format 0 subtable.
  * @param {Object} kerningPairs - Object with keys 'leftIndex,rightIndex' and values as kerning amounts
- * @returns {Table|null} The kern table, or null if no pairs
+ * @returns {any} The kern table, or null if no pairs
  */
 function makeKernTable(kerningPairs) {
     if (!kerningPairs || typeof kerningPairs !== 'object') {

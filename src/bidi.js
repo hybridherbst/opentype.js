@@ -22,7 +22,7 @@ import unicodeVariationSequences from './features/unicode/variationSequences.js'
 
 /**
  * Create Bidi. features
- * @param {string} baseDir text base direction. value either 'ltr' or 'rtl'
+ * @param {string} [baseDir] text base direction. value either 'ltr' or 'rtl'
  */
 function Bidi(baseDir) {
     this.baseDir = baseDir || 'ltr';
@@ -95,7 +95,7 @@ function reverseArabicSentences() {
 
 /**
  * Register supported features tags
- * @param {script} script script tag
+ * @param {string} script script tag
  * @param {Array} tags features tags list
  */
 Bidi.prototype.registerFeatures = function (script, tags) {
@@ -112,7 +112,7 @@ Bidi.prototype.registerFeatures = function (script, tags) {
 
 /**
  * Apply GSUB features
- * @param {Font} font opentype font instance
+ * @param {any} font opentype font instance
  * @param {Array} features a list of features
  */
 Bidi.prototype.applyFeatures = function (font, features) {
@@ -304,7 +304,7 @@ Bidi.prototype.getBidiText = function (text) {
 
 /**
  * Get the current state index of each token
- * @param {text} text an input text
+ * @param {string} text an input text
  */
 Bidi.prototype.getTextGlyphs = function (text) {
     this.processText(text);

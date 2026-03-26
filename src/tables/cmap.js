@@ -295,6 +295,7 @@ function makeCmapTable(glyphs) {
         {name: 'rangeShift', type: 'USHORT', value: 0}
     ]);
 
+    /** @type {any} */
     const t = new table.Table('cmap', cmapTable);
 
     t.segments = [];

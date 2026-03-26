@@ -367,6 +367,7 @@ function parsePaintTable(data, offset, layerList, colrTableStart, visited) {
  * @param {number} offset - absolute offset
  * @returns {Array<{ startGlyphID, endGlyphID, clipBox }>}
  */
+/** @returns {any} */
 function parseClipList(data, offset) {
     const p = new Parser(data, offset);
     const clipFormat = p.parseByte();
@@ -1022,8 +1023,75 @@ function makeColrTable(colr) {
     
     const baseGlyphListSize = numBaseGlyphPaintRecords > 0 ? currentBGPaintOffset : 0;
 
+    // ── ClipList ──
+    // Build from colr.clipList if present: { format, clips: [{ startGlyphID, endGlyphID, clipBox }] }
+    const clipListStart = baseGlyphListStart + baseGlyphListSize;
+    let clipListBytes = null;
+    if (colr.clipList && colr.clipList.clips && colr.clipList.clips.length > 0) {
+        const clips = colr.clipList.clips;
+        // Each clip entry: startGlyphID(2) + endGlyphID(2) + clipBoxOffset(3) = 7 bytes
+        // ClipBox (format 1): format(1) + xMin(2) + yMin(2) + xMax(2) + yMax(2) = 9 bytes
+        // ClipBox (format 2): + varIndexBase(4) = 13 bytes
+        const headerBytes = 1 + 4; // format(1) + numClips(4)
+        const entryBytes = clips.length * 7;
+        const clipBoxDataStart = headerBytes + entryBytes;
+
+        // Pre-compute clipBox sizes and deduplicate identical boxes
+        const clipBoxMap = new Map(); // JSON key → offset within clipBox data region
+        const clipBoxEntries = []; // { offset, bytes }
+        let clipBoxOffset = 0;
+        for (const clip of clips) {
+            const box = clip.clipBox;
+            const fmt = box.format || 1;
+            const key = `${fmt},${box.xMin},${box.yMin},${box.xMax},${box.yMax}${fmt === 2 ? ',' + (box.varIndexBase || 0) : ''}`;
+            if (!clipBoxMap.has(key)) {
+                clipBoxMap.set(key, clipBoxOffset);
+                const boxSize = fmt === 2 ? 13 : 9;
+                clipBoxEntries.push({ fmt, box, offset: clipBoxOffset });
+                clipBoxOffset += boxSize;
+            }
+        }
+        const totalClipListSize = clipBoxDataStart + clipBoxOffset;
+        const clipBuf = new Uint8Array(totalClipListSize);
+        const clipView = new DataView(clipBuf.buffer);
+        let cp = 0;
+
+        // Header
+        clipView.setUint8(cp, colr.clipList.format || 1); cp += 1;
+        clipView.setUint32(cp, clips.length); cp += 4;
+
+        // Entries
+        for (const clip of clips) {
+            const box = clip.clipBox;
+            const fmt = box.format || 1;
+            const key = `${fmt},${box.xMin},${box.yMin},${box.xMax},${box.yMax}${fmt === 2 ? ',' + (box.varIndexBase || 0) : ''}`;
+            const boxOff = clipBoxDataStart + clipBoxMap.get(key);
+            clipView.setUint16(cp, clip.startGlyphID); cp += 2;
+            clipView.setUint16(cp, clip.endGlyphID); cp += 2;
+            // UInt24 offset
+            clipView.setUint8(cp, (boxOff >> 16) & 0xFF); cp += 1;
+            clipView.setUint8(cp, (boxOff >> 8) & 0xFF); cp += 1;
+            clipView.setUint8(cp, boxOff & 0xFF); cp += 1;
+        }
+
+        // ClipBox data
+        for (const { fmt, box } of clipBoxEntries) {
+            clipView.setUint8(cp, fmt); cp += 1;
+            clipView.setInt16(cp, box.xMin); cp += 2;
+            clipView.setInt16(cp, box.yMin); cp += 2;
+            clipView.setInt16(cp, box.xMax); cp += 2;
+            clipView.setInt16(cp, box.yMax); cp += 2;
+            if (fmt === 2) {
+                clipView.setUint32(cp, box.varIndexBase || 0); cp += 4;
+            }
+        }
+
+        clipListBytes = clipBuf;
+    }
+    const clipListSize = clipListBytes ? clipListBytes.length : 0;
+
     // Now build the full binary
-    const totalSize = headerSize + v0BaseGlyphsSize + v0LayerRecordsSize + layerListSize + baseGlyphListSize;
+    const totalSize = headerSize + v0BaseGlyphsSize + v0LayerRecordsSize + layerListSize + baseGlyphListSize + clipListSize;
     const buf = new ArrayBuffer(totalSize);
     const view = new DataView(buf);
     let pos = 0;
@@ -1037,7 +1105,7 @@ function makeColrTable(colr) {
     // v1 offsets
     view.setUint32(pos, numBaseGlyphPaintRecords > 0 ? baseGlyphListStart : 0); pos += 4;
     view.setUint32(pos, numLayerPaints > 0 ? layerListStart : 0); pos += 4;
-    view.setUint32(pos, 0); pos += 4; // clipListOffset (TODO)
+    view.setUint32(pos, clipListBytes ? clipListStart : 0); pos += 4; // clipListOffset
     view.setUint32(pos, 0); pos += 4; // varIndexMapOffset (not supported)
     view.setUint32(pos, 0); pos += 4; // itemVariationStoreOffset (not supported)
 
@@ -1078,6 +1146,13 @@ function makeColrTable(colr) {
             for (const b of entry.paintBytes) {
                 view.setUint8(pos, b); pos++;
             }
+        }
+    }
+
+    // ── ClipList data ──
+    if (clipListBytes) {
+        for (const b of clipListBytes) {
+            view.setUint8(pos, b); pos++;
         }
     }
 

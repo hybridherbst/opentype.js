@@ -2,7 +2,8 @@
  * Apply Arabic required ligatures feature to a range of tokens
  */
 
-import { ContextParams } from '../../tokenizer.js';
+import * as _tokenizer from '../../tokenizer.js';
+const ContextParams = /** @type {any} */ (_tokenizer).ContextParams;
 import applySubstitution from '../applySubstitution.js';
 
 // @TODO: use commonFeatureUtils.js for reduction of code duplication
@@ -20,12 +21,12 @@ function getContextParams(tokens, index) {
 
 /**
  * Apply Arabic required ligatures to a context range
- * @param {ContextRange} range a range of tokens
+ * @param {any} range a range of tokens
  */
 function arabicRequiredLigatures(range) {
     const script = 'arab';
     let tokens = this.tokenizer.getRangeTokens(range);
-    let contextParams = getContextParams(tokens);
+    let contextParams = getContextParams(tokens, 0);
     for (let index = 0; index < contextParams.context.length; index++) {
         contextParams.setCurrentIndex(index);
         let substitutions = this.query.lookupFeature({
@@ -36,7 +37,7 @@ function arabicRequiredLigatures(range) {
                 const action = substitutions[i];
                 applySubstitution(action, tokens, index);
             }
-            contextParams = getContextParams(tokens);
+            contextParams = getContextParams(tokens, 0);
         }
     }
 }

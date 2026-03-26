@@ -2,14 +2,16 @@
  * Apply Arabic presentation forms to a range of tokens
  */
 
-import { ContextParams } from '../../tokenizer.js';
+import * as _tokenizer from '../../tokenizer.js';
+const ContextParams = /** @type {any} */ (_tokenizer).ContextParams;
 import { isIsolatedArabicChar, isTashkeelArabicChar } from '../../char.js';
-import { SubstitutionAction } from '../featureQuery.js';
+import * as _featureQuery from '../featureQuery.js';
+const SubstitutionAction = /** @type {any} */ (_featureQuery).SubstitutionAction;
 import applySubstitution from '../applySubstitution.js';
 
 /**
  * Check if a char can be connected to it's preceding char
- * @param {ContextParams} charContextParams context params of a char
+ * @param {any} charContextParams context params of a char
  */
 function willConnectPrev(charContextParams) {
     let backtrack = [].concat(charContextParams.backtrack);
@@ -25,7 +27,7 @@ function willConnectPrev(charContextParams) {
 
 /**
  * Check if a char can be connected to it's proceeding char
- * @param {ContextParams} charContextParams context params of a char
+ * @param {any} charContextParams context params of a char
  */
 function willConnectNext(charContextParams) {
     if (isIsolatedArabicChar(charContextParams.current)) return false;
@@ -39,7 +41,7 @@ function willConnectNext(charContextParams) {
 
 /**
  * Apply arabic presentation forms to a list of tokens
- * @param {ContextRange} range a range of tokens
+ * @param {any} range a range of tokens
  */
 function arabicPresentationForms(range) {
     const script = 'arab';

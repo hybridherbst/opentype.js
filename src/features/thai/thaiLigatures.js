@@ -2,7 +2,8 @@
  * Apply Thai Ligatures feature to tokens
  */
 
-import { ContextParams } from '../../tokenizer.js';
+import * as _tokenizer from '../../tokenizer.js';
+const ContextParams = /** @type {any} */ (_tokenizer).ContextParams;
 import applySubstitution from '../applySubstitution.js';
 
 // @TODO: use commonFeatureUtils.js for reduction of code duplication
@@ -20,7 +21,7 @@ function getContextParams(tokens, index) {
 
 /**
   * Apply Thai required glyphs composition substitutions
-  * @param {ContextRange} range a range of tokens
+  * @param {any} range a range of tokens
   */
 function thaiLigatures(range) {
     const script = 'thai';

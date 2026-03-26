@@ -22,7 +22,7 @@ function parseFpgmTable(data, start, length) {
 /**
  * Create the fpgm table from an array of instruction bytes
  * @param {Array<number>} fpgmData - array of unsigned 8-bit instruction bytes
- * @returns {Table} the fpgm table
+ * @returns {any} the fpgm table
  */
 function makeFpgmTable(fpgmData) {
     if (!fpgmData || fpgmData.length === 0) {

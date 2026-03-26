@@ -95,7 +95,7 @@ function recordList(itemName, records, itemCallback) {
 /**
  * @exports opentype.Coverage
  * @class
- * @param {opentype.Table} coverageTable
+ * @param {Object} coverageTable
  * @constructor
  */
 function Coverage(coverageTable) {
@@ -155,7 +155,7 @@ ScriptList.prototype.constructor = ScriptList;
 /**
  * @exports opentype.FeatureList
  * @class
- * @param {opentype.Table} featureListTable
+ * @param {Object} featureListTable
  * @constructor
  */
 function FeatureList(featureListTable) {
@@ -177,7 +177,7 @@ FeatureList.prototype.constructor = FeatureList;
 /**
  * @exports opentype.LookupList
  * @class
- * @param {opentype.Table} lookupListTable
+ * @param {Object} lookupListTable
  * @param {Object} subtableMakers
  * @constructor
  */
@@ -197,7 +197,7 @@ LookupList.prototype.constructor = LookupList;
 /**
  * @exports opentype.ClassDef
  * @class
- * @param {opentype.Table} classDefTable
+ * @param {Object} classDefTable
  * @constructor
  *
  * @see https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2#class-definition-table

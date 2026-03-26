@@ -5,7 +5,7 @@ import parse from '../parse.js';
 import table from '../table.js';
 import { encode } from '../types.js';
 
-function parseHvarTable(data, start) {
+function parseHvarTable(data, start, _fvar) {
     const p = new parse.Parser(data, start);
     const tableVersionMajor = p.parseUShort();
     const tableVersionMinor = p.parseUShort();
@@ -287,7 +287,7 @@ function encodeDeltaSetIndexMap(indexMap) {
 /**
  * Make an hvar table from parsed hvar data
  * @param {object} hvar - The parsed hvar table data
- * @returns {table.Table|undefined}
+ * @returns {any}
  */
 function makeHvarTable(hvar) {
     if (!hvar || !hvar.itemVariationStore) {

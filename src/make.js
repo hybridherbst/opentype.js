@@ -20,7 +20,7 @@ export function ItemVariationStore(vstore, fvar) {
     }
     
     const t = new table.Record('ItemVariationStore', fields);
-    let currentOffset = t.variationRegionListOffset = t.sizeOf();
+    let currentOffset = /** @type {any} */ (t).variationRegionListOffset = t.sizeOf();
     
     // VariationRegions List
     const axisCount = fvar.axes.length;
@@ -90,7 +90,7 @@ export function VariationStore(vstore, fvar) {
         { name: 'length', type: 'USHORT', value: 0 },
         { name: 'itemVariationStore', type: 'RECORD', value: inner },
     ]);
-    t.length = inner.sizeOf();
-    t.itemVariationStore = inner;
+    /** @type {any} */ (t).length = inner.sizeOf();
+    /** @type {any} */ (t).itemVariationStore = inner;
     return t;
 }

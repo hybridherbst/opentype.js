@@ -33,7 +33,7 @@ function parseLocaTable(data, start, numGlyphs, shortVersion) {
  * Make a loca table from glyph offsets.
  * @param {Array} offsets - Array of glyph offsets from glyf.make
  * @param {boolean} useShort - Whether to use short (16-bit) format
- * @returns {Table} The loca table
+ * @returns {any} The loca table
  */
 function makeLocaTable(offsets, useShort) {
     const fields = [];

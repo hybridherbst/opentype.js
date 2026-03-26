@@ -191,7 +191,7 @@ const standardNames = [
  * @exports opentype.DefaultEncoding
  * @class
  * @constructor
- * @param {opentype.Font} font
+ * @param {any} font
  */
 function DefaultEncoding(font) {
     this.font = font;
@@ -351,7 +351,7 @@ function addGlyphNamesToUnicodeMap(font) {
 
 /**
  * @alias opentype.addGlyphNames
- * @param {opentype.Font} font
+ * @param {any} font
  * @param {Object} opt
  */
 function addGlyphNames(font, opt) {

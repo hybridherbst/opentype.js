@@ -22,7 +22,7 @@ function parsePrepTable(data, start, length) {
 /**
  * Create the prep table from an array of instruction bytes
  * @param {Array<number>} prepData - array of unsigned 8-bit instruction bytes
- * @returns {Table} the prep table
+ * @returns {any} the prep table
  */
 function makePrepTable(prepData) {
     if (!prepData || prepData.length === 0) {

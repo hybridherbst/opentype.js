@@ -220,8 +220,8 @@ export class VariationProcessor {
      */
     transformComponents(glyph, transformedPoints, coords, tuplePoints, header, factor) {
         let pointsIndex = 0;
-        for(let c = 0; c < glyph.components.length; c++) {
-            const component = glyph.components[c];
+        for(let c = 0; c < /** @type {any} */ (glyph).components.length; c++) {
+            const component = /** @type {any} */ (glyph).components[c];
             const componentGlyph = this.font.glyphs.get(component.glyphIndex);
             const componentTransform = copyComponent(component);
             // When tuplePoints is empty, it means "all points" — delta[c] maps to component c.
@@ -247,8 +247,8 @@ export class VariationProcessor {
      */
     transformComponentsSimple(glyph, transformedPoints, coords) {
         let pointsIndex = 0;
-        for(let c = 0; c < glyph.components.length; c++) {
-            const component = glyph.components[c];
+        for(let c = 0; c < /** @type {any} */ (glyph).components.length; c++) {
+            const component = /** @type {any} */ (glyph).components[c];
             const componentGlyph = this.font.glyphs.get(component.glyphIndex);
             const componentTransform = copyComponent(component);
             // No gvar deltas to apply - just use the base component transform (dx, dy)
@@ -388,9 +388,9 @@ export class VariationProcessor {
     
     /**
      * Retrieves a transformed copy of a glyph based on the provided variation coordinates, or the glyph itself if no variation was applied
-     * @param {opentype.Glyph|number} glyph - Glyph or index of glyph to transform.
-     * @param {Object} coords - Variation coords object (will fall back to variation coords in the defaultRenderOptions)
-     * @returns {opentype.Glyph} - The transformed glyph.
+     * @param {any} glyph - Glyph or index of glyph to transform.
+     * @param {Object} [coords] - Variation coords object (will fall back to variation coords in the defaultRenderOptions)
+     * @returns {any} - The transformed glyph.
      */
     getTransform(glyph, coords) {
         if(Number.isInteger(glyph)) {
@@ -411,17 +411,17 @@ export class VariationProcessor {
                     let transformedPoints = this.applyTupleVariationStore(variationData, glyphPoints, coords, 'gvar', { glyph });
                     const transformedPath = getPath(transformedPoints);
                     // Preserve unitsPerEm from the original glyph's path for correct scaling
-                    transformedPath.unitsPerEm = glyph.path && glyph.path.unitsPerEm ? glyph.path.unitsPerEm : this.font.unitsPerEm;
+                    /** @type {any} */ (transformedPath).unitsPerEm = glyph.path && /** @type {any} */ (glyph.path).unitsPerEm ? /** @type {any} */ (glyph.path).unitsPerEm : this.font.unitsPerEm;
                     transformedGlyph = new Glyph(Object.assign({}, glyph, {points: transformedPoints, path: transformedPath}));
                 }
-                
+
                 // Handle composite glyphs that are not explicitly in gvar but have components that need transforming
                 // This ensures component glyphs get their variation applied even when the composite itself has no gvar deltas
                 if (glyph.isComposite && (!variationData || !variationData.headers || !variationData.headers.length)) {
                     const transformedPoints = glyph.points.map(copyPoint);
                     this.transformComponentsSimple(glyph, transformedPoints, coords);
                     const transformedPath = getPath(transformedPoints);
-                    transformedPath.unitsPerEm = glyph.path && glyph.path.unitsPerEm ? glyph.path.unitsPerEm : this.font.unitsPerEm;
+                    /** @type {any} */ (transformedPath).unitsPerEm = glyph.path && /** @type {any} */ (glyph.path).unitsPerEm ? /** @type {any} */ (glyph.path).unitsPerEm : this.font.unitsPerEm;
                     transformedGlyph = new Glyph(Object.assign({}, glyph, {points: transformedPoints, path: transformedPath}));
                 }
             } else if (hasBlend) {

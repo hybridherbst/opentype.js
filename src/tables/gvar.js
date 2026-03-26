@@ -255,7 +255,7 @@ function encodeGlyphVariationData(variation, axisCount, sharedTupleMap, original
  * Make a gvar table from parsed gvar data
  * @param {object} gvar - The parsed gvar table data
  * @param {object} fvar - The fvar table (for axis count)
- * @returns {table.Table|undefined}
+ * @returns {any}
  */
 function makeGvarTable(gvar, fvar) {
     if (!gvar || !gvar.glyphVariations) {

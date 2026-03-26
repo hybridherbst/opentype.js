@@ -5,6 +5,7 @@ import check from '../check.js';
 import { Parser } from '../parse.js';
 import table from '../table.js';
 
+/** @type {Array<(this: Parser) => any>} */
 const subtableParsers = new Array(9);         // subtableParsers[0] is unused
 
 // https://www.microsoft.com/typography/OTSPEC/GSUB.htm#SS

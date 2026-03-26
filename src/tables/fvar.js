@@ -6,7 +6,7 @@ import parse from '../parse.js';
 import table from '../table.js';
 import { getNameByID } from './name.js';
 
-function makeFvarAxis(n, axis) {
+function makeFvarAxis(n, axis, /** @type {any} */ _names) {
     return [
         {name: 'tag_' + n, type: 'TAG', value: axis.tag},
         {name: 'minValue_' + n, type: 'FIXED', value: axis.minValue << 16},
@@ -85,6 +85,7 @@ function parseFvarInstance(data, start, axes, names, instanceSize) {
 
 function makeFvarTable(fvar, names) {
     
+    /** @type {any} */
     const result = new table.Table('fvar', [
         {name: 'version', type: 'ULONG', value: 0x10000},
         {name: 'offsetToData', type: 'USHORT', value: 0},

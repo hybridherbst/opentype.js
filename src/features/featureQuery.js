@@ -2,12 +2,13 @@
  * Query a feature by some of it's properties to lookup a glyph substitution.
  */
 
+// @ts-ignore
 import { ContextParams } from '../tokenizer.js';
 import { isTashkeelArabicChar } from '../char.js';
 
 /**
  * Create feature query instance
- * @param {Font} font opentype font instance
+ * @param {any} font opentype font instance
  */
 function FeatureQuery(font) {
     this.font = font;
@@ -15,16 +16,8 @@ function FeatureQuery(font) {
 }
 
 /**
- * @typedef SubstitutionAction
- * @type Object
- * @property {number} id substitution type
- * @property {string} tag feature tag
- * @property {any} substitution substitution value(s)
- */
-
-/**
  * Create a substitution action instance
- * @param {SubstitutionAction} action
+ * @param {{id: number, tag: string, substitution: any}} action
  */
 function SubstitutionAction(action) {
     this.id = action.id;
@@ -35,7 +28,7 @@ function SubstitutionAction(action) {
 /**
  * Lookup a coverage table
  * @param {number} glyphIndex glyph index
- * @param {CoverageTable} coverage coverage table
+ * @param {any} coverage coverage table
  */
 function lookupCoverage(glyphIndex, coverage) {
     if (!glyphIndex) return -1;
@@ -85,7 +78,7 @@ function singleSubstitutionFormat2(glyphIndex, subtable) {
 /**
  * Lookup a list of coverage tables
  * @param {any} coverageList a list of coverage tables
- * @param {ContextParams} contextParams context params to lookup
+ * @param {any} contextParams context params to lookup
  * @param {number} startOffset - offset from contextParams.index to start matching (default 0)
  */
 function lookupCoverageList(coverageList, contextParams, startOffset = 0) {
@@ -138,7 +131,7 @@ function getGlyphClass(classDefTable, glyphIndex) {
 
 /**
  * Handle chaining context substitution - format 2 (class-based)
- * @param {ContextParams} contextParams context params to lookup
+ * @param {any} contextParams context params to lookup
  * @param {object} subtable the subtable containing class definitions and chain class sets
  */
 function chainingSubstitutionFormat2(contextParams, subtable) {
@@ -272,7 +265,7 @@ const BLOCK_MARKER = { blocked: true };
 
 /**
  * Handle chaining context substitution - format 3
- * @param {ContextParams} contextParams context params to lookup
+ * @param {any} contextParams context params to lookup
  */
 function chainingSubstitutionFormat3(contextParams, subtable) {
     const lookupsCount = (
@@ -282,6 +275,7 @@ function chainingSubstitutionFormat3(contextParams, subtable) {
     );
     if (contextParams.context.length < lookupsCount) return [];
     // INPUT LOOKUP //
+    /** @type {any} */
     let inputLookups = lookupCoverageList(
         subtable.inputCoverage, contextParams
     );
@@ -294,6 +288,7 @@ function chainingSubstitutionFormat3(contextParams, subtable) {
         lookaheadContext.shift();
     }
     const lookaheadParams = new ContextParams(lookaheadContext, 0);
+    /** @type {any} */
     let lookaheadLookups = lookupCoverageList(
         subtable.lookaheadCoverage, lookaheadParams
     );
@@ -305,6 +300,7 @@ function chainingSubstitutionFormat3(contextParams, subtable) {
     }
     if (backtrackContext.length < subtable.backtrackCoverage.length) return [];
     const backtrackParams = new ContextParams(backtrackContext, 0);
+    /** @type {any} */
     let backtrackLookups = lookupCoverageList(
         subtable.backtrackCoverage, backtrackParams
     );
@@ -355,7 +351,7 @@ function chainingSubstitutionFormat3(contextParams, subtable) {
 
 /**
  * Handle ligature substitution - format 1
- * @param {ContextParams} contextParams context params to lookup
+ * @param {any} contextParams context params to lookup
  */
 function ligatureSubstitutionFormat1(contextParams, subtable) {
     // COVERAGE LOOKUP //
@@ -380,7 +376,7 @@ function ligatureSubstitutionFormat1(contextParams, subtable) {
 
 /**
  * Handle context substitution - format 1
- * @param {ContextParams} contextParams context params to lookup
+ * @param {any} contextParams context params to lookup
  */
 function contextSubstitutionFormat1(contextParams, subtable) {
     let glyphId = contextParams.current;
@@ -427,7 +423,7 @@ function contextSubstitutionFormat1(contextParams, subtable) {
 
 /**
  * Handle context substitution - format 3
- * @param {ContextParams} contextParams context params to lookup
+ * @param {any} contextParams context params to lookup
  */
 function contextSubstitutionFormat3(contextParams, subtable) {
     let substitutions = [];
@@ -630,14 +626,14 @@ FeatureQuery.prototype.getLookupMethod = function(lookupTable, subtable) {
 /**
  * @typedef FQuery
  * @type Object
- * @param {string} tag feature tag
- * @param {string} script feature script
- * @param {ContextParams} contextParams context params
+ * @property {string} tag feature tag
+ * @property {string} script feature script
+ * @property {any} contextParams context params
  */
 
 /**
  * Lookup a feature using a query parameters
- * @param {FQuery} query feature query
+ * @param {any} query feature query
  */
 FeatureQuery.prototype.lookupFeature = function (query) {
     let contextParams = query.contextParams;
@@ -744,7 +740,7 @@ FeatureQuery.prototype.lookupFeature = function (query) {
 
 /**
  * Checks if a font supports a specific features
- * @param {FQuery} query feature query object
+ * @param {any} query feature query object
  */
 FeatureQuery.prototype.supports = function (query) {
     if (!query.script) return false;
@@ -776,7 +772,7 @@ FeatureQuery.prototype.getLookupByIndex = function (index) {
 
 /**
  * Get lookup tables for a feature
- * @param {string} feature
+ * @param {any} feature
  */
 FeatureQuery.prototype.getFeatureLookups = function (feature) {
     // TODO: memoize

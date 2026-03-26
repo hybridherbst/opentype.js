@@ -47,7 +47,7 @@ export class VariationManager {
 
     /**
      * Gets the index of the default variation instance or -1 if not able to determine
-     * @returns {integer} default index or -1
+     * @returns {number} default index or -1
      */
     getDefaultInstanceIndex() {
         const fvar = this.fvar();
@@ -67,8 +67,8 @@ export class VariationManager {
 
     /**
      * Retrieves the index of the variation instance matching the coordinates object or -1 if not able to determine
-     * @param {integer|Object} coordinates An object where keys are axis tags and values are the corresponding variation values.
-     * @returns {integer} The index of the matching instance or -1 if no match is found.
+     * @param {number|Object} coordinates An object where keys are axis tags and values are the corresponding variation values.
+     * @returns {number} The index of the matching instance or -1 if no match is found.
      */
     getInstanceIndex(coordinates) {
         const fvar = this.fvar();
@@ -84,7 +84,7 @@ export class VariationManager {
 
     /**
      * Retrieves a variation instance by its zero-based index
-     * @param {integer} index - zero-based index of the variation instance
+     * @param {number} index - zero-based index of the variation instance
      * @returns {Object} - variation instance or null if the index is invalid.
      */
     getInstance(index) {
@@ -93,7 +93,7 @@ export class VariationManager {
 
     /**
      * Set the variation coordinates to use by default for rendering in the font.defaultRenderOptions
-     * @param {integer|Object} instanceIdOrObject Either the zero-based index of a variation instance or an object with axis tags as keys and variation values as values
+     * @param {number|Object} instanceIdOrObject Either the zero-based index of a variation instance or an object with axis tags as keys and variation values as values
      */
     set(instanceIdOrObject) {
         let variationData;
@@ -721,8 +721,8 @@ export class VariationManager {
      * Compute deltas by comparing two glyph paths.
      * This is a helper for creating deltaGenerator functions.
      * 
-     * @param {Path} basePath - The base glyph path (at default axis value)
-     * @param {Path} targetPath - The target glyph path (at max axis value)
+     * @param {any} basePath - The base glyph path (at default axis value)
+     * @param {any} targetPath - The target glyph path (at max axis value)
      * @returns {Object} { deltas: number[], deltasY: number[] }
      */
     static computeDeltas(basePath, targetPath) {

@@ -57,7 +57,7 @@ import { VariationManager } from './variation.js';
  * @param  {Function} callback - The function to call when the font load completes
  */
 function loadFromFile(path, callback) {
-    import('fs').then(fs => {
+    import(/** @type {any} */ ('fs')).then(fs => {
         fs.readFile(path, function(err, buffer) {
             if (err) {
                 return callback(err.message);
@@ -118,7 +118,7 @@ function loadFromUrl(url, callback) {
         } else {
             // Fallback to built-in http/https via dynamic import
             const isHttps = url.startsWith('https:');
-            (isHttps ? import('https') : import('http')).then(mod => {
+            (isHttps ? import(/** @type {any} */ ('https')) : import(/** @type {any} */ ('http'))).then(mod => {
                 const lib = mod.default || mod;
                 const request = lib.request(url, res => {
                     if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
@@ -126,9 +126,9 @@ function loadFromUrl(url, callback) {
                     }
                     res.setEncoding('binary');
                     const chunks = [];
-                    res.on('data', chunk => chunks.push(Buffer.from(chunk, 'binary')));
+                    res.on('data', chunk => chunks.push(/** @type {any} */ (globalThis).Buffer.from(chunk, 'binary')));
                     res.on('end', () => {
-                        const b = Buffer.concat(chunks);
+                        const b = /** @type {any} */ (globalThis).Buffer.concat(chunks);
                         const ab = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
                         callback(null, ab);
                     });
@@ -220,8 +220,7 @@ function parseWOFFTableEntries(data, numTables) {
 }
 
 /**
- * @typedef TableData
- * @type Object
+ * @typedef {Object} TableData
  * @property {DataView} data - The DataView
  * @property {number} offset - The data offset.
  */
@@ -253,13 +252,7 @@ function uncompressTable(data, tableEntry) {
  * List the table tags in a font binary without fully parsing it.
  * Useful for detecting font capabilities (e.g. COLR, CBDT, glyf) before a full parse.
  * @param  {ArrayBuffer} buffer - The font file data
- * @return {Object} result
- * @return {Set<string>} result.tags - Set of 4-character table tag strings
- * @return {boolean} result.isTrueType - Whether the font has TrueType outlines
- * @return {boolean} result.isCFF - Whether the font has CFF outlines
- * @return {boolean} result.isWOFF - Whether the font is WOFF compressed
- * @return {boolean} result.isValid - Whether the font signature was recognized
- * @return {Object[]} result.tableEntries - Full table entry objects (tag, offset, length, etc.)
+ * @return {{tags: Set<string>, isTrueType: boolean, isCFF: boolean, isWOFF: boolean, isCollection: boolean, isValid: boolean, tableEntries: Object[], collectionNumFonts?: number, collectionIndex?: number}}
  */
 function listTables(buffer, opt = {}) {
     if (buffer.constructor !== ArrayBuffer) {
@@ -324,7 +317,7 @@ function listTables(buffer, opt = {}) {
  * Throws an error if the font could not be parsed.
  * @param  {ArrayBuffer} buffer
  * @param  {Object} opt - options for parsing
- * @return {opentype.Font}
+ * @return {Font}
  */
 function parseBuffer(buffer, opt={}) {
     let indexToLocFormat;
@@ -332,6 +325,7 @@ function parseBuffer(buffer, opt={}) {
 
     // Since the constructor can also be called to create new fonts from scratch, we indicate this
     // should be an empty font that we'll fill with our own data.
+    /** @type {any} */
     const font = new Font({empty: true});
 
     if (buffer.constructor !== ArrayBuffer) { // convert node Buffer
@@ -413,7 +407,7 @@ function parseBuffer(buffer, opt={}) {
             case 'cmap':
                 table = uncompressTable(data, tableEntry);
                 font.tables.cmap = cmap.parse(table.data, table.offset);
-                font.encoding = new CmapEncoding(font.tables.cmap);
+                font.encoding = /** @type {any} */ (new CmapEncoding(font.tables.cmap));
                 break;
             case 'cvt ' :
                 table = uncompressTable(data, tableEntry);
@@ -691,7 +685,7 @@ function load(url, callback, opt = {}) {
  * Synchronously load the font from a URL or file.
  * When done, returns the font object or throws an error.
  * @alias opentype.loadSync
- * @return {opentype.Font}
+ * @return {Font}
  */
 function loadSync() {
     throw new Error('loadSync is only supported in Node.js; use parse(fs.readFileSync(...))');

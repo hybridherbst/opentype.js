@@ -3,7 +3,7 @@ import { getPaletteColor, parseColor, formatColor } from './tables/cpal.js';
 /**
  * @exports opentype.PaletteManager
  * @class
- * @param {opentype.Font}
+ * @param {any} font
  */
 export class PaletteManager {
     // private properties don't work with reify
@@ -11,18 +11,18 @@ export class PaletteManager {
     // #font = null;
 
     /**
-     * @type {integer} CPAL color used to (pre)fill unset colors in a palette.
+     * @type {number} CPAL color used to (pre)fill unset colors in a palette.
      * Format 0xBBGGRRAA
      */
     // defaultValue = 0x000000FF;
 
     /**
      * 
-     * @param {opentype.Font} font 
+     * @param {any} font
      */
     constructor(font) {
         /**
-        * @type {integer} CPAL color used to (pre)fill unset colors in a palette.
+        * @type {number} CPAL color used to (pre)fill unset colors in a palette.
         * Format 0xBBGGRRAA
         */
         this.defaultValue = 0x000000FF;
@@ -42,7 +42,7 @@ export class PaletteManager {
 
     /**
      * Returns an array of arrays of color values for each palette, optionally in a specified color format
-     * @param {string} colorFormat 
+     * @param {string} [colorFormat]
      * @returns {Array<Array>}
      */
     getAll(colorFormat) {
@@ -65,7 +65,7 @@ export class PaletteManager {
     /**
      * Converts a color value string or array of color value strings to CPAL integer color value(s)
      * @param {string|Array<string>} color
-     * @returns {integer}
+     * @returns {any}
      */
     toCPALcolor(color) {
         if (Array.isArray(color)) {
@@ -77,19 +77,19 @@ export class PaletteManager {
 
     /**
      * Fills a set of palette colors (from palette index, or a provided array of CPAL color values) with a set of colors, falling back to the default color value, until a given count
-     * @param {Array<string>|integer} palette Palette index integer or Array of colors to be filled
-     * @param {Array<string|integer>} colors Colors to fill the palette with
-     * @param {integer} _colorCount Number of colors to fill the palette with, defaults to the value of the numPaletteEntries field. Used internally by extend() and shouldn't be set manually
+     * @param {Array<string>|number} palette Palette index integer or Array of colors to be filled
+     * @param {Array<string|number>} colors Colors to fill the palette with
+     * @param {number} _colorCount Number of colors to fill the palette with, defaults to the value of the numPaletteEntries field. Used internally by extend() and shouldn't be set manually
      * @returns 
      */
     fillPalette(palette, colors = [], _colorCount = this.cpal().numPaletteEntries) {
-        palette = Number.isInteger(palette) ? this.get(palette, 'raw') : palette;
-        return Object.assign(Array(_colorCount).fill(this.defaultValue), this.toCPALcolor(palette).concat(this.toCPALcolor(colors)));
+        palette = Number.isInteger(palette) ? this.get(/** @type {any} */ (palette), 'raw') : palette;
+        return Object.assign(Array(_colorCount).fill(this.defaultValue), this.toCPALcolor(/** @type {any} */ (palette)).concat(this.toCPALcolor(/** @type {any} */ (colors))));
     }
 
     /**
      * Extend existing palettes and numPaletteEntries by a number of color slots
-     * @param {integer} num number of additional color slots to add to all palettes
+     * @param {number} num number of additional color slots to add to all palettes
      */
     extend(num) {
         if(this.ensureCPAL(Array(num).fill(this.defaultValue))) {
@@ -109,7 +109,7 @@ export class PaletteManager {
 
     /**
      * Get a specific palette by its zero-based index
-     * @param {integer} paletteIndex 
+     * @param {number} paletteIndex 
      * @param {string} [colorFormat='hexa']
      * @returns {Array}
      */
@@ -119,8 +119,8 @@ export class PaletteManager {
     
     /**
      * Get a color from a specific palette by its zero-based index
-     * @param {integer} index 
-     * @param {integer} paletteIndex
+     * @param {number} index 
+     * @param {number} paletteIndex
      * @param {string} [colorFormat ='hexa']
      * @returns 
      */
@@ -130,14 +130,14 @@ export class PaletteManager {
 
     /**
      * Set one or more colors on a specific palette by its zero-based index
-     * @param {integer} index zero-based color index to start filling from
-     * @param {string|integer|Array<string|integer>} colors color value or array of color values
-     * @param {integer} paletteIndex
+     * @param {number} index zero-based color index to start filling from
+     * @param {string|number|Array<string|number>} colors color value or array of color values
+     * @param {number} paletteIndex
      * @returns 
      */
     setColor(index, colors, paletteIndex = 0) {
-        index = parseInt(index);
-        paletteIndex = parseInt(paletteIndex);
+        index = parseInt(/** @type {any} */ (index));
+        paletteIndex = parseInt(/** @type {any} */ (paletteIndex));
         let palettes = this.getAll('raw');
         let palette = palettes[paletteIndex];
         if (!palette) {
@@ -158,7 +158,7 @@ export class PaletteManager {
         }
 
         for(let i = 0; i < colors.length; i++) {
-            palette[i + index] = this.toCPALcolor(colors[i]);
+            palette[i + index] = this.toCPALcolor(/** @type {any} */ (colors[i]));
         }
         cpal.colorRecords = palettes.flat();
         this.updateIndices();
@@ -193,7 +193,7 @@ export class PaletteManager {
 
     /**
      * deletes a palette by its zero-based index
-     * @param {integer} paletteIndex 
+     * @param {number} paletteIndex 
      */
     delete(paletteIndex) {
         const palettes = this.getAll('raw');
@@ -205,8 +205,8 @@ export class PaletteManager {
 
     /**
      * Deletes a specific color index in all palettes and updates all layers using that color with the replacement index
-     * @param {integer} colorIndex index of the color that should be deleted
-     * @param {integer} replacementIndex index (according to the palette before deletion) of the color to replace in layers using the color to be to deleted
+     * @param {number} colorIndex index of the color that should be deleted
+     * @param {number} replacementIndex index (according to the palette before deletion) of the color to replace in layers using the color to be to deleted
      */
     deleteColor(colorIndex, replacementIndex) {
         if(colorIndex === replacementIndex) {

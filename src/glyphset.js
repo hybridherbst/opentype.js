@@ -27,8 +27,8 @@ function defineDependentProperty(glyph, externalName, internalName) {
  * necessary, to keep the memory footprint down.
  * @exports opentype.GlyphSet
  * @class
- * @param {opentype.Font} font
- * @param {Array} glyphs
+ * @param {Object} font
+ * @param {Array} [glyphs]
  */
 function GlyphSet(font, glyphs) {
     this.font = font;
@@ -46,7 +46,7 @@ function GlyphSet(font, glyphs) {
 
 if(typeof Symbol !== 'undefined' && Symbol.iterator) {
     /**
-     * @return {opentype.GlyphSet[Symbol.iterator]}
+     * @return {Object}
      */
     GlyphSet.prototype[Symbol.iterator] = function() {
         let n = -1;
@@ -62,7 +62,7 @@ if(typeof Symbol !== 'undefined' && Symbol.iterator) {
 
 /**
  * @param  {number} index
- * @return {opentype.Glyph}
+ * @return {Object}
  */
 GlyphSet.prototype.get = function(index) {
     // this.glyphs[index] is 'undefined' when low memory mode is on. glyph is pushed on request only.
@@ -115,9 +115,9 @@ GlyphSet.prototype.push = function(index, loader) {
 
 /**
  * @alias opentype.glyphLoader
- * @param  {opentype.Font} font
+ * @param  {Object} font
  * @param  {number} index
- * @return {opentype.Glyph}
+ * @return {Object}
  */
 function glyphLoader(font, index) {
     return new Glyph({index: index, font: font});
@@ -128,19 +128,19 @@ function glyphLoader(font, index) {
  * the "points" and "path" properties, which must be loaded only once
  * the glyph's path is actually requested for text shaping.
  * @alias opentype.ttfGlyphLoader
- * @param  {opentype.Font} font
+ * @param  {Object} font
  * @param  {number} index
  * @param  {Function} parseGlyph
  * @param  {Object} data
  * @param  {number} position
  * @param  {Function} buildPath
- * @return {opentype.Glyph}
+ * @return {Function}
  */
 function ttfGlyphLoader(font, index, parseGlyph, data, position, buildPath) {
     return function() {
         const glyph = new Glyph({index: index, font: font});
 
-        glyph.path = function() {
+        /** @type {any} */ (glyph).path = function() {
             parseGlyph(glyph, data, position);
             const path = buildPath(font.glyphs, glyph);
             path.unitsPerEm = font.unitsPerEm;
@@ -152,17 +152,18 @@ function ttfGlyphLoader(font, index, parseGlyph, data, position, buildPath) {
         defineDependentProperty(glyph, 'yMin', '_yMin');
         defineDependentProperty(glyph, 'yMax', '_yMax');
         defineDependentProperty(glyph, 'points', '_points');
-        
+
         return glyph;
     };
 }
 /**
  * @alias opentype.cffGlyphLoader
- * @param  {opentype.Font} font
+ * @param  {Object} font
  * @param  {number} index
  * @param  {Function} parseCFFCharstring
  * @param  {string} charstring
- * @return {opentype.Glyph}
+ * @param  {*} [version]
+ * @return {Function}
  */
 function cffGlyphLoader(font, index, parseCFFCharstring, charstring, version) {
     return function() {
@@ -170,9 +171,9 @@ function cffGlyphLoader(font, index, parseCFFCharstring, charstring, version) {
 
         // Preserve original charstring bytes for exact re-emit during make()
         // This helps CFF2 round-trips match expected byte sequences.
-        glyph._charString = charstring;
+        /** @type {any} */ (glyph)._charString = charstring;
 
-        glyph.path = function() {
+        /** @type {any} */ (glyph).path = function() {
             const path = parseCFFCharstring(font, glyph, charstring, version);
             path.unitsPerEm = font.unitsPerEm;
             return path;

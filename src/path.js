@@ -33,7 +33,7 @@ function roundDecimal(float, places) {
         return integerPart + roundedDecimalPart;
     }
     
-    const roundedDecimalPart = +(Math.round(decimalPart + 'e+' + places) + 'e-' + places);
+    const roundedDecimalPart = +(Math.round(/** @type {any} */ (decimalPart + 'e+' + places)) + 'e-' + places);
     decimalRoundingCache[places][decimalPart] = roundedDecimalPart;
 
     return integerPart + roundedDecimalPart;
@@ -242,8 +242,9 @@ Path.prototype.fromSVG = function(pathData, options = {}) {
         }
     }
 
-    for (let i = 0; i < pathData.length; i++) {
-        const token = pathData.charAt(i);
+    const /** @type {string} */ pathStr = /** @type {string} */ (pathData);
+    for (let i = 0; i < pathStr.length; i++) {
+        const token = pathStr.charAt(i);
         const lastBuffer = buffer[buffer.length - 1];
         if (number.indexOf(token) > -1) {
             buffer[buffer.length - 1] += token;
@@ -442,7 +443,7 @@ Path.prototype.close = Path.prototype.closePath = function() {
 
 /**
  * Add the given path or list of commands to the commands of this path.
- * @param  {Array} pathOrCommands - another opentype.Path, an opentype.BoundingBox, or an array of commands.
+ * @param  {any} pathOrCommands - another opentype.Path, an opentype.BoundingBox, or an array of commands.
  */
 Path.prototype.extend = function(pathOrCommands) {
     if (pathOrCommands.commands) {
@@ -462,7 +463,7 @@ Path.prototype.extend = function(pathOrCommands) {
 
 /**
  * Calculate the bounding box of the path.
- * @returns {opentype.BoundingBox}
+ * @returns {any}
  */
 Path.prototype.getBoundingBox = function() {
     const box = new BoundingBox();
@@ -510,6 +511,7 @@ Path.prototype.getBoundingBox = function() {
 
 /**
  * Draw the path to a 2D context.
+ * @this {any}
  * @param {CanvasRenderingContext2D} ctx - A 2D drawing context.
  */
 Path.prototype.draw = function(ctx) {
@@ -642,6 +644,7 @@ Path.prototype.toPathData = function(options) {
 
 /**
  * Convert the path to an SVG <path> element, as a string.
+ * @this {any}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
  * @param  {string} [pathData] - will be calculated automatically, but can be provided from Glyph's wrapper function
  * @return {string}
@@ -688,6 +691,7 @@ Path.prototype.toSVG = function(options, pathData) {
 
 /**
  * Convert the path to a DOM element.
+ * @this {any}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
  * @param  {string} [pathData] - will be calculated automatically, but can be provided from Glyph's wrapper function
  * @return {SVGPathElement}
@@ -699,7 +703,7 @@ Path.prototype.toDOMElement = function(options, pathData) {
         for (let l = 0; l < this._layers.length; l++) {
             group.appendChild(this._layers[l].toDOMElement(options));
         }
-        return group;
+        return /** @type {any} */ (group);
     }
     if (!pathData) {
         pathData = this.toPathData(options);
@@ -719,7 +723,7 @@ Path.prototype.toDOMElement = function(options, pathData) {
     
     if (this.stroke) {
         newPath.setAttribute('stroke', this.stroke);
-        newPath.setAttribute('stroke-width', this.strokeWidth);
+        newPath.setAttribute('stroke-width', String(this.strokeWidth));
     }
 
     return newPath;
@@ -729,6 +733,7 @@ Path.prototype.toDOMElement = function(options, pathData) {
  * Get structured color path data for COLR font layers.
  * Returns an array of {d: string, fill: string} objects for each color layer,
  * or null if no color layers exist (regular monochrome path).
+ * @this {any}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options for path data generation
  * @return {Array<{d: string, fill: string}>|null}
  */
