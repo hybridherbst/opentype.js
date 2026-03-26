@@ -8,7 +8,7 @@ import { arraysEqual } from './util.js';
 /**
  * @exports opentype.Substitution
  * @class
- * @param {any} font
+ * @param {Record<string, unknown>} font
  * @constructor
  */
 function Substitution(font) {
@@ -36,8 +36,8 @@ Substitution.prototype = Layout.prototype;
 
 /**
  * Create a default GSUB table.
- * @this {any}
- * @return {Object} gsub - The GSUB table.
+ * @this {object}
+ * @return {Record<string, unknown>} gsub - The GSUB table.
  */
 Substitution.prototype.createDefaultTable = function() {
     // Generate a default empty GSUB table with just a DFLT script and dflt lang sys.
@@ -59,7 +59,7 @@ Substitution.prototype.createDefaultTable = function() {
  * List all single substitutions (lookup type 1) for a given script, language, and feature.
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
- * @this {any}
+ * @this {object}
  * @param {string} feature - 4-character feature name ('aalt', 'salt', 'ss01'...)
  * @return {Array} substitutions - The list of substitutions.
  */
@@ -93,7 +93,7 @@ Substitution.prototype.getSingle = function(feature, script, language) {
  * List all multiple substitutions (lookup type 2) for a given script, language, and feature.
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
- * @this {any}
+ * @this {object}
  * @param {string} feature - 4-character feature name ('ccmp', 'stch')
  * @return {Array} substitutions - The list of substitutions.
  */
@@ -121,7 +121,7 @@ Substitution.prototype.getMultiple = function(feature, script, language) {
  * List all alternates (lookup type 3) for a given script, language, and feature.
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
- * @this {any}
+ * @this {object}
  * @param {string} feature - 4-character feature name ('aalt', 'salt'...)
  * @return {Array} alternates - The list of alternates
  */
@@ -149,7 +149,7 @@ Substitution.prototype.getAlternates = function(feature, script, language) {
  * @param {string} feature - 4-letter feature name ('calt', 'rclt', etc.)
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
- * @this {any}
+ * @this {object}
  * @return {Array} rules - Array of { backtrack: [ids], input: [ids], lookahead: [ids], lookupRecords: [{sequenceIndex, lookupListIndex}] }
  */
 Substitution.prototype.getChaining = function(feature, script, language) {
@@ -221,7 +221,7 @@ Substitution.prototype.getChaining = function(feature, script, language) {
 
 /**
  * Helper to resolve lookup records to actual substitution information
- * @this {any}
+ * @this {object}
  * @private
  */
 Substitution.prototype._resolveLookupRecords = function(lookupRecords, allLookups) {
@@ -286,7 +286,7 @@ Substitution.prototype._resolveLookupRecords = function(lookupRecords, allLookup
  * @param {string} feature - 4-letter feature name ('liga', 'rlig', 'dlig'...)
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
- * @this {any}
+ * @this {object}
  * @return {Array} ligatures - The list of ligatures.
  */
 Substitution.prototype.getLigatures = function(feature, script, language) {
@@ -318,8 +318,8 @@ Substitution.prototype.getLigatures = function(feature, script, language) {
  * Add or modify a single substitution (lookup type 1)
  * Format 2, more flexible, is always used.
  * @param {string} feature - 4-letter feature name ('liga', 'rlig', 'dlig'...)
- * @this {any}
- * @param {Object} substitution - { sub: id, by: id } (format 1 is not supported)
+ * @this {object}
+ * @param {{sub: number, by: number}} substitution - { sub: id, by: id } (format 1 is not supported)
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
  */
@@ -344,8 +344,8 @@ Substitution.prototype.addSingle = function(feature, substitution, script, langu
 /**
  * Add or modify a multiple substitution (lookup type 2)
  * @param {string} feature - 4-letter feature name ('ccmp', 'stch')
- * @this {any}
- * @param {Object} substitution - { sub: id, by: [id] } for format 2.
+ * @this {object}
+ * @param {{sub: number, by: number[]}} substitution - { sub: id, by: [id] } for format 2.
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
  */
@@ -371,8 +371,8 @@ Substitution.prototype.addMultiple = function(feature, substitution, script, lan
 /**
  * Add or modify an alternate substitution (lookup type 3)
  * @param {string} feature - 4-letter feature name ('liga', 'rlig', 'dlig'...)
- * @this {any}
- * @param {Object} substitution - { sub: id, by: [ids] }
+ * @this {object}
+ * @param {{sub: number, by: number[]}} substitution - { sub: id, by: [ids] }
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
  */
@@ -398,8 +398,8 @@ Substitution.prototype.addAlternate = function(feature, substitution, script, la
  * Add a ligature (lookup type 4)
  * Ligatures with more components must be stored ahead of those with fewer components in order to be found
  * @param {string} feature - 4-letter feature name ('liga', 'rlig', 'dlig'...)
- * @this {any}
- * @param {Object} ligature - { sub: [ids], by: id }
+ * @this {object}
+ * @param {{sub: number[], by: number}} ligature - { sub: [ids], by: id }
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
  */
@@ -445,9 +445,9 @@ Substitution.prototype.addLigature = function(feature, ligature, script, languag
  * Add a chaining context substitution (lookup type 6, format 3)
  * This creates a rule that matches glyphs in context and applies a substitution.
  *
- * @this {any}
+ * @this {object}
  * @param {string} feature - 4-letter feature name ('calt', 'rclt', etc.)
- * @param {Object} rule - The chaining rule definition:
+ * @param {{backtrack?: (number|number[])[], input: (number|number[])[], lookahead?: (number|number[])[], substitution: {sequenceIndex: number, sub: number, by: number}|{sequenceIndex: number, sub: number, by: number}[]}} rule - The chaining rule definition:
  *   - backtrack: Array of glyph IDs that must precede the input (in visual order, reversed internally)
  *   - input: Array of glyph IDs to match (the glyphs that may be substituted)
  *   - lookahead: Array of glyph IDs that must follow the input
@@ -559,9 +559,9 @@ Substitution.prototype.addChaining = function(feature, rule, script, language) {
  * allowing for larger tables that exceed 16-bit offset limits.
  * Use this for rules with large coverage arrays.
  *
- * @this {any}
+ * @this {object}
  * @param {string} feature - 4-letter feature name
- * @param {Object} rule - The chaining context rule:
+ * @param {{backtrack?: (number|number[])[], input: (number|number[])[], lookahead?: (number|number[])[], substitution: {sequenceIndex: number, sub: number, by: number}|{sequenceIndex: number, sub: number, by: number}[]}} rule - The chaining context rule:
  *   - backtrack: Array of glyph ID arrays (glyphs that must precede input)
  *   - input: Array of glyph ID arrays (glyphs that may be substituted)
  *   - lookahead: Array of glyph ID arrays (glyphs that must follow input)
@@ -653,7 +653,7 @@ Substitution.prototype.addChainingExtension = function(feature, rule, script, la
 
 /**
  * Helper to create a single substitution lookup wrapped in extension
- * @this {any}
+ * @this {object}
  * @private
  */
 Substitution.prototype._getOrCreateSingleSubLookupExtension = function(gsub, substitutions) {
@@ -701,13 +701,13 @@ Substitution.prototype._getOrCreateSingleSubLookupExtension = function(gsub, sub
  * CRITICAL: This reuses the same lookup for the same feature/type to preserve
  * blocking rule semantics (blocking rules only work within the same lookup).
  * @private
- * @param {Object} gsub - The GSUB table
+ * @param {Record<string, unknown>} gsub - The GSUB table
  * @param {string} script - Script tag
- * @param {string} language - Language tag  
+ * @param {string} language - Language tag
  * @param {string} feature - Feature tag (e.g., 'calt')
  * @param {number} innerLookupType - The lookup type for the extension's inner content (e.g., 6 for chaining)
- * @this {any}
- * @returns {Object} The extension lookup to add subtables to
+ * @this {object}
+ * @returns {Record<string, unknown>} The extension lookup to add subtables to
  */
 Substitution.prototype._getOrCreateExtensionLookup = function(gsub, script, language, feature, innerLookupType) {
     // Get or create the feature table
@@ -744,7 +744,7 @@ Substitution.prototype._getOrCreateExtensionLookup = function(gsub, script, lang
 
 /**
  * Helper to get or create a single substitution lookup for chaining context
- * @this {any}
+ * @this {object}
  * @private
  */
 Substitution.prototype._getOrCreateSingleSubLookup = function(gsub, substitutions) {
@@ -785,7 +785,7 @@ Substitution.prototype._getOrCreateSingleSubLookup = function(gsub, substitution
 
 /**
  * List all feature data for a given script and language.
- * @this {any}
+ * @this {object}
  * @param {string} feature - 4-letter feature name
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']
@@ -819,9 +819,9 @@ Substitution.prototype.getFeature = function(feature, script, language) {
 
 /**
  * Add a substitution to a feature for a given script and language.
- * @this {any}
+ * @this {object}
  * @param {string} feature - 4-letter feature name
- * @param {Object} sub - the substitution to add (an object like { sub: id or [ids], by: id or [ids] })
+ * @param {Record<string, unknown>} sub - the substitution to add (an object like { sub: id or [ids], by: id or [ids] })
  *                       For chaining features (calt, rclt), use { backtrack, input, lookahead, substitution }
  * @param {string} [script='DFLT']
  * @param {string} [language='dflt']

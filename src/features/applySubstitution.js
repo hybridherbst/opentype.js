@@ -1,10 +1,9 @@
-import * as _featureQuery from './featureQuery.js';
-const SubstitutionAction = /** @type {any} */ (_featureQuery).SubstitutionAction;
+import { SubstitutionAction } from './featureQuery.js';
 
 /**
  * Apply single substitution format 1
- * @param {any} action substitution action
- * @param {any} tokens a list of tokens
+ * @param {InstanceType<typeof SubstitutionAction>} action substitution action
+ * @param {Array<{setState: Function}>} tokens a list of tokens
  * @param {number} index token index
  */
 function singleSubstitutionFormat1(action, tokens, index) {
@@ -13,8 +12,8 @@ function singleSubstitutionFormat1(action, tokens, index) {
 
 /**
  * Apply single substitution format 2
- * @param {any} action substitution action
- * @param {any} tokens a list of tokens
+ * @param {InstanceType<typeof SubstitutionAction>} action substitution action
+ * @param {Array<{setState: Function}>} tokens a list of tokens
  * @param {number} index token index
  */
 function singleSubstitutionFormat2(action, tokens, index) {
@@ -23,8 +22,8 @@ function singleSubstitutionFormat2(action, tokens, index) {
 
 /**
  * Apply chaining context substitution format 3
- * @param {any} action substitution action
- * @param {any} tokens a list of tokens
+ * @param {InstanceType<typeof SubstitutionAction>} action substitution action
+ * @param {Array<{setState: Function}>} tokens a list of tokens
  * @param {number} index token index
  */
 function chainingSubstitutionFormat3(action, tokens, index) {
@@ -46,8 +45,8 @@ function chainingSubstitutionFormat3(action, tokens, index) {
 
 /**
  * Apply ligature substitution format 1
- * @param {any} action substitution action
- * @param {any} tokens a list of tokens
+ * @param {InstanceType<typeof SubstitutionAction>} action substitution action
+ * @param {Array<{setState: Function}>} tokens a list of tokens
  * @param {number} index token index
  */
 function ligatureSubstitutionFormat1(action, tokens, index) {
@@ -74,8 +73,8 @@ const SUBSTITUTIONS = {
 
 /**
  * Apply substitutions to a list of tokens
- * @param {any} action substitution action
- * @param {any} tokens a list of tokens
+ * @param {InstanceType<typeof SubstitutionAction>} action substitution action
+ * @param {Array<{setState: Function}>} tokens a list of tokens
  * @param {number} index token index
  */
 function applySubstitution(action, tokens, index) {
