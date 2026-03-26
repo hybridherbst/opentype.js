@@ -7,7 +7,7 @@ import { join } from 'node:path';
 // Use src directly (not built dist)
 import colr from '../../src/tables/colr.js';
 
-const NABLA_PATH = join(import.meta.dirname, '../../../opentype-editor/test/fonts/Nabla/Nabla-Regular-VariableFont_EDPT,EHLT.ttf');
+const NABLA_PATH = join(import.meta.dirname, '../../../opentype-editor/static/Nabla/Nabla-Regular-VariableFont_EDPT,EHLT.ttf');
 
 // Read the raw COLR table bytes from Nabla
 function getColrTableData() {
@@ -64,15 +64,29 @@ describe('COLRv1 parsing', () => {
         let found = false;
         for (const rec of parsed.baseGlyphPaintRecords) {
             for (const layer of rec.paint.layers) {
-                if (layer.format === 10 && layer.paint.format === 4) {
+                if (layer.format === 10 && layer.paint && layer.paint.format === 4) {
                     found = true;
-                    assert.ok(layer.paint.colorLine, 'gradient should have colorLine');
-                    assert.ok(layer.paint.colorLine.stops.length > 0, 'should have gradient stops');
-                    assert.ok(typeof layer.paint.colorLine.extend === 'number', 'should have extend mode');
-                    assert.ok(typeof layer.paint.x0 === 'number', 'should have x0');
-                    assert.ok(typeof layer.paint.y0 === 'number', 'should have y0');
-                    assert.ok(typeof layer.paint.x1 === 'number', 'should have x1');
-                    assert.ok(typeof layer.paint.y1 === 'number', 'should have y1');
+                    const grad = layer.paint;
+                    assert.ok(grad.colorLine, 'gradient should have colorLine');
+                    // Validate colorLine structure (property is colorStops, NOT stops)
+                    assert.equal(grad.colorLine.stops, undefined,
+                        'colorLine should NOT have .stops (use .colorStops)');
+                    assert.ok(Array.isArray(grad.colorLine.colorStops),
+                        'colorLine.colorStops should be an array');
+                    assert.ok(grad.colorLine.colorStops.length > 0,
+                        'should have at least one colorStop');
+                    // Validate colorStop structure
+                    const stop = grad.colorLine.colorStops[0];
+                    assert.ok(typeof stop.stopOffset === 'number', 'stop should have stopOffset');
+                    assert.ok(typeof stop.paletteIndex === 'number', 'stop should have paletteIndex');
+                    assert.ok(typeof stop.alpha === 'number', 'stop should have alpha');
+                    // Validate extend mode
+                    assert.ok(typeof grad.colorLine.extend === 'number', 'should have extend mode');
+                    // Validate gradient coordinates
+                    assert.ok(typeof grad.x0 === 'number', 'should have x0');
+                    assert.ok(typeof grad.y0 === 'number', 'should have y0');
+                    assert.ok(typeof grad.x1 === 'number', 'should have x1');
+                    assert.ok(typeof grad.y1 === 'number', 'should have y1');
                     break;
                 }
             }
@@ -88,5 +102,88 @@ describe('COLRv1 parsing', () => {
     it('should have v0 records empty for pure v1 font', () => {
         assert.equal(parsed.baseGlyphRecords.length, 0, 'no v0 base glyph records');
         assert.equal(parsed.layerRecords.length, 0, 'no v0 layer records');
+    });
+});
+
+// ── ClipList tests using more_samples font ──
+
+const MORE_SAMPLES_PATH = join(import.meta.dirname, '../../../opentype-editor/static/more_samples-glyf_colr_1.ttf');
+
+function getColrTableDataFrom(fontPath) {
+    const buf = readFileSync(fontPath);
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const numTables = dv.getUint16(4);
+    for (let i = 0; i < numTables; i++) {
+        const off = 12 + i * 16;
+        const tag = String.fromCharCode(dv.getUint8(off), dv.getUint8(off+1), dv.getUint8(off+2), dv.getUint8(off+3));
+        if (tag === 'COLR') {
+            return { data: dv, offset: dv.getUint32(off + 8) };
+        }
+    }
+    throw new Error('No COLR table');
+}
+
+describe('COLRv1 ClipList parsing', () => {
+    let parsed;
+
+    it('should parse ClipList from more_samples font', () => {
+        const { data, offset } = getColrTableDataFrom(MORE_SAMPLES_PATH);
+        parsed = colr.parse(data, offset);
+        assert.ok(parsed.clipList, 'should have clipList');
+        assert.ok(parsed.clipList.clips.length > 0, `should have clips, got ${parsed.clipList.clips.length}`);
+    });
+
+    it('should have correct clipBox values', () => {
+        // Find a clip with the known 0,0,1000,1000 box
+        const clip = parsed.clipList.clips.find(c =>
+            c.clipBox.xMin === 0 && c.clipBox.yMin === 0 &&
+            c.clipBox.xMax === 1000 && c.clipBox.yMax === 1000
+        );
+        assert.ok(clip, 'should find a clip with (0,0,1000,1000)');
+    });
+});
+
+describe('COLRv1 ClipList write roundtrip', () => {
+    let original, roundtripped;
+
+    it('should write and re-parse ClipList', () => {
+        const { data, offset } = getColrTableDataFrom(MORE_SAMPLES_PATH);
+        original = colr.parse(data, offset);
+        assert.ok(original.clipList, 'original should have clipList');
+
+        // Write
+        const madeTable = colr.make(original);
+        assert.ok(madeTable, 'make should return a table');
+
+        // encode() returns a plain Array of bytes
+        const encoded = madeTable.encode();
+        const u8 = new Uint8Array(encoded);
+        const dv2 = new DataView(u8.buffer);
+        roundtripped = colr.parse(dv2, 0);
+    });
+
+    it('should preserve clipList through roundtrip', () => {
+        assert.ok(roundtripped.clipList, 'roundtripped should have clipList');
+        assert.equal(roundtripped.clipList.clips.length, original.clipList.clips.length,
+            'clip count should match');
+    });
+
+    it('should preserve clipBox values through roundtrip', () => {
+        for (let i = 0; i < original.clipList.clips.length; i++) {
+            const orig = original.clipList.clips[i];
+            const rt = roundtripped.clipList.clips[i];
+            assert.equal(rt.startGlyphID, orig.startGlyphID, `clip[${i}].startGlyphID`);
+            assert.equal(rt.endGlyphID, orig.endGlyphID, `clip[${i}].endGlyphID`);
+            assert.equal(rt.clipBox.xMin, orig.clipBox.xMin, `clip[${i}].clipBox.xMin`);
+            assert.equal(rt.clipBox.yMin, orig.clipBox.yMin, `clip[${i}].clipBox.yMin`);
+            assert.equal(rt.clipBox.xMax, orig.clipBox.xMax, `clip[${i}].clipBox.xMax`);
+            assert.equal(rt.clipBox.yMax, orig.clipBox.yMax, `clip[${i}].clipBox.yMax`);
+        }
+    });
+
+    it('should preserve baseGlyphPaintRecords count through roundtrip', () => {
+        assert.equal(roundtripped.baseGlyphPaintRecords.length,
+            original.baseGlyphPaintRecords.length,
+            'baseGlyphPaintRecords count should match');
     });
 });
