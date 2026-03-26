@@ -95,9 +95,8 @@ function recordList(itemName, records, itemCallback) {
 /**
  * @exports opentype.Coverage
  * @class
- * @param {opentype.Table}
+ * @param {opentype.Table} coverageTable
  * @constructor
- * @extends opentype.Table
  */
 function Coverage(coverageTable) {
     if (coverageTable.format === 1) {
@@ -156,9 +155,8 @@ ScriptList.prototype.constructor = ScriptList;
 /**
  * @exports opentype.FeatureList
  * @class
- * @param {opentype.Table}
+ * @param {opentype.Table} featureListTable
  * @constructor
- * @extends opentype.Table
  */
 function FeatureList(featureListTable) {
     Table.call(this, 'featureListTable',
@@ -179,10 +177,9 @@ FeatureList.prototype.constructor = FeatureList;
 /**
  * @exports opentype.LookupList
  * @class
- * @param {opentype.Table}
- * @param {Object}
+ * @param {opentype.Table} lookupListTable
+ * @param {Object} subtableMakers
  * @constructor
- * @extends opentype.Table
  */
 function LookupList(lookupListTable, subtableMakers) {
     Table.call(this, 'lookupListTable', tableList('lookup', lookupListTable, function(lookupTable) {
@@ -200,10 +197,8 @@ LookupList.prototype.constructor = LookupList;
 /**
  * @exports opentype.ClassDef
  * @class
- * @param {opentype.Table}
- * @param {Object}
+ * @param {opentype.Table} classDefTable
  * @constructor
- * @extends opentype.Table
  *
  * @see https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2#class-definition-table
  */

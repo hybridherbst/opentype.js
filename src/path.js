@@ -128,8 +128,8 @@ function createSVGOutputOptions(options) {
 
 /**
  * Sets the path data from an SVG path element or path notation
- * @param  {string|SVGPathElement}
- * @param  {object}
+ * @param  {string|SVGPathElement} pathData
+ * @param  {object} options
  */
 Path.prototype.fromSVG = function(pathData, options = {}) {
     if (typeof SVGPathElement !== 'undefined' && pathData instanceof SVGPathElement) {
@@ -322,8 +322,8 @@ Path.prototype.fromSVG = function(pathData, options = {}) {
 
 /**
  * Generates a new Path() from an SVG path element or path notation
- * @param  {string|SVGPathElement}
- * @param  {object}
+ * @param  {string|SVGPathElement} path
+ * @param  {object} options
  */
 Path.fromSVG = function(path, options) {
     const newPath = new Path();
@@ -643,7 +643,7 @@ Path.prototype.toPathData = function(options) {
 /**
  * Convert the path to an SVG <path> element, as a string.
  * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
- * @param  {string} - will be calculated automatically, but can be provided from Glyph's wrapper function
+ * @param  {string} [pathData] - will be calculated automatically, but can be provided from Glyph's wrapper function
  * @return {string}
  */
 Path.prototype.toSVG = function(options, pathData) {
@@ -689,7 +689,7 @@ Path.prototype.toSVG = function(options, pathData) {
 /**
  * Convert the path to a DOM element.
  * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
- * @param  {string} - will be calculated automatically, but can be provided from Glyph's wrapper functionions object (or amount of decimal places for floating-point values for backwards compatibility)
+ * @param  {string} [pathData] - will be calculated automatically, but can be provided from Glyph's wrapper function
  * @return {SVGPathElement}
  */
 Path.prototype.toDOMElement = function(options, pathData) {

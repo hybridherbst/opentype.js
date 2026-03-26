@@ -6,8 +6,7 @@ import Layout from './layout.js';
 /**
  * @exports opentype.Position
  * @class
- * @extends opentype.Layout
- * @param {opentype.Font}
+ * @param {opentype.Font} font
  * @constructor
  */
 function Position(font) {

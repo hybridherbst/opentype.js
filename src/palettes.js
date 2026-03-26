@@ -64,7 +64,7 @@ export class PaletteManager {
 
     /**
      * Converts a color value string or array of color value strings to CPAL integer color value(s)
-     * @param {string|Array<string></string>} color 
+     * @param {string|Array<string>} color
      * @returns {integer}
      */
     toCPALcolor(color) {
@@ -131,7 +131,7 @@ export class PaletteManager {
     /**
      * Set one or more colors on a specific palette by its zero-based index
      * @param {integer} index zero-based color index to start filling from
-     * @param {string|integer|Array<string|integer>} color color value or array of color values
+     * @param {string|integer|Array<string|integer>} colors color value or array of color values
      * @param {integer} paletteIndex
      * @returns 
      */

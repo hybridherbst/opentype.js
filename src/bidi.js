@@ -112,9 +112,8 @@ Bidi.prototype.registerFeatures = function (script, tags) {
 
 /**
  * Apply GSUB features
- * @param {Array} tagsList a list of features tags
- * @param {string} script a script tag
  * @param {Font} font opentype font instance
+ * @param {Array} features a list of features
  */
 Bidi.prototype.applyFeatures = function (font, features) {
     if (!font) throw new Error(

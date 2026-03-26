@@ -35,7 +35,7 @@ function constant(v) {
 // OpenType data types //////////////////////////////////////////////////////
 /**
  * Convert an 8-bit unsigned integer to a list of 1 byte.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.BYTE = function(v) {
@@ -50,7 +50,7 @@ sizeOf.BYTE = constant(1);
 
 /**
  * Convert a 8-bit signed integer to a list of 1 byte.
- * @param {string}
+ * @param {string} v
  * @returns {Array}
  */
 encode.CHAR = function(v) {
@@ -65,7 +65,7 @@ sizeOf.CHAR = constant(1);
 
 /**
  * Convert an ASCII string to a list of bytes.
- * @param {string}
+ * @param {string} v
  * @returns {Array}
  */
 encode.CHARARRAY = function(v) {
@@ -82,7 +82,7 @@ encode.CHARARRAY = function(v) {
 };
 
 /**
- * @param {Array}
+ * @param {Array} v
  * @returns {number}
  */
 sizeOf.CHARARRAY = function(v) {
@@ -94,7 +94,7 @@ sizeOf.CHARARRAY = function(v) {
 
 /**
  * Convert a 16-bit unsigned integer to a list of 2 bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.USHORT = function(v) {
@@ -109,7 +109,7 @@ sizeOf.USHORT = constant(2);
 
 /**
  * Convert a 16-bit signed integer to a list of 2 bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.SHORT = function(v) {
@@ -129,7 +129,7 @@ sizeOf.SHORT = constant(2);
 
 /**
  * Convert a 24-bit unsigned integer to a list of 3 bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.UINT24 = function(v) {
@@ -144,7 +144,7 @@ sizeOf.UINT24 = constant(3);
 
 /**
  * Convert a 32-bit unsigned integer to a list of 4 bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.ULONG = function(v) {
@@ -159,7 +159,7 @@ sizeOf.ULONG = constant(4);
 
 /**
  * Convert a 32-bit unsigned integer to a list of 4 bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.LONG = function(v) {
@@ -205,7 +205,7 @@ sizeOf.F2DOT14 = sizeOf.USHORT;
 
 /**
  * Convert a 32-bit Apple Mac timestamp integer to a list of 8 bytes, 64-bit timestamp.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.LONGDATETIME = function(v) {
@@ -221,7 +221,7 @@ sizeOf.LONGDATETIME = constant(8);
 
 /**
  * Convert a 4-char tag to a list of 4 bytes.
- * @param {string}
+ * @param {string} v
  * @returns {Array}
  */
 encode.TAG = function(v) {
@@ -255,7 +255,7 @@ sizeOf.SID = sizeOf.USHORT;
 // Convert a numeric operand or charstring number to a variable-size list of bytes.
 /**
  * Convert a numeric operand or charstring number to a variable-size list of bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.NUMBER = function(v) {
@@ -275,7 +275,7 @@ encode.NUMBER = function(v) {
 };
 
 /**
- * @param {number}
+ * @param {number} v
  * @returns {number}
  */
 sizeOf.NUMBER = function(v) {
@@ -285,7 +285,7 @@ sizeOf.NUMBER = function(v) {
 /**
  * Convert a signed number between -32768 and +32767 to a three-byte value.
  * This ensures we always use three bytes, but is not the most compact format.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.NUMBER16 = function(v) {
@@ -302,7 +302,7 @@ sizeOf.NUMBER16 = constant(3);
  * Convert a signed number between -(2^31) and +(2^31-1) to a five-byte value.
  * This is useful if you want to be sure you always use four bytes,
  * at the expense of wasting a few bytes for smaller numbers.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.NUMBER32 = function(v) {
@@ -316,7 +316,7 @@ encode.NUMBER32 = function(v) {
 sizeOf.NUMBER32 = constant(5);
 
 /**
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.REAL = function(v) {
@@ -370,7 +370,7 @@ encode.REAL = function(v) {
 };
 
 /**
- * @param {number}
+ * @param {number} v
  * @returns {number}
  */
 sizeOf.REAL = function(v) {
@@ -417,7 +417,7 @@ decode.UTF16 = function(data, offset, numBytes) {
 
 /**
  * Convert a JavaScript string to UTF16-BE.
- * @param {string}
+ * @param {string} v
  * @returns {Array}
  */
 encode.UTF16 = function(v) {
@@ -432,7 +432,7 @@ encode.UTF16 = function(v) {
 };
 
 /**
- * @param {string}
+ * @param {string} v
  * @returns {number}
  */
 sizeOf.UTF16 = function(v) {
@@ -715,7 +715,7 @@ function encodeVarDeltaRunAsWords(deltas, offset, result) {
  *
  * @see https://www.microsoft.com/typography/otspec/gvar.htm
  * @see https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6gvar.html
- * @param {Array}
+ * @param {Array} deltas
  * @return {Array}
  */
 encode.VARDELTAS = function(deltas) {
@@ -868,7 +868,7 @@ encode.INDEX = function(l, countEncoder = 'Card16') {
 };
 
 /**
- * @param {Array}
+ * @param {Array} v
  * @returns {number}
  */
 sizeOf.INDEX = function(v) {
@@ -884,7 +884,7 @@ encode.INDEX32 = function(l) {
 };
 
 /**
- * @param {Array}
+ * @param {Array} v
  * @returns {number}
  */
 sizeOf.INDEX32 = function(v) {
@@ -929,7 +929,7 @@ encode.DICT = function(m) {
 };
 
 /**
- * @param {Object}
+ * @param {Object} m
  * @returns {number}
  */
 sizeOf.DICT = function(m) {
@@ -937,7 +937,7 @@ sizeOf.DICT = function(m) {
 };
 
 /**
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.OPERATOR = function(v) {
@@ -950,7 +950,7 @@ encode.OPERATOR = function(v) {
 
 /**
  * @param {Array} v
- * @param {string}
+ * @param {string} type
  * @returns {Array}
  */
 encode.OPERAND = function(v, type) {
@@ -1024,7 +1024,7 @@ const wmm = typeof WeakMap === 'function' && new WeakMap();
 
 /**
  * Convert a list of CharString operations to bytes.
- * @param {Array}
+ * @param {Array} ops
  * @returns {Array}
  */
 encode.CHARSTRING = function(ops) {
@@ -1055,7 +1055,7 @@ encode.CHARSTRING = function(ops) {
 };
 
 /**
- * @param {Array}
+ * @param {Array} ops
  * @returns {number}
  */
 sizeOf.CHARSTRING = function(ops) {
@@ -1066,7 +1066,7 @@ sizeOf.CHARSTRING = function(ops) {
 
 /**
  * Convert an object containing name / type / value to bytes.
- * @param {Object}
+ * @param {Object} v
  * @returns {Array}
  */
 encode.OBJECT = function(v) {
@@ -1087,7 +1087,7 @@ encode.OBJECT = function(v) {
 };
 
 /**
- * @param {Object}
+ * @param {Object} v
  * @returns {number}
  */
 sizeOf.OBJECT = function(v) {
@@ -1107,7 +1107,7 @@ sizeOf.OBJECT = function(v) {
  * Convert a table object to bytes.
  * A table contains a list of fields containing the metadata (name, type and default value).
  * The table itself has the field values set as attributes.
- * @param {opentype.Table}
+ * @param {opentype.Table} table
  * @returns {Array}
  */
 encode.TABLE = function(table) {
@@ -1166,7 +1166,7 @@ encode.TABLE = function(table) {
 };
 
 /**
- * @param {opentype.Table}
+ * @param {opentype.Table} table
  * @returns {number}
  */
 sizeOf.TABLE = function(table) {

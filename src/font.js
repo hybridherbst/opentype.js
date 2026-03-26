@@ -73,7 +73,7 @@ function createDefaultNamesInfo(options) {
  * or to get a path representing the text.
  * @exports opentype.Font
  * @class
- * @param {FontOptions}
+ * @param {FontOptions} options
  * @constructor
  */
 function Font(options) {
@@ -186,7 +186,7 @@ function Font(options) {
 
 /**
  * Check if the font has a glyph for the given character.
- * @param  {string}
+ * @param  {string} c
  * @return {Boolean}
  */
 Font.prototype.hasChar = function(c) {
@@ -197,7 +197,7 @@ Font.prototype.hasChar = function(c) {
  * Convert the given character to a single glyph index.
  * Note that this function assumes that there is a one-to-one mapping between
  * the given character and a glyph; for complex scripts this might not be the case.
- * @param  {string}
+ * @param  {string} s
  * @return {Number}
  */
 Font.prototype.charToGlyphIndex = function(s) {
@@ -208,7 +208,7 @@ Font.prototype.charToGlyphIndex = function(s) {
  * Convert the given character to a single Glyph object.
  * Note that this function assumes that there is a one-to-one mapping between
  * the given character and a glyph; for complex scripts this might not be the case.
- * @param  {string}
+ * @param  {string} c
  * @return {opentype.Glyph}
  */
 Font.prototype.charToGlyph = function(c) {
@@ -340,7 +340,7 @@ Font.prototype.updateFeatures = function (options) {
  * Note that there is no strict one-to-one mapping between characters and
  * glyphs, so the list of returned glyph indexes can be larger or smaller than the
  * length of the given string.
- * @param  {string}
+ * @param  {string} s
  * @param  {GlyphRenderOptions} [options]
  * @return {number[]}
  */
@@ -366,7 +366,7 @@ Font.prototype.stringToGlyphIndexes = function(s, options) {
  * Note that there is no strict one-to-one mapping between characters and
  * glyphs, so the list of returned glyphs can be larger or smaller than the
  * length of the given string.
- * @param  {string}
+ * @param  {string} s
  * @param  {GlyphRenderOptions} [options]
  * @return {opentype.Glyph[]}
  */
@@ -385,7 +385,7 @@ Font.prototype.stringToGlyphs = function(s, options) {
 };
 
 /**
- * @param  {string}
+ * @param  {string} name
  * @return {Number}
  */
 Font.prototype.nameToGlyphIndex = function(name) {
@@ -393,7 +393,7 @@ Font.prototype.nameToGlyphIndex = function(name) {
 };
 
 /**
- * @param  {string}
+ * @param  {string} name
  * @return {opentype.Glyph}
  */
 Font.prototype.nameToGlyph = function(name) {
@@ -408,7 +408,7 @@ Font.prototype.nameToGlyph = function(name) {
 };
 
 /**
- * @param  {Number}
+ * @param  {Number} gid
  * @return {String}
  */
 Font.prototype.glyphIndexToName = function(gid) {
@@ -668,7 +668,7 @@ Font.prototype.drawMetrics = function(ctx, text, x, y, fontSize, options) {
 };
 
 /**
- * @param  {string}
+ * @param  {string} name
  * @return {string}
  */
 Font.prototype.getEnglishName = function(name) {

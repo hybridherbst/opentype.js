@@ -27,8 +27,8 @@ function defineDependentProperty(glyph, externalName, internalName) {
  * necessary, to keep the memory footprint down.
  * @exports opentype.GlyphSet
  * @class
- * @param {opentype.Font}
- * @param {Array}
+ * @param {opentype.Font} font
+ * @param {Array} glyphs
  */
 function GlyphSet(font, glyphs) {
     this.font = font;
@@ -106,7 +106,7 @@ GlyphSet.prototype.get = function(index) {
 
 /**
  * @param  {number} index
- * @param  {Object}
+ * @param  {Object} loader
  */
 GlyphSet.prototype.push = function(index, loader) {
     this.glyphs[index] = loader;

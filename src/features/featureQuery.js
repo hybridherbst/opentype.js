@@ -62,7 +62,8 @@ function lookupCoverage(glyphIndex, coverage) {
 
 /**
  * Handle a single substitution - format 1
- * @param {ContextParams} contextParams context params to lookup
+ * @param {number} glyphIndex glyph index to lookup
+ * @param {Object} subtable substitution subtable
  */
 function singleSubstitutionFormat1(glyphIndex, subtable) {
     let substituteIndex = lookupCoverage(glyphIndex, subtable.coverage);
@@ -72,7 +73,8 @@ function singleSubstitutionFormat1(glyphIndex, subtable) {
 
 /**
  * Handle a single substitution - format 2
- * @param {ContextParams} contextParams context params to lookup
+ * @param {number} glyphIndex glyph index to lookup
+ * @param {Object} subtable substitution subtable
  */
 function singleSubstitutionFormat2(glyphIndex, subtable) {
     let substituteIndex = lookupCoverage(glyphIndex, subtable.coverage);

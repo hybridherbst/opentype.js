@@ -8,8 +8,7 @@ import { arraysEqual } from './util.js';
 /**
  * @exports opentype.Substitution
  * @class
- * @extends opentype.Layout
- * @param {opentype.Font}
+ * @param {opentype.Font} font
  * @constructor
  */
 function Substitution(font) {

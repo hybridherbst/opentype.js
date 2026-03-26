@@ -145,8 +145,8 @@ function loadFromUrl(url, callback) {
 // Table Directory Entries //////////////////////////////////////////////
 /**
  * Parses OpenType table entries.
- * @param  {DataView}
- * @param  {Number}
+ * @param  {DataView} data
+ * @param  {Number} numTables
  * @return {Object[]}
  */
 function parseOpenTypeTableEntries(data, numTables, directoryOffset = 0) {
@@ -192,8 +192,8 @@ function parseTTCHeader(data, opt = {}) {
 
 /**
  * Parses WOFF table entries.
- * @param  {DataView}
- * @param  {Number}
+ * @param  {DataView} data
+ * @param  {Number} numTables
  * @return {Object[]}
  */
 function parseWOFFTableEntries(data, numTables) {
@@ -227,8 +227,8 @@ function parseWOFFTableEntries(data, numTables) {
  */
 
 /**
- * @param  {DataView}
- * @param  {Object}
+ * @param  {DataView} data
+ * @param  {Object} tableEntry
  * @return {TableData}
  */
 function uncompressTable(data, tableEntry) {
@@ -322,7 +322,7 @@ function listTables(buffer, opt = {}) {
 /**
  * Parse the OpenType file data (as an ArrayBuffer) and return a Font object.
  * Throws an error if the font could not be parsed.
- * @param  {ArrayBuffer}
+ * @param  {ArrayBuffer} buffer
  * @param  {Object} opt - options for parsing
  * @return {opentype.Font}
  */
@@ -691,8 +691,6 @@ function load(url, callback, opt = {}) {
  * Synchronously load the font from a URL or file.
  * When done, returns the font object or throws an error.
  * @alias opentype.loadSync
- * @param  {string} url - The URL of the font to load.
- * @param  {Object} opt - opt.lowMemory
  * @return {opentype.Font}
  */
 function loadSync() {

@@ -52,7 +52,7 @@ function getPathDefinition(glyph, path) {
 /**
  * @exports opentype.Glyph
  * @class
- * @param {GlyphOptions}
+ * @param {GlyphOptions} options
  * @constructor
  */
 function Glyph(options) {
@@ -62,7 +62,7 @@ function Glyph(options) {
 }
 
 /**
- * @param  {GlyphOptions}
+ * @param  {GlyphOptions} options
  */
 Glyph.prototype.bindConstructorValues = function(options) {
     this.index = options.index || 0;
@@ -119,7 +119,7 @@ Glyph.prototype.bindConstructorValues = function(options) {
 };
 
 /**
- * @param {number}
+ * @param {number} unicode
  */
 Glyph.prototype.addUnicode = function(unicode) {
     if (this.unicodes.length === 0) {
@@ -527,8 +527,8 @@ Glyph.prototype.toPathData = function(options, font) {
 
 /**
  * Sets the path data from an SVG path element or path notation
- * @param  {string|SVGPathElement}
- * @param  {object}
+ * @param  {string|SVGPathElement} pathData
+ * @param  {object} options
  */
 Glyph.prototype.fromSVG = function(pathData, options = {}) {
     return this.path.fromSVG(pathData, options);
