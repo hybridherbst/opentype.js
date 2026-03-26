@@ -474,6 +474,18 @@ function parseColrTable(data, start) {
             result.clipList = parseClipList(data, start + clipListOffset);
         }
 
+        // ── Parse ItemVariationStore (for VarClipBox, VarPaint*, etc.) ──
+        if (itemVariationStoreOffset > 0) {
+            const ivsParser = new Parser(data, start + itemVariationStoreOffset);
+            result.varStore = ivsParser.parseItemVariationStore();
+        }
+
+        // ── Parse DeltaSetIndexMap ──
+        if (varIndexMapOffset > 0) {
+            const dimParser = new Parser(data, start + varIndexMapOffset);
+            result.varIndexMap = dimParser.parseDeltaSetIndexMap();
+        }
+
         // Store raw offsets for roundtrip (writing will need them)
         result._v1Offsets = {
             baseGlyphListOffset,
@@ -1162,5 +1174,101 @@ function makeColrTable(colr) {
     ]);
 }
 
+/**
+ * Compute the ClipBox for a specific glyph at given normalized variation coordinates.
+ * Applies ItemVariationStore deltas if the ClipBox has a varIndexBase (format 2).
+ *
+ * @param {Object} colr - Parsed COLR table (from parseColrTable)
+ * @param {number} glyphID - Glyph index
+ * @param {Object} fvar - Parsed fvar table (font.tables.fvar)
+ * @param {Record<string, number>} coords - Variation coordinates (e.g. {wght: 700})
+ * @returns {{ xMin: number, yMin: number, xMax: number, yMax: number } | null}
+ */
+function getClipBoxAtCoords(colr, glyphID, fvar, coords) {
+    if (!colr.clipList || !colr.clipList.clips) return null;
+
+    // Find the clip entry for this glyph
+    const clip = colr.clipList.clips.find(
+        c => glyphID >= c.startGlyphID && glyphID <= c.endGlyphID
+    );
+    if (!clip || !clip.clipBox) return null;
+
+    const box = clip.clipBox;
+    const result = { xMin: box.xMin, yMin: box.yMin, xMax: box.xMax, yMax: box.yMax };
+
+    // If no variation data, return static box
+    if (box.format !== 2 || box.varIndexBase === undefined) return result;
+    if (!colr.varStore || !fvar) return result;
+
+    // Compute normalized coordinates
+    const normalizedCoords = [];
+    for (const axis of fvar.axes) {
+        const val = coords[axis.tag] ?? axis.defaultValue;
+        let norm;
+        if (val === axis.defaultValue) {
+            norm = 0;
+        } else if (val < axis.defaultValue) {
+            norm = -(axis.defaultValue - val) / (axis.defaultValue - axis.minValue || 1);
+        } else {
+            norm = (val - axis.defaultValue) / (axis.maxValue - axis.defaultValue || 1);
+        }
+        normalizedCoords.push(Math.max(-1, Math.min(1, norm)));
+    }
+
+    // Apply IVS deltas for each ClipBox field (xMin, yMin, xMax, yMax)
+    const fields = ['xMin', 'yMin', 'xMax', 'yMax'];
+    for (let i = 0; i < fields.length; i++) {
+        let varIdx = box.varIndexBase + i;
+        // Apply VarIndexMap if present
+        let outerIndex, innerIndex;
+        if (colr.varIndexMap && colr.varIndexMap.map && varIdx < colr.varIndexMap.map.length) {
+            const entry = colr.varIndexMap.map[varIdx];
+            outerIndex = entry.outerIndex;
+            innerIndex = entry.innerIndex;
+        } else {
+            // No map — direct index: outer=0, inner=varIdx
+            outerIndex = 0;
+            innerIndex = varIdx;
+        }
+        // 0xFFFF / -1 in outerIndex means no variation for this field
+        if (outerIndex < 0 || outerIndex === 0xFFFF || innerIndex === 0xFFFF) continue;
+
+        const subtable = colr.varStore.itemVariationSubtables[outerIndex];
+        if (!subtable) continue;
+        const deltaSet = subtable.deltaSets[innerIndex];
+        if (!deltaSet) continue;
+
+        // Compute scalar for each region and sum deltas
+        let delta = 0;
+        for (let r = 0; r < subtable.regionIndexes.length; r++) {
+            const regionIdx = subtable.regionIndexes[r];
+            const region = colr.varStore.variationRegions[regionIdx];
+            if (!region) continue;
+
+            let scalar = 1;
+            for (let a = 0; a < region.regionAxes.length && a < normalizedCoords.length; a++) {
+                const ra = region.regionAxes[a];
+                const coord = normalizedCoords[a];
+                if (coord === 0 || ra.peakCoord === 0) {
+                    if (ra.peakCoord !== 0) scalar = 0;
+                    continue;
+                }
+                if (coord < ra.startCoord || coord > ra.endCoord) { scalar = 0; break; }
+                if (coord === ra.peakCoord) continue; // scalar stays 1
+                if (coord < ra.peakCoord) {
+                    scalar *= (coord - ra.startCoord) / (ra.peakCoord - ra.startCoord);
+                } else {
+                    scalar *= (ra.endCoord - coord) / (ra.endCoord - ra.peakCoord);
+                }
+            }
+            delta += deltaSet[r] * scalar;
+        }
+
+        result[fields[i]] += Math.round(delta);
+    }
+
+    return result;
+}
+
 export { PaintFormat, CompositeMode };
-export default { parse: parseColrTable, make: makeColrTable, PaintFormat, CompositeMode };
+export default { parse: parseColrTable, make: makeColrTable, getClipBoxAtCoords, PaintFormat, CompositeMode };
