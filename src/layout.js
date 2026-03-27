@@ -3,6 +3,17 @@
 
 import check from './check.js';
 
+/**
+ * @typedef {import('./tables/gsub.js').GsubTable} GsubTable
+ * @typedef {import('./tables/gsub.js').GsubLookupTable} GsubLookupTable
+ * @typedef {import('./tables/gsub.js').ScriptRecord} ScriptRecord
+ * @typedef {import('./tables/gsub.js').ScriptTable} ScriptTable
+ * @typedef {import('./tables/gsub.js').LangSysTable} LangSysTable
+ * @typedef {import('./tables/gsub.js').FeatureRecord} FeatureRecord
+ * @typedef {import('./tables/gpos.js').GposTable} GposTable
+ * @typedef {import('./tables/gpos.js').GposLookupTable} GposLookupTable
+ */
+
 function searchTag(arr, tag) {
     /* jshint bitwise: false */
     let imin = 0;
@@ -96,7 +107,7 @@ Layout.prototype = {
     /**
      * Get or create the Layout table (GSUB, GPOS etc).
      * @param  {boolean} [create] - Whether to create a new one.
-     * @return {Record<string, unknown>} The GSUB or GPOS table.
+     * @return {GsubTable|GposTable|undefined} The GSUB or GPOS table.
      */
     getTable: function(create) {
         let layout = this.font.tables[this.tableName];
@@ -114,7 +125,7 @@ Layout.prototype = {
     getScriptNames: function() {
         let layout = this.getTable();
         if (!layout) { return []; }
-        return /** @type {Array<{tag: string}>} */ (layout.scripts).map(function(script) {
+        return /** @type {ScriptRecord[]} */ (layout.scripts).map(function(script) {
             return script.tag;
         });
     },
@@ -129,7 +140,7 @@ Layout.prototype = {
         let layout = this.getTable();
         if (!layout) { return; }
         let hasLatn = false;
-        const scripts0 = /** @type {Array<{tag: string}>} */ (layout.scripts);
+        const scripts0 = /** @type {ScriptRecord[]} */ (layout.scripts);
         for (let i = 0; i < scripts0.length; i++) {
             const name = scripts0[i].tag;
             if (name === 'DFLT') return name;
@@ -143,13 +154,13 @@ Layout.prototype = {
      * @instance
      * @param {string} [script='DFLT']
      * @param {boolean} [create] - forces the creation of this script table if it doesn't exist.
-     * @return {Record<string, unknown>} An object with tag and script properties.
+     * @return {ScriptTable|undefined} The script table.
      */
     getScriptTable: function(script, create) {
         const layout = this.getTable(create);
         if (layout) {
             script = script || 'DFLT';
-            const scripts = /** @type {Array<{tag: string, script: Record<string, unknown>}>} */ (layout.scripts);
+            const scripts = /** @type {ScriptRecord[]} */ (layout.scripts);
             const pos = searchTag(scripts, script);
             if (pos >= 0) {
                 return scripts[pos].script;
@@ -173,15 +184,15 @@ Layout.prototype = {
      * @param {string} [script='DFLT']
      * @param {string} [language='dlft']
      * @param {boolean} [create] - forces the creation of this langSysTable if it doesn't exist.
-     * @return {Record<string, unknown>}
+     * @return {LangSysTable|undefined}
      */
     getLangSysTable: function(script, language, create) {
         const scriptTable = this.getScriptTable(script, create);
         if (scriptTable) {
             if (!language || language === 'dflt' || language === 'DFLT') {
-                return /** @type {Record<string, unknown>} */ (scriptTable.defaultLangSys);
+                return /** @type {LangSysTable} */ (scriptTable.defaultLangSys);
             }
-            const langSysRecords = /** @type {Array<{tag: string, langSys: Record<string, unknown>}>} */ (scriptTable.langSysRecords);
+            const langSysRecords = /** @type {Array<{tag: string, langSys: LangSysTable}>} */ (scriptTable.langSysRecords);
             const pos = searchTag(langSysRecords, language);
             if (pos >= 0) {
                 return langSysRecords[pos].langSys;
@@ -203,14 +214,14 @@ Layout.prototype = {
      * @param {string} [language='dlft']
      * @param {string} [feature] - One of the codes listed at https://www.microsoft.com/typography/OTSPEC/featurelist.htm
      * @param {boolean} [create] - forces the creation of the feature table if it doesn't exist.
-     * @return {Record<string, unknown>}
+     * @return {{params: number, lookupListIndexes: number[]}|undefined}
      */
     getFeatureTable: function(script, language, feature, create) {
         const langSysTable = this.getLangSysTable(script, language, create);
         if (langSysTable) {
             let featureRecord;
             const featIndexes = /** @type {number[]} */ (langSysTable.featureIndexes);
-            const allFeatures = /** @type {Array<{tag: string, feature: Record<string, unknown>}>} */ (this.font.tables[this.tableName].features);
+            const allFeatures = /** @type {FeatureRecord[]} */ (this.font.tables[this.tableName].features);
             // The FeatureIndex array of indices is in arbitrary order,
             // even if allFeatures is sorted alphabetically by feature tag.
             for (let i = 0; i < featIndexes.length; i++) {
@@ -244,7 +255,7 @@ Layout.prototype = {
      * @param {string} [feature] - 4-letter feature code
      * @param {number} [lookupType] - 1 to 8 (not 7 - extension lookups are unwrapped)
      * @param {boolean} [create] - forces the creation of the lookup table if it doesn't exist, with no subtables.
-     * @return {Record<string, unknown>[]}
+     * @return {GsubLookupTable[]|GposLookupTable[]}
      */
     getLookupTables: function(script, language, feature, lookupType, create) {
         const featureTable = this.getFeatureTable(script, language, feature, create);
@@ -252,7 +263,7 @@ Layout.prototype = {
         if (featureTable) {
             let lookupTable;
             const lookupListIndexes = /** @type {number[]} */ (featureTable.lookupListIndexes);
-            const allLookups = /** @type {Array<Record<string, unknown>>} */ (this.font.tables[this.tableName].lookups);
+            const allLookups = /** @type {GsubLookupTable[]|GposLookupTable[]} */ (this.font.tables[this.tableName].lookups);
             // lookupListIndexes are in no particular order, so use naive search.
             for (let i = 0; i < lookupListIndexes.length; i++) {
                 lookupTable = allLookups[lookupListIndexes[i]];
@@ -261,27 +272,31 @@ Layout.prototype = {
                 } else if (lookupTable.lookupType === 7 && this.tableName === 'gsub') {
                     // GSUB Extension Substitution (type 7) - unwrap and check inner type
                     // Extension lookups wrap other lookup types to allow 32-bit offsets
-                    for (const subtable of /** @type {Array<Record<string, unknown>>} */ (lookupTable.subtables)) {
+                    for (const subtable of /** @type {import('./tables/gsub.js').GsubSubtable[]} */ (lookupTable.subtables)) {
                         if (subtable.lookupType === lookupType && subtable.extension) {
                             // Create a virtual lookup table with the unwrapped subtables
-                            tables.push({
-                                lookupType: lookupType,
-                                lookupFlag: lookupTable.lookupFlag,
+                            /** @type {GsubLookupTable} */
+                            const virtualLookup = {
+                                lookupType: /** @type {number} */ (lookupType),
+                                lookupFlag: /** @type {number} */ (lookupTable.lookupFlag),
                                 subtables: [subtable.extension],
-                                markFilteringSet: lookupTable.markFilteringSet
-                            });
+                                markFilteringSet: /** @type {number|undefined} */ (lookupTable.markFilteringSet)
+                            };
+                            tables.push(virtualLookup);
                         }
                     }
                 } else if (lookupTable.lookupType === 9 && this.tableName === 'gpos') {
                     // GPOS Extension Positioning (type 9) - unwrap and check inner type
-                    for (const subtable of /** @type {Array<Record<string, unknown>>} */ (lookupTable.subtables)) {
+                    for (const subtable of /** @type {import('./tables/gpos.js').GposSubtable[]} */ (lookupTable.subtables)) {
                         if (subtable.lookupType === lookupType && subtable.extension) {
-                            tables.push({
-                                lookupType: lookupType,
-                                lookupFlag: lookupTable.lookupFlag,
+                            /** @type {GposLookupTable} */
+                            const virtualLookup = {
+                                lookupType: /** @type {number} */ (lookupType),
+                                lookupFlag: /** @type {number} */ (lookupTable.lookupFlag),
                                 subtables: [subtable.extension],
-                                markFilteringSet: lookupTable.markFilteringSet
-                            });
+                                markFilteringSet: /** @type {number|undefined} */ (lookupTable.markFilteringSet)
+                            };
+                            tables.push(virtualLookup);
                         }
                     }
                 }
@@ -349,8 +364,8 @@ Layout.prototype = {
      * Format 1: the list is stored raw
      * Format 2: compact list as range records.
      * @instance
-     * @param  {Record<string, unknown>} coverageTable
-     * @return {Array}
+     * @param  {{format: number, glyphs?: number[], ranges?: Array<{start: number, end: number}>}} coverageTable
+     * @return {number[]}
      */
     expandCoverage: function(coverageTable) {
         if (coverageTable.format === 1) {

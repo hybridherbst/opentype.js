@@ -7,11 +7,11 @@ import { ContextParams } from '../tokenizer.js';
 import { isTashkeelArabicChar } from '../char.js';
 
 /**
- * @typedef {Record<string, unknown>} GsubSubtable
+ * @typedef {import('../tables/gsub.js').GsubSubtable} GsubSubtable
  */
 
 /**
- * @typedef {Record<string, unknown>} GsubLookupTable
+ * @typedef {import('../tables/gsub.js').GsubLookupTable} GsubLookupTable
  */
 
 /**
@@ -678,8 +678,8 @@ FeatureQuery.prototype.lookupFeature = function (query) {
             if (substType === '71') {
                 // This is an extension subtable, so lookup the target subtable
                 const extension = /** @type {GsubSubtable} */ (subtable.extension);
-                substType = this.getSubstitutionType(subtable, extension);
-                lookup = this.getLookupMethod(subtable, extension);
+                substType = this.getSubstitutionType(/** @type {GsubLookupTable} */ (/** @type {unknown} */ (subtable)), extension);
+                lookup = this.getLookupMethod(/** @type {GsubLookupTable} */ (/** @type {unknown} */ (subtable)), extension);
                 subtable = extension;
             } else {
                 lookup = this.getLookupMethod(lookupTable, subtable);

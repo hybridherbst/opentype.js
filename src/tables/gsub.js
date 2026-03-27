@@ -216,7 +216,99 @@ subtableParsers[8] = function parseLookup8() {
     };
 };
 
+// ---- Type definitions ----
+
+/**
+ * A lookup record referencing another lookup to apply at a sequence position.
+ * @typedef {object} GsubLookupRecord
+ * @property {number} sequenceIndex - index into the input sequence
+ * @property {number} lookupListIndex - index into the lookup list
+ */
+
+/**
+ * A single GSUB substitution subtable. Properties vary by lookup type and substFormat.
+ * All subtables share `substFormat`; other properties are type-specific.
+ * @typedef {object} GsubSubtable
+ * @property {number} substFormat - substitution format (1 or 2 for most lookup types)
+ * @property {object} [coverage] - coverage table (format 1 or 2)
+ * @property {number} [deltaGlyphId] - (type 1 fmt 1) delta added to glyph index
+ * @property {number[]} [substitute] - (type 1 fmt 2) list of substitute glyph ids
+ * @property {number[][]} [sequences] - (type 2) per-coverage-index sequences of glyph ids
+ * @property {number[][]} [alternateSets] - (type 3) per-coverage-index alternate glyph sets
+ * @property {Array<Array<{ligGlyph: number, components: number[]}>>} [ligatureSets] - (type 4) ligature sets per coverage index
+ * @property {Array<Array<{input: number[], lookupRecords: GsubLookupRecord[]}>>} [ruleSets] - (type 5 fmt 1) sequence rule sets
+ * @property {object} [classDef] - (type 5 fmt 2) class definition table
+ * @property {Array<Array<{classes: number[], lookupRecords: GsubLookupRecord[]}>>} [classSets] - (type 5 fmt 2) class sets
+ * @property {object[]} [coverages] - (type 5 fmt 3 / type 6 fmt 3) list of coverage tables
+ * @property {GsubLookupRecord[]} [lookupRecords] - (type 5 fmt 3 / type 6 fmt 3) lookup records
+ * @property {Array<Array<{backtrack: number[], input: number[], lookahead: number[], lookupRecords: GsubLookupRecord[]}>>} [chainRuleSets] - (type 6 fmt 1)
+ * @property {object} [backtrackClassDef] - (type 6 fmt 2) backtrack class definition
+ * @property {object} [inputClassDef] - (type 6 fmt 2) input class definition
+ * @property {object} [lookaheadClassDef] - (type 6 fmt 2) lookahead class definition
+ * @property {Array<Array<{backtrack: number[], input: number[], lookahead: number[], lookupRecords: GsubLookupRecord[]}>>} [chainClassSet] - (type 6 fmt 2)
+ * @property {object[]} [backtrackCoverage] - (type 6 fmt 3 / type 8) backtrack coverage tables
+ * @property {object[]} [inputCoverage] - (type 6 fmt 3) input coverage tables
+ * @property {object[]} [lookaheadCoverage] - (type 6 fmt 3 / type 8) lookahead coverage tables
+ * @property {number[]} [substitutes] - (type 8) reverse chain single substitution glyph ids
+ * @property {number} [lookupType] - (type 7) extension: actual lookup type wrapped
+ * @property {GsubSubtable} [extension] - (type 7) extension: inner subtable
+ * @property {string} [error] - error message if parsing failed
+ */
+
+/**
+ * A single GSUB lookup table.
+ * @typedef {object} GsubLookupTable
+ * @property {number} lookupType - lookup type (1–8)
+ * @property {number} lookupFlag - lookup flags bitmask
+ * @property {GsubSubtable[]} subtables - list of subtables
+ * @property {number} [markFilteringSet] - index into MarkGlyphSetsTable (when UseMarkFilteringSet flag is set)
+ */
+
+/**
+ * A LangSys table entry.
+ * @typedef {object} LangSysTable
+ * @property {number} reserved - reserved field (always 0)
+ * @property {number} reqFeatureIndex - required feature index (0xFFFF = none)
+ * @property {number[]} featureIndexes - indices into the feature list
+ */
+
+/**
+ * A script record containing the default LangSys and any language-specific LangSys tables.
+ * @typedef {object} ScriptTable
+ * @property {LangSysTable} defaultLangSys - default language system table
+ * @property {Array<{tag: string, langSys: LangSysTable}>} langSysRecords - language-specific records
+ */
+
+/**
+ * A feature record: tag + feature table.
+ * @typedef {object} FeatureRecord
+ * @property {string} tag - 4-character feature tag
+ * @property {{params: number, lookupListIndexes: number[]}} feature - feature table
+ */
+
+/**
+ * A script list entry (tag + script table).
+ * @typedef {object} ScriptRecord
+ * @property {string} tag - 4-character script tag
+ * @property {ScriptTable} script - script table
+ */
+
+/**
+ * The top-level parsed GSUB table.
+ * @typedef {object} GsubTable
+ * @property {number} version - table version (1 or 1.1)
+ * @property {ScriptRecord[]} scripts - script list
+ * @property {FeatureRecord[]} features - feature list
+ * @property {GsubLookupTable[]} lookups - lookup list
+ * @property {object[]} [variations] - (version 1.1) feature variations list
+ */
+
 // https://www.microsoft.com/typography/OTSPEC/gsub.htm
+/**
+ * @param {DataView} data
+ * @param {number} [start]
+ * @returns {GsubTable}
+ */
 function parseGsubTable(data, start) {
     start = start || 0;
     const p = new Parser(data, start);
@@ -593,6 +685,10 @@ function buildFeatureVariationsBytes(variations) {
     return bytes;
 }
 
+/**
+ * @param {GsubTable} gsub
+ * @returns {object}
+ */
 function makeGsubTable(gsub) {
     // Check if we have any extension lookups
     let hasExtensions = false;

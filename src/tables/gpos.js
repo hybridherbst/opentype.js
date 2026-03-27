@@ -371,7 +371,108 @@ subtableParsers[9] = function parseLookup9() {
     };
 };
 
+// ---- Type definitions ----
+
+/**
+ * A GPOS value record describing positioning adjustments.
+ * Each field is optional; only fields whose corresponding bit is set in valueFormat are present.
+ * @typedef {object} GposValueRecord
+ * @property {number} [xPlacement] - x placement adjustment
+ * @property {number} [yPlacement] - y placement adjustment
+ * @property {number} [xAdvance] - x advance adjustment
+ * @property {number} [yAdvance] - y advance adjustment
+ * @property {object} [xPlaDevice] - device/variation table for x placement
+ * @property {object} [yPlaDevice] - device/variation table for y placement
+ * @property {object} [xAdvDevice] - device/variation table for x advance
+ * @property {object} [yAdvDevice] - device/variation table for y advance
+ */
+
+/**
+ * An anchor point used for mark/base attachment.
+ * @typedef {object} GposAnchor
+ * @property {number} format - anchor format (1, 2, or 3)
+ * @property {number} xCoordinate - x coordinate
+ * @property {number} yCoordinate - y coordinate
+ * @property {number} [anchorPoint] - (format 2) contour point index
+ */
+
+/**
+ * A mark record: class index + anchor.
+ * @typedef {object} GposMarkRecord
+ * @property {number} markClass - mark class index
+ * @property {GposAnchor|undefined} markAnchor - anchor point for the mark
+ */
+
+/**
+ * A lookup record referencing another lookup to apply at a sequence position.
+ * @typedef {object} GposLookupRecord
+ * @property {number} sequenceIndex - index into the input sequence
+ * @property {number} lookupListIndex - index into the lookup list
+ */
+
+/**
+ * A single GPOS positioning subtable. Properties vary by lookup type and posFormat.
+ * @typedef {object} GposSubtable
+ * @property {number} [posFormat] - positioning format (1 or 2 for most lookup types)
+ * @property {object} [coverage] - coverage table
+ * @property {GposValueRecord} [value] - (type 1 fmt 1) single value record
+ * @property {GposValueRecord[]} [values] - (type 1 fmt 2) per-glyph value records
+ * @property {number} [valueFormat1] - (type 2) value format bitmask for first glyph
+ * @property {number} [valueFormat2] - (type 2) value format bitmask for second glyph
+ * @property {Array<Array<{secondGlyph: number, value1: GposValueRecord, value2: GposValueRecord}>|null>} [pairSets] - (type 2 fmt 1)
+ * @property {object} [classDef1] - (type 2 fmt 2) class definition for first glyph
+ * @property {object} [classDef2] - (type 2 fmt 2) class definition for second glyph
+ * @property {number} [class1Count] - (type 2 fmt 2) number of class 1 entries
+ * @property {number} [class2Count] - (type 2 fmt 2) number of class 2 entries
+ * @property {Array<Array<{value1: GposValueRecord, value2: GposValueRecord}>>} [classRecords] - (type 2 fmt 2)
+ * @property {Array<{entryAnchor: GposAnchor|undefined, exitAnchor: GposAnchor|undefined}>} [entryExitRecords] - (type 3)
+ * @property {object} [markCoverage] - (types 4, 5, 6) mark coverage
+ * @property {object} [baseCoverage] - (type 4) base coverage
+ * @property {object} [ligatureCoverage] - (type 5) ligature coverage
+ * @property {object} [mark1Coverage] - (type 6) first mark coverage
+ * @property {object} [mark2Coverage] - (type 6) second mark coverage
+ * @property {number} [markClassCount] - (types 4, 5, 6) number of mark classes
+ * @property {GposMarkRecord[]} [markArray] - (types 4, 5) mark array
+ * @property {GposMarkRecord[]} [mark1Array] - (type 6) first mark array
+ * @property {Array<Array<GposAnchor|undefined>>} [baseArray] - (type 4) base anchors per glyph per mark class
+ * @property {Array<Array<Array<GposAnchor|undefined>>>} [ligatureArray] - (type 5) ligature attach arrays
+ * @property {Array<Array<GposAnchor|undefined>>} [mark2Array] - (type 6) second mark anchors
+ * @property {object[]} [coverages] - (type 7 fmt 3) coverage tables
+ * @property {GposLookupRecord[]} [posLookupRecords] - (type 7 fmt 3) lookup records
+ * @property {Array<Array<{input: number[], posLookupRecords: GposLookupRecord[]}>>} [ruleSets] - (type 7 fmt 1)
+ * @property {object} [classDef] - (type 7 fmt 2) class definition
+ * @property {Array<Array<{classes: number[], posLookupRecords: GposLookupRecord[]}>>} [classSets] - (type 7 fmt 2)
+ * @property {number} [lookupType] - (type 9) extension: actual lookup type wrapped
+ * @property {number} [extensionLookupType] - (type 9) extension: actual lookup type wrapped
+ * @property {GposSubtable} [extension] - (type 9) extension: inner subtable
+ * @property {string} [error] - error message if parsing failed
+ */
+
+/**
+ * A single GPOS lookup table.
+ * @typedef {object} GposLookupTable
+ * @property {number} lookupType - lookup type (1–9)
+ * @property {number} lookupFlag - lookup flags bitmask
+ * @property {GposSubtable[]} subtables - list of subtables
+ * @property {number} [markFilteringSet] - index into MarkGlyphSetsTable
+ */
+
+/**
+ * The top-level parsed GPOS table.
+ * @typedef {object} GposTable
+ * @property {number} version - table version (1 or 1.1)
+ * @property {import('./gsub.js').ScriptRecord[]} scripts - script list
+ * @property {import('./gsub.js').FeatureRecord[]} features - feature list
+ * @property {GposLookupTable[]} lookups - lookup list
+ * @property {object[]} [variations] - (version 1.1) feature variations list
+ */
+
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos
+/**
+ * @param {DataView} data
+ * @param {number} [start]
+ * @returns {GposTable}
+ */
 function parseGposTable(data, start) {
     start = start || 0;
     const p = new Parser(data, start);
@@ -1357,6 +1458,10 @@ subtableMakers[9] = function makeLookup9(subtable, extensionData) {
  * Custom GPOS table encoder that handles extension lookups properly.
  * Extension subtable data is stored at the end of the table with 32-bit offsets.
  * Mirrors the GSUB approach for type 7 Extension Substitution.
+ */
+/**
+ * @param {GposTable} gpos
+ * @returns {object}
  */
 function makeGposTable(gpos) {
     // Check if we have any extension lookups
