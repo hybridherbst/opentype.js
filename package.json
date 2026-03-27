@@ -1,5 +1,6 @@
 {
   "name": "opentype.js",
+  "version": "1.4.0-experimental",
   "description": "OpenType font parser",
   "author": {
     "name": "Frederik De Bleser",
@@ -23,9 +24,18 @@
   "main": "./dist/opentype.js",
   "browser": "./dist/opentype.js",
   "module": "./dist/opentype.module.js",
+  "types": "./dist/opentype.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/opentype.d.ts",
+      "import": "./dist/opentype.module.js",
+      "browser": "./dist/opentype.js"
+    }
+  },
   "scripts": {
-    "build": "npm run b:umd && npm run b:esm",
+    "build": "npm run b:umd && npm run b:esm && npm run b:types",
+    "b:types": "tsc -p tsconfig.declarations.json",
     "dist": " npm run d:umd && npm run d:esm",
     "test": "npm run build && mocha test/runner.mjs && npm run lint",
     "test:mocha": "npm run build && mocha",
