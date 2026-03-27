@@ -14,6 +14,15 @@ import check from './check.js';
  * @typedef {import('./tables/gpos.js').GposLookupTable} GposLookupTable
  */
 
+/**
+ * A parsed OpenType ClassDef table.
+ * @typedef {object} ClassDefTable
+ * @property {number} format - 1 (array) or 2 (ranges)
+ * @property {number} [startGlyph] - (format 1) first glyph covered
+ * @property {number[]} [classes] - (format 1) class value per glyph
+ * @property {Array<{start: number, end: number, classId: number}>} [ranges] - (format 2) class ranges
+ */
+
 function searchTag(arr, tag) {
     /* jshint bitwise: false */
     let imin = 0;
@@ -236,7 +245,7 @@ Layout.prototype = {
                 check.assert(index === 0 || feature >= allFeatures[index - 1].tag, 'Features must be added in alphabetical order.');
                 featureRecord = {
                     tag: feature,
-                    feature: { params: 0, lookupListIndexes: [] }
+                    feature: { featureParams: 0, lookupListIndexes: [] }
                 };
                 allFeatures.push(featureRecord);
                 featIndexes.push(index);
@@ -320,7 +329,7 @@ Layout.prototype = {
     /**
      * Find a glyph in a class definition table
      * https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#class-definition-table
-     * @param {object} classDefTable - an OpenType Layout class definition table
+     * @param {ClassDefTable} classDefTable - an OpenType Layout class definition table
      * @param {number} glyphIndex - the index of the glyph to find
      * @returns {number} -1 if not found
      */
