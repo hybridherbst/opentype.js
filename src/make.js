@@ -20,7 +20,8 @@ export function ItemVariationStore(vstore, fvar) {
     }
     
     const t = new table.Record('ItemVariationStore', fields);
-    let currentOffset = /** @type {any} */ (t).variationRegionListOffset = t.sizeOf();
+    const tRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t));
+    let currentOffset = tRec.variationRegionListOffset = t.sizeOf();
     
     // VariationRegions List
     const axisCount = fvar.axes.length;
@@ -90,7 +91,8 @@ export function VariationStore(vstore, fvar) {
         { name: 'length', type: 'USHORT', value: 0 },
         { name: 'itemVariationStore', type: 'RECORD', value: inner },
     ]);
-    /** @type {any} */ (t).length = inner.sizeOf();
-    /** @type {any} */ (t).itemVariationStore = inner;
+    const tRec2 = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t));
+    tRec2.length = inner.sizeOf();
+    tRec2.itemVariationStore = inner;
     return t;
 }

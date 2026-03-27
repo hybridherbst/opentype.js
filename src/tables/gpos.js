@@ -673,7 +673,7 @@ subtableMakers[2] = function makeLookup2(subtable) {
 
         // Pre-encode coverage table
         const coverageTable = new table.Coverage(subtable.coverage);
-        const coverageBytes = encode.TABLE(coverageTable);
+        const coverageBytes = encode.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */ (/** @type {unknown} */ (coverageTable)));
 
         // Calculate layout: header, then unique PairSet data, then device pool, then coverage
         const headerSize = 10 + pairSets.length * 2;
@@ -774,9 +774,9 @@ subtableMakers[2] = function makeLookup2(subtable) {
         const classRecords = subtable.classRecords || [];
 
         // Pre-encode coverage and classDef tables
-        const coverageBytes = encode.TABLE(new table.Coverage(subtable.coverage));
-        const classDef1Bytes = subtable.classDef1 ? encode.TABLE(new table.ClassDef(subtable.classDef1)) : [];
-        const classDef2Bytes = subtable.classDef2 ? encode.TABLE(new table.ClassDef(subtable.classDef2)) : [];
+        const coverageBytes = encode.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */ (/** @type {unknown} */ (new table.Coverage(subtable.coverage))));
+        const classDef1Bytes = subtable.classDef1 ? encode.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */ (/** @type {unknown} */ (new table.ClassDef(subtable.classDef1)))) : [];
+        const classDef2Bytes = subtable.classDef2 ? encode.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */ (/** @type {unknown} */ (new table.ClassDef(subtable.classDef2)))) : [];
 
         // Build complete binary
         const d = [];
@@ -834,7 +834,7 @@ subtableMakers[3] = function makeLookup3(subtable) {
     check.assert(subtable.posFormat === 1, 'Lookup type 3 posFormat must be 1.');
 
     const coverageTable = makeCoverageTable(subtable.coverage);
-    const coverageSize = /** @type {any} */ (coverageTable)?.sizeOf() || 0;
+    const coverageSize = /** @type {{ sizeOf: () => number }} */ (/** @type {unknown} */ (coverageTable))?.sizeOf() || 0;
     const entryExitCount = subtable.entryExitRecords?.length || 0;
 
     const anchorTables = [];
@@ -1004,7 +1004,7 @@ subtableMakers[5] = function makeLookup5(subtable) {
         }
     }
 
-    /** @type {Array<{name: string, type: string, value: any}>} */
+    /** @type {Array<{name: string, type: string, value: unknown}>} */
     const ligatureArrayFields = [
         { name: 'ligatureCount', type: 'USHORT', value: ligatureAttachTables.length }
     ];
@@ -1175,8 +1175,8 @@ subtableMakers[8] = function makeLookup8(subtable) {
         
         // Calculate sizes
         const headerSize = 6; // posFormat + backtrackCount + inputCount + lookaheadCount + reserved
-        const backtrackSize = /** @type {any} */ (backtrackCoverageTable)?.sizeOf() || 0;
-        const inputSize = /** @type {any} */ (inputCoverageTable)?.sizeOf() || 0;
+        const backtrackSize = /** @type {{ sizeOf: () => number }} */ (/** @type {unknown} */ (backtrackCoverageTable))?.sizeOf() || 0;
+        const inputSize = /** @type {{ sizeOf: () => number }} */ (/** @type {unknown} */ (inputCoverageTable))?.sizeOf() || 0;
         
         // Build position rules if present
         const posRules = subtable.posRuleSet || [];
@@ -1374,7 +1374,7 @@ function makeGposTable(gpos) {
             {name: 'version', type: 'ULONG', value: 0x10000},
             {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
             {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
-            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, subtableMakers)}
+            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (subtableMakers)))}
         ]);
     }
 
@@ -1398,7 +1398,7 @@ function makeGposTable(gpos) {
         {name: 'version', type: 'ULONG', value: 0x10000},
         {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
         {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
-        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, makersWithExtension)}
+        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (makersWithExtension)))}
     ]);
 
     // Phase 2: Encode the main table, then append extension data and patch offsets

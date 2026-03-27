@@ -73,7 +73,6 @@ function makeSfntTable(tables) {
     const hasGlyf = tables.some(t => t.tableName === 'glyf');
     const version = hasGlyf ? '\x00\x01\x00\x00' : 'OTTO';
     
-    /** @type {any} */
     const sfnt = new table.Table('sfnt', [
         {name: 'version', type: 'TAG', value: version},
         {name: 'numTables', type: 'USHORT', value: 0},
@@ -81,17 +80,20 @@ function makeSfntTable(tables) {
         {name: 'entrySelector', type: 'USHORT', value: 0},
         {name: 'rangeShift', type: 'USHORT', value: 0}
     ]);
-    sfnt.tables = tables;
-    sfnt.numTables = tables.length;
-    const highestPowerOf2 = Math.pow(2, log2(sfnt.numTables));
-    sfnt.searchRange = 16 * highestPowerOf2;
-    sfnt.entrySelector = log2(highestPowerOf2);
-    sfnt.rangeShift = sfnt.numTables * 16 - sfnt.searchRange;
+    const sfntRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (sfnt));
+    sfntRec.tables = tables;
+    const numTables = tables.length;
+    sfntRec.numTables = numTables;
+    const highestPowerOf2 = Math.pow(2, log2(numTables));
+    const searchRange = 16 * highestPowerOf2;
+    sfntRec.searchRange = searchRange;
+    sfntRec.entrySelector = log2(highestPowerOf2);
+    sfntRec.rangeShift = numTables * 16 - searchRange;
 
     const recordFields = [];
     const tableFields = [];
 
-    let offset = sfnt.sizeOf() + (makeTableRecord().sizeOf() * sfnt.numTables);
+    let offset = sfnt.sizeOf() + (makeTableRecord().sizeOf() * numTables);
     while (offset % 4 !== 0) {
         offset += 1;
         tableFields.push({name: 'padding', type: 'BYTE', value: 0});
@@ -101,9 +103,9 @@ function makeSfntTable(tables) {
         const t = tables[i];
         check.argument(t.tableName.length === 4, 'Table name' + t.tableName + ' is invalid.');
         const tableLength = t.sizeOf();
-        /** @type {any} */
         const tableRecord = makeTableRecord(t.tableName, computeCheckSum(t.encode()), offset, tableLength);
-        recordFields.push({name: tableRecord.tag + ' Table Record', type: 'RECORD', value: tableRecord});
+        const tableRecordRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (tableRecord));
+        recordFields.push({name: String(tableRecordRec.tag) + ' Table Record', type: 'RECORD', value: tableRecord});
         tableFields.push({name: t.tableName + ' table', type: 'RECORD', value: t});
         offset += tableLength;
         check.argument(!isNaN(offset), 'Something went wrong calculating the offset.');
@@ -114,8 +116,10 @@ function makeSfntTable(tables) {
     }
 
     // Table records need to be sorted alphabetically.
-    recordFields.sort(function(/** @type {any} */ r1, /** @type {any} */ r2) {
-        if (r1.value.tag > r2.value.tag) {
+    recordFields.sort(function(r1, r2) {
+        const tag1 = /** @type {{ tag: string }} */ (/** @type {unknown} */ (r1.value)).tag;
+        const tag2 = /** @type {{ tag: string }} */ (/** @type {unknown} */ (r2.value)).tag;
+        if (tag1 > tag2) {
             return 1;
         } else {
             return -1;
@@ -154,8 +158,8 @@ function average(vs) {
 /**
  * Compute maxp table values from glyphs for TrueType fonts.
  * These values are required for proper font validation on macOS.
- * @param {any} glyphs - The font's glyph set
- * @returns {Object} maxp values: maxPoints, maxContours, etc.
+ * @param {import('../glyphset.js').GlyphSet} glyphs - The font's glyph set
+ * @returns {{ maxPoints: number, maxContours: number, maxCompositePoints: number, maxCompositeContours: number, maxComponentElements: number, maxComponentDepth: number }} maxp values
  */
 function computeMaxpValues(glyphs) {
     let maxPoints = 0;
@@ -166,7 +170,7 @@ function computeMaxpValues(glyphs) {
     let maxComponentDepth = 0;
     
     for (let i = 0; i < glyphs.length; i++) {
-        const glyphObj = glyphs.get(i);
+        const glyphObj = /** @type {import('../glyph.js').Glyph & { components?: Array<{glyphIndex: number, dx: number, dy: number}> }} */ (glyphs.get(i));
         if (!glyphObj) continue;
         
         // Count points and contours from glyph.points (TrueType)
@@ -342,7 +346,7 @@ function fontToSfntTable(font, options = {}) {
     // Convert fontRevision to 16.16 fixed-point format for FIXED encoding
     const fontRevisionFixed = Math.round(fontRevision * 65536);
 
-    /** @type {any} */
+    /** @type {import('../table.js').Table} */
     const headTable = head.make({
         flags: 3, // 00000011 (baseline for font at y=0; left sidebearing point at x=0)
         unitsPerEm: font.unitsPerEm,
@@ -547,7 +551,7 @@ function fontToSfntTable(font, options = {}) {
         const useShortLoca = maxOffset < 65536 * 2;
         
         // Update head table with indexToLocFormat
-        headTable.indexToLocFormat = useShortLoca ? 0 : 1;
+        (/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (headTable))).indexToLocFormat = useShortLoca ? 0 : 1;
         // Update the actual field in the table
         for (const field of headTable.fields) {
             if (field.name === 'indexToLocFormat') {

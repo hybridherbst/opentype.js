@@ -17,18 +17,15 @@ import { isGzip, unGzip } from './util.js';
  */
 
 /**
- * @typedef {Object} SVGImage
- * @prop {number} leftSideBearing
- * @prop {number} baseline
- * @prop {HTMLImageElement} image
+ * @typedef {{ leftSideBearing: number, baseline: number, image: HTMLImageElement }} SVGImage
  */
 
 export class SVGImageManager {
     /**
-     * @param {any} font
+     * @param {import('./font.js').Font} font
      */
     constructor(font) {
-        /** @type {any} */
+        /** @type {import('./font.js').Font} */
         this.font = font;
         /** @type {WeakMap<Uint8Array, SVGDocCacheEntry>} */
         this.cache = new WeakMap();
@@ -57,7 +54,7 @@ export class SVGImageManager {
      * @returns {SVGImageCacheEntry | undefined}
      */
     getOrCreateSvgImageCacheEntry(glyphIndex) {
-        const svg = this.font.tables.svg;
+        const svg = /** @type {{get: Function}} */ (this.font.tables.svg);
         if (svg === undefined) return;
 
         const svgBuf = svg.get(glyphIndex);
@@ -74,9 +71,10 @@ export class SVGImageManager {
             svgImageCacheEntry = createSvgImageCacheEntry(this.font, svgDocCacheEntry.template, glyphIndex);
             svgImageCacheEntry.promise.then((svgImage) => {
                 svgImageCacheEntry.image = svgImage;
-                if (typeof this.font.onGlyphUpdated === 'function') {
+                const fontWithCallback = /** @type {{onGlyphUpdated?: Function}} */ (/** @type {unknown} */ (this.font));
+                if (typeof fontWithCallback.onGlyphUpdated === 'function') {
                     try {
-                        this.font.onGlyphUpdated(glyphIndex);
+                        fontWithCallback.onGlyphUpdated(glyphIndex);
                     } catch (error) {
                         console.error('font.onGlyphUpdated', glyphIndex, error);
                     }
@@ -100,7 +98,7 @@ function createSvgDocCacheEntry(svgBuf) {
 }
 
 /**
- * @param {any} font
+ * @param {import('./font.js').Font} font
  * @param {Promise<SVGTemplate>} svgTemplatePromise
  * @param {number} glyphIndex
  * @returns {SVGImageCacheEntry}
@@ -112,7 +110,7 @@ function createSvgImageCacheEntry(font, svgTemplatePromise, glyphIndex) {
             if (typeof svgTemplate === 'string') {
                 svgText = svgTemplate;
             } else {
-                svgTemplate[4] = /** @type {any} */ (glyphIndex);
+                svgTemplate[4] = /** @type {string} */ (String(glyphIndex));
                 svgText = svgTemplate.join('');
             }
             const svgImage = makeSvgImage(svgText, font.unitsPerEm);
@@ -148,7 +146,7 @@ function decodeSvgDocumentWithTinyInflate(buf) {
 */
 function decodeSvgDocumentWithDecompressionStream(buf) {
     if (isGzip(buf)) {
-        return new Response(new Response(/** @type {any} */ (buf)).body.pipeThrough(new DecompressionStream('gzip'))).text();
+        return new Response(new Response(/** @type {BodyInit} */ (buf)).body.pipeThrough(new DecompressionStream('gzip'))).text();
     }
     try {
         return Promise.resolve(new TextDecoder().decode(buf));
@@ -188,7 +186,7 @@ export function makeSvgTemplate(text) {
 export function makeSvgImage(text, unitsPerEm) {
     const svgDocument = new DOMParser().parseFromString(text, 'image/svg+xml');
     /** @type {SVGSVGElement} */
-    const svg = /** @type {any} */ (svgDocument.documentElement);
+    const svg = /** @type {SVGSVGElement} */ (/** @type {unknown} */ (svgDocument.documentElement));
     const viewBoxVal = svg.viewBox.baseVal;
     const widthVal = svg.width.baseVal;
     const heightVal = svg.height.baseVal;
@@ -221,8 +219,8 @@ export function makeSvgImage(text, unitsPerEm) {
     const height = bbox.height * yScale;
 
     svg.setAttribute('viewBox', [bbox.x, bbox.y, bbox.width, bbox.height].join(' '));
-    if (xScale !== 1) svg.setAttribute('width', /** @type {any} */ (width));
-    if (yScale !== 1) svg.setAttribute('height', /** @type {any} */ (height));
+    if (xScale !== 1) svg.setAttribute('width', String(width));
+    if (yScale !== 1) svg.setAttribute('height', String(height));
 
     const image = new Image(width, height);
     image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.outerHTML);

@@ -16,7 +16,7 @@ export class VariationProcessor {
 
     /**
      * Modifies a coords object to make sure that tags have a length of 4
-     * @param {Object} coords - variation coordinates
+     * @param {Record<string, number>} coords - variation coordinates
      */
     normalizeCoordTags(coords) {
         for (const tag in coords) {
@@ -30,7 +30,7 @@ export class VariationProcessor {
 
     /**
      * Normalizes the coordinates from the axis ranges to a range of -1 to 1.
-     * @param {Object} coords - The coordinates object to normalize.
+     * @param {Record<string, number>} coords - The coordinates object to normalize.
      * @returns {Array<number>} The normalized coordinates as an array
      */
     getNormalizedCoords(coords) {
@@ -76,9 +76,9 @@ export class VariationProcessor {
 
     /**
      * Interpolates points within a glyph if deltas are not provided for all points.
-     * @param {Array<Object>} points - The points to be interpolated.
-     * @param {Array<Object>} glyphPoints - Reference points from the glyph.
-     * @param {Object} deltaMap - A map indicating which points have deltas.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} points - The points to be interpolated.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} glyphPoints - Reference points from the glyph.
+     * @param {Array<boolean>} deltaMap - A map indicating which points have deltas.
      */
     interpolatePoints(points, glyphPoints, deltaMap) {
         if (points.length === 0) {
@@ -141,8 +141,8 @@ export class VariationProcessor {
      * @param {number} p2 - End point index for interpolation.
      * @param {number} ref1 - Reference point index for the start delta.
      * @param {number} ref2 - Reference point index for the end delta.
-     * @param {Array<Object>} glyphPoints - Reference points from the glyph.
-     * @param {Array<Object>} points - The points to be adjusted.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} glyphPoints - Reference points from the glyph.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} points - The points to be adjusted.
      */
     deltaInterpolate(p1, p2, ref1, ref2, glyphPoints, points) {
         if (p1 > p2) {
@@ -190,8 +190,8 @@ export class VariationProcessor {
      * @param {number} p1 - Start point index for shifting.
      * @param {number} p2 - End point index for shifting.
      * @param {number} ref - Reference point index.
-     * @param {Array<Object>} glyphPoints - Reference points from the glyph.
-     * @param {Array<Object>} points - The points to be shifted.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} glyphPoints - Reference points from the glyph.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} points - The points to be shifted.
      */
     deltaShift(p1, p2, ref, glyphPoints, points) {
         let deltaX = points[ref].x - glyphPoints[ref].x;
@@ -212,16 +212,16 @@ export class VariationProcessor {
     /**
      * Transforms glyph components based on variation data.
      * @param {Glyph} glyph - The composite glyph to transform.
-     * @param {Array<Object>} transformedPoints - Points that are already transformed.
-     * @param {Object} coords - Variation coordinates.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} transformedPoints - Points that are already transformed.
+     * @param {Record<string, number>} coords - Variation coordinates.
      * @param {Array<number>} tuplePoints - Points that are part of the tuple.
-     * @param {Object} header - Header information from the variation data.
+     * @param {{deltas: number[], deltasY: number[], peakTuple?: number[], privatePoints: number[], sharedTupleRecordsIndex?: number, intermediateStartTuple?: number[], intermediateEndTuple?: number[]}} header - Header information from the variation data.
      * @param {number} factor - The scaling factor for the transformation.
      */
     transformComponents(glyph, transformedPoints, coords, tuplePoints, header, factor) {
         let pointsIndex = 0;
-        for(let c = 0; c < /** @type {any} */ (glyph).components.length; c++) {
-            const component = /** @type {any} */ (glyph).components[c];
+        for(let c = 0; c < /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */ (/** @type {unknown} */ (glyph)).components.length; c++) {
+            const component = /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */ (/** @type {unknown} */ (glyph)).components[c];
             const componentGlyph = this.font.glyphs.get(component.glyphIndex);
             const componentTransform = copyComponent(component);
             // When tuplePoints is empty, it means "all points" — delta[c] maps to component c.
@@ -242,13 +242,13 @@ export class VariationProcessor {
      * Used for composite glyphs that are not explicitly targeted in gvar
      * but still need their components to get variation applied.
      * @param {Glyph} glyph - The composite glyph to transform.
-     * @param {Array<Object>} transformedPoints - Points to be transformed in place.
-     * @param {Object} coords - Variation coordinates.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} transformedPoints - Points to be transformed in place.
+     * @param {Record<string, number>} coords - Variation coordinates.
      */
     transformComponentsSimple(glyph, transformedPoints, coords) {
         let pointsIndex = 0;
-        for(let c = 0; c < /** @type {any} */ (glyph).components.length; c++) {
-            const component = /** @type {any} */ (glyph).components[c];
+        for(let c = 0; c < /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */ (/** @type {unknown} */ (glyph)).components.length; c++) {
+            const component = /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */ (/** @type {unknown} */ (glyph)).components[c];
             const componentGlyph = this.font.glyphs.get(component.glyphIndex);
             const componentTransform = copyComponent(component);
             // No gvar deltas to apply - just use the base component transform (dx, dy)
@@ -388,9 +388,9 @@ export class VariationProcessor {
     
     /**
      * Retrieves a transformed copy of a glyph based on the provided variation coordinates, or the glyph itself if no variation was applied
-     * @param {any} glyph - Glyph or index of glyph to transform.
-     * @param {Object} [coords] - Variation coords object (will fall back to variation coords in the defaultRenderOptions)
-     * @returns {any} - The transformed glyph.
+     * @param {Glyph} glyph - Glyph or index of glyph to transform.
+     * @param {Record<string, number>} [coords] - Variation coords object (will fall back to variation coords in the defaultRenderOptions)
+     * @returns {Glyph} - The transformed glyph.
      */
     getTransform(glyph, coords) {
         if(Number.isInteger(glyph)) {
@@ -411,7 +411,7 @@ export class VariationProcessor {
                     let transformedPoints = this.applyTupleVariationStore(variationData, glyphPoints, coords, 'gvar', { glyph });
                     const transformedPath = getPath(transformedPoints);
                     // Preserve unitsPerEm from the original glyph's path for correct scaling
-                    /** @type {any} */ (transformedPath).unitsPerEm = glyph.path && /** @type {any} */ (glyph.path).unitsPerEm ? /** @type {any} */ (glyph.path).unitsPerEm : this.font.unitsPerEm;
+                    /** @type {{ unitsPerEm?: number }} */ (transformedPath).unitsPerEm = glyph.path && /** @type {{ unitsPerEm?: number }} */ (glyph.path).unitsPerEm ? /** @type {{ unitsPerEm?: number }} */ (glyph.path).unitsPerEm : this.font.unitsPerEm;
                     transformedGlyph = new Glyph(Object.assign({}, glyph, {points: transformedPoints, path: transformedPath}));
                 }
 
@@ -421,7 +421,7 @@ export class VariationProcessor {
                     const transformedPoints = glyph.points.map(copyPoint);
                     this.transformComponentsSimple(glyph, transformedPoints, coords);
                     const transformedPath = getPath(transformedPoints);
-                    /** @type {any} */ (transformedPath).unitsPerEm = glyph.path && /** @type {any} */ (glyph.path).unitsPerEm ? /** @type {any} */ (glyph.path).unitsPerEm : this.font.unitsPerEm;
+                    /** @type {{ unitsPerEm?: number }} */ (transformedPath).unitsPerEm = glyph.path && /** @type {{ unitsPerEm?: number }} */ (glyph.path).unitsPerEm ? /** @type {{ unitsPerEm?: number }} */ (glyph.path).unitsPerEm : this.font.unitsPerEm;
                     transformedGlyph = new Glyph(Object.assign({}, glyph, {points: transformedPoints, path: transformedPath}));
                 }
             } else if (hasBlend) {
@@ -453,7 +453,7 @@ export class VariationProcessor {
      * @param {number} gid - Glyph ID.
      * @param {string} tableName - The name of the variation data table.
      * @param {string} parameter - The property to adjust.
-     * @param {Object} coords - Variation coordinates.
+     * @param {Record<string, number>} coords - Variation coordinates.
      * @returns {number} - The calculated adjustment.
      */
     getVariableAdjustment(gid, tableName, parameter, coords) {
@@ -487,10 +487,10 @@ export class VariationProcessor {
 
     /**
      * Retrieves the delta value from a variation store.
-     * @param {Object} itemStore - The item variation store.
+     * @param {{itemVariationSubtables: Array<{deltaSets: Array<number[]>, regionIndexes: number[]}>, variationRegions: Array<{regionAxes: Array<{startCoord: number, peakCoord: number, endCoord: number}>}>}} itemStore - The item variation store.
      * @param {number} outerIndex - The outer index in the variation subtables.
      * @param {number} innerIndex - The inner index in the delta sets.
-     * @param {Object} coords - Variation coordinates.
+     * @param {Record<string, number>} coords - Variation coordinates.
      * @returns {number} - The delta value.
      */
     getDelta(itemStore, outerIndex, innerIndex, coords) {
@@ -516,9 +516,9 @@ export class VariationProcessor {
 
     /**
      * Calculates the blend vector for a set of variation coordinates.
-     * @param {Object} itemStore - The item variation store.
+     * @param {{itemVariationSubtables: Array<{regionIndexes: number[]}>, variationRegions: Array<{regionAxes: Array<{startCoord: number, peakCoord: number, endCoord: number}>}>}} itemStore - The item variation store.
      * @param {number} itemIndex - Index of the current item in the variation subtables.
-     * @param {Object} coords - Variation coordinates.
+     * @param {Record<string, number>} coords - Variation coordinates.
      * @returns {Array<number>} - The blend vector for the given coordinates.
      */
     getBlendVector(itemStore, itemIndex, coords) {
@@ -580,42 +580,27 @@ export class VariationProcessor {
         return blendVector;
     }
 
-    /**
-     * Helper method that returns the font's avar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's avar table if present */
     avar() {
         return this.font.tables.avar;
     }
 
-    /**
-     * Helper method that returns the font's cvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's cvar table if present */
     cvar() {
         return this.font.tables.cvar;
     }
 
-    /**
-     * Helper method that returns the font's fvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's fvar table if present */
     fvar() {
         return this.font.tables.fvar;
     }
 
-    /**
-     * Helper method that returns the font's gvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's gvar table if present */
     gvar() {
         return this.font.tables.gvar;
     }
 
-    /**
-     * Helper method that returns the font's hvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's hvar table if present */
     hvar() {
         return this.font.tables.hvar;
     }

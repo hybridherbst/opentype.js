@@ -5,6 +5,7 @@ import parse from '../parse.js';
 import table from '../table.js';
 import { encode } from '../types.js';
 
+// eslint-disable-next-line no-unused-vars
 function parseHvarTable(data, start, _fvar) {
     const p = new parse.Parser(data, start);
     const tableVersionMajor = p.parseUShort();
@@ -287,7 +288,7 @@ function encodeDeltaSetIndexMap(indexMap) {
 /**
  * Make an hvar table from parsed hvar data
  * @param {object} hvar - The parsed hvar table data
- * @returns {any}
+ * @returns {object|undefined}
  */
 function makeHvarTable(hvar) {
     if (!hvar || !hvar.itemVariationStore) {

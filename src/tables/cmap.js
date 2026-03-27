@@ -295,23 +295,23 @@ function makeCmapTable(glyphs) {
         {name: 'rangeShift', type: 'USHORT', value: 0}
     ]);
 
-    /** @type {any} */
     const t = new table.Table('cmap', cmapTable);
+    const tRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t));
 
-    t.segments = [];
+    tRec.segments = [];
     for (i = 0; i < glyphs.length; i += 1) {
         const glyph = glyphs.get(i);
         for (let j = 0; j < glyph.unicodes.length; j += 1) {
-            addSegment(t, glyph.unicodes[j], i);
+            addSegment(tRec, glyph.unicodes[j], i);
         }
     }
-    t.segments.sort(function (a, b) {
+    /** @type {Array<{start: number, end: number, delta: number, offset: number, glyphIndex?: number, glyphId?: number}>} */ (tRec.segments).sort(function (a, b) {
         return a.start - b.start;
     });
 
-    addTerminatorSegment(t);
+    addTerminatorSegment(tRec);
 
-    const segCount = t.segments.length;
+    const segCount = /** @type {Array} */ (tRec.segments).length;
     let segCountToRemove = 0;
 
     // CMAP 4
@@ -330,7 +330,7 @@ function makeCmapTable(glyphs) {
     // Here we're doing one group for each letter
     // Doing as the spec can save 8 times (or more) space
     for (i = 0; i < segCount; i += 1) {
-        const segment = t.segments[i];
+        const segment = /** @type {Array<{start: number, end: number, delta: number, offset: number, glyphIndex?: number, glyphId?: number}>} */ (tRec.segments)[i];
 
         // CMAP 4
         if (segment.end <= 65535 && segment.start <= 65535) {
@@ -356,10 +356,12 @@ function makeCmapTable(glyphs) {
     }
 
     // CMAP 4 Subtable
-    t.segCountX2 = (segCount - segCountToRemove) * 2;
-    t.searchRange = Math.pow(2, Math.floor(Math.log((segCount - segCountToRemove)) / Math.log(2))) * 2;
-    t.entrySelector = Math.log(t.searchRange / 2) / Math.log(2);
-    t.rangeShift = t.segCountX2 - t.searchRange;
+    const segCountX2 = (segCount - segCountToRemove) * 2;
+    tRec.segCountX2 = segCountX2;
+    const searchRange = Math.pow(2, Math.floor(Math.log((segCount - segCountToRemove)) / Math.log(2))) * 2;
+    tRec.searchRange = searchRange;
+    tRec.entrySelector = Math.log(searchRange / 2) / Math.log(2);
+    tRec.rangeShift = segCountX2 - searchRange;
 
     for (let i = 0; i < endCounts.length; i++) {
         t.fields.push(endCounts[i]);
@@ -378,20 +380,21 @@ function makeCmapTable(glyphs) {
         t.fields.push(glyphIds[i]);
     }
 
-    t.cmap4Length = 14 + // Subtable header
+    const cmap4Length = 14 + // Subtable header
         endCounts.length * 2 +
         2 + // reservedPad
         startCounts.length * 2 +
         idDeltas.length * 2 +
         idRangeOffsets.length * 2 +
         glyphIds.length * 2;
+    tRec.cmap4Length = cmap4Length;
 
     if (!isPlan0Only) {
         // CMAP 12 Subtable
         const cmap12Length = 16 + // Subtable header
             cmap12Groups.length * 4;
 
-        t.cmap12Offset = 12 + (2 * 2) + 4 + t.cmap4Length;
+        tRec.cmap12Offset = 12 + (2 * 2) + 4 + cmap4Length;
         t.fields.push(...[
             {name: 'cmap12Format', type: 'USHORT', value: 12},
             {name: 'cmap12Reserved', type: 'USHORT', value: 0},
@@ -403,7 +406,7 @@ function makeCmapTable(glyphs) {
         for (let i = 0; i < cmap12Groups.length; i++) {
             t.fields.push(cmap12Groups[i]);
         }
-        
+
     }
 
     return t;

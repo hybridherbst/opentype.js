@@ -6,7 +6,7 @@ import Layout from './layout.js';
 /**
  * @exports opentype.Position
  * @class
- * @param {Object} font
+ * @param {Record<string, unknown>} font
  * @constructor
  */
 function Position(font) {
@@ -17,7 +17,7 @@ Position.prototype = Layout.prototype;
 
 /**
  * Init some data for faster and easier access later.
- * @this {any}
+ * @this {object}
  */
 Position.prototype.init = function() {
     const script = this.getDefaultScriptName();
@@ -26,9 +26,9 @@ Position.prototype.init = function() {
 
 /**
  * Apply variation deltas to a value record property.
- * @this {any}
- * @param {Object} deviceOrVariationIndex - Device or VariationIndex table data
- * @param {Object} [coords] - Variation coordinates (optional, uses current variation if not provided)
+ * @this {object}
+ * @param {Record<string, unknown>} deviceOrVariationIndex - Device or VariationIndex table data
+ * @param {Record<string, unknown>} [coords] - Variation coordinates (optional, uses current variation if not provided)
  * @returns {number} - The delta value to add
  */
 Position.prototype.getVariationDelta = function(deviceOrVariationIndex, coords) {
@@ -65,10 +65,10 @@ Position.prototype.getVariationDelta = function(deviceOrVariationIndex, coords) 
 
 /**
  * Apply variation deltas to a value record.
- * @this {any}
- * @param {Object} valueRecord - The value record to adjust
- * @param {Object} [coords] - Variation coordinates (optional)
- * @returns {Object} - The adjusted value record
+ * @this {object}
+ * @param {Record<string, unknown>} valueRecord - The value record to adjust
+ * @param {Record<string, unknown>} [coords] - Variation coordinates (optional)
+ * @returns {Record<string, unknown>} - The adjusted value record
  */
 Position.prototype.applyVariationDeltas = function(valueRecord, coords) {
     if (!valueRecord) {
@@ -85,20 +85,20 @@ Position.prototype.applyVariationDeltas = function(valueRecord, coords) {
     const adjusted = Object.assign({}, valueRecord);
 
     if (valueRecord.xPlaDevice) {
-        adjusted.xPlacement = (valueRecord.xPlacement || 0) +
-            this.getVariationDelta(valueRecord.xPlaDevice, coords);
+        adjusted.xPlacement = (/** @type {number} */ (valueRecord.xPlacement) || 0) +
+            this.getVariationDelta(/** @type {Record<string, unknown>} */ (valueRecord.xPlaDevice), coords);
     }
     if (valueRecord.yPlaDevice) {
-        adjusted.yPlacement = (valueRecord.yPlacement || 0) +
-            this.getVariationDelta(valueRecord.yPlaDevice, coords);
+        adjusted.yPlacement = (/** @type {number} */ (valueRecord.yPlacement) || 0) +
+            this.getVariationDelta(/** @type {Record<string, unknown>} */ (valueRecord.yPlaDevice), coords);
     }
     if (valueRecord.xAdvDevice) {
-        adjusted.xAdvance = (valueRecord.xAdvance || 0) +
-            this.getVariationDelta(valueRecord.xAdvDevice, coords);
+        adjusted.xAdvance = (/** @type {number} */ (valueRecord.xAdvance) || 0) +
+            this.getVariationDelta(/** @type {Record<string, unknown>} */ (valueRecord.xAdvDevice), coords);
     }
     if (valueRecord.yAdvDevice) {
-        adjusted.yAdvance = (valueRecord.yAdvance || 0) +
-            this.getVariationDelta(valueRecord.yAdvDevice, coords);
+        adjusted.yAdvance = (/** @type {number} */ (valueRecord.yAdvance) || 0) +
+            this.getVariationDelta(/** @type {Record<string, unknown>} */ (valueRecord.yAdvDevice), coords);
     }
 
     return adjusted;
@@ -107,11 +107,11 @@ Position.prototype.applyVariationDeltas = function(valueRecord, coords) {
 /**
  * Find a glyph pair in a list of lookup tables of type 2 and retrieve the xAdvance kerning value.
  *
- * @this {any}
+ * @this {object}
  * @param {Array} kerningLookups
  * @param {number} leftIndex - left glyph index
  * @param {number} rightIndex - right glyph index
- * @param {Object} [coords] - Variation coordinates (optional, for variable fonts)
+ * @param {Record<string, unknown>} [coords] - Variation coordinates (optional, for variable fonts)
  * @returns {number}
  */
 Position.prototype.getKerningValue = function(kerningLookups, leftIndex, rightIndex, coords) {
@@ -151,7 +151,7 @@ Position.prototype.getKerningValue = function(kerningLookups, leftIndex, rightIn
 /**
  * List all kerning lookup tables.
  *
- * @this {any}
+ * @this {object}
  * @param {string} [script='DFLT'] - use font.position.getDefaultScriptName() for a better default value
  * @param {string} [language='dflt']
  * @return {object[] | undefined} The list of kerning lookup tables (may be empty), or undefined if there is no GPOS table (and we should use the kern table)

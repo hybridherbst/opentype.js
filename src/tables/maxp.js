@@ -34,13 +34,7 @@ function parseMaxpTable(data, start) {
  * Create a maxp table.
  * @param {number} numGlyphs - Number of glyphs in the font
  * @param {boolean} isTrueType - Whether this is a TrueType (glyf) font
- * @param {Object} [options] - Optional parameters for TrueType fonts
- * @param {number} [options.maxPoints=0] - Maximum points in a non-composite glyph
- * @param {number} [options.maxContours=0] - Maximum contours in a non-composite glyph
- * @param {number} [options.maxCompositePoints=0] - Maximum points in a composite glyph
- * @param {number} [options.maxCompositeContours=0] - Maximum contours in a composite glyph
- * @param {number} [options.maxComponentElements=0] - Maximum number of components in a composite glyph
- * @param {number} [options.maxComponentDepth=0] - Maximum levels of recursion in composite glyphs
+ * @param {{maxPoints?: number, maxContours?: number, maxCompositePoints?: number, maxCompositeContours?: number, maxComponentElements?: number, maxComponentDepth?: number}} [options] - Optional parameters for TrueType fonts
  */
 function makeMaxpTable(numGlyphs, isTrueType, options = {}) {
     if (isTrueType) {

@@ -22,7 +22,7 @@ function parseCvtTable(data, start, length) {
 /**
  * Create the cvt table from an array of control values
  * @param {Array<number>} cvtData - array of signed 16-bit control values
- * @returns {any} the cvt table
+ * @returns {object|undefined} the cvt table
  */
 function makeCvtTable(cvtData) {
     if (!cvtData || cvtData.length === 0) {

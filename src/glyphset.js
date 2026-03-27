@@ -27,7 +27,7 @@ function defineDependentProperty(glyph, externalName, internalName) {
  * necessary, to keep the memory footprint down.
  * @exports opentype.GlyphSet
  * @class
- * @param {Object} font
+ * @param {Record<string, unknown>} font
  * @param {Array} [glyphs]
  */
 function GlyphSet(font, glyphs) {
@@ -46,7 +46,7 @@ function GlyphSet(font, glyphs) {
 
 if(typeof Symbol !== 'undefined' && Symbol.iterator) {
     /**
-     * @return {Object}
+     * @return {{next: Function}}
      */
     GlyphSet.prototype[Symbol.iterator] = function() {
         let n = -1;
@@ -62,13 +62,14 @@ if(typeof Symbol !== 'undefined' && Symbol.iterator) {
 
 /**
  * @param  {number} index
- * @return {Object}
+ * @return {Glyph}
  */
 GlyphSet.prototype.get = function(index) {
     // this.glyphs[index] is 'undefined' when low memory mode is on. glyph is pushed on request only.
     if (this.glyphs[index] === undefined) {
-        if (this.font._push) {
-            this.font._push(index);
+        const font = /** @type {Record<string, unknown>} */ (this.font);
+        if (font._push) {
+            (/** @type {Function} */ (font._push))(index);
         } else {
             throw new Error(`Glyph ${index} not loaded and no _push function available`);
         }
@@ -77,17 +78,20 @@ GlyphSet.prototype.get = function(index) {
         }
 
         let glyph = this.glyphs[index];
-        let unicodeObj = this.font._IndexToUnicodeMap[index];
+        const indexToUnicodeMap = /** @type {Record<string, unknown>} */ (font._IndexToUnicodeMap);
+        let unicodeObj = /** @type {{ unicodes: number[] } | undefined} */ (indexToUnicodeMap && indexToUnicodeMap[index]);
 
         if (unicodeObj) {
             for (let j = 0; j < unicodeObj.unicodes.length; j++)
                 glyph.addUnicode(unicodeObj.unicodes[j]);
         }
 
-        if (this.font.cffEncoding) {
-            glyph.name = this.font.cffEncoding.charset[index];
-        } else if (this.font.glyphNames.names) {
-            glyph.name = this.font.glyphNames.glyphIndexToName(index);
+        const cffEncoding = /** @type {Record<string, unknown>} */ (font.cffEncoding);
+        const glyphNames = /** @type {Record<string, unknown>} */ (font.glyphNames);
+        if (cffEncoding) {
+            glyph.name = /** @type {string[]} */ (cffEncoding.charset)[index];
+        } else if (glyphNames && glyphNames.names) {
+            glyph.name = (/** @type {{ glyphIndexToName: Function }} */ (glyphNames)).glyphIndexToName(index);
         }
         // In low-memory mode, metrics are stored in font._hmtxTableData; otherwise they were
         // already applied in parseHmtxTableAll. Only read the map when an entry exists.
@@ -106,7 +110,7 @@ GlyphSet.prototype.get = function(index) {
 
 /**
  * @param  {number} index
- * @param  {Object} loader
+ * @param  {Function|Glyph} loader
  */
 GlyphSet.prototype.push = function(index, loader) {
     this.glyphs[index] = loader;
@@ -115,9 +119,9 @@ GlyphSet.prototype.push = function(index, loader) {
 
 /**
  * @alias opentype.glyphLoader
- * @param  {Object} font
+ * @param  {Record<string, unknown>} font
  * @param  {number} index
- * @return {Object}
+ * @return {Glyph}
  */
 function glyphLoader(font, index) {
     return new Glyph({index: index, font: font});
@@ -128,10 +132,10 @@ function glyphLoader(font, index) {
  * the "points" and "path" properties, which must be loaded only once
  * the glyph's path is actually requested for text shaping.
  * @alias opentype.ttfGlyphLoader
- * @param  {Object} font
+ * @param  {Record<string, unknown>} font
  * @param  {number} index
  * @param  {Function} parseGlyph
- * @param  {Object} data
+ * @param  {Record<string, unknown>} data
  * @param  {number} position
  * @param  {Function} buildPath
  * @return {Function}
@@ -140,7 +144,7 @@ function ttfGlyphLoader(font, index, parseGlyph, data, position, buildPath) {
     return function() {
         const glyph = new Glyph({index: index, font: font});
 
-        /** @type {any} */ (glyph).path = function() {
+        (/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (glyph))).path = function() {
             parseGlyph(glyph, data, position);
             const path = buildPath(font.glyphs, glyph);
             path.unitsPerEm = font.unitsPerEm;
@@ -158,7 +162,7 @@ function ttfGlyphLoader(font, index, parseGlyph, data, position, buildPath) {
 }
 /**
  * @alias opentype.cffGlyphLoader
- * @param  {Object} font
+ * @param  {Record<string, unknown>} font
  * @param  {number} index
  * @param  {Function} parseCFFCharstring
  * @param  {string} charstring
@@ -171,9 +175,9 @@ function cffGlyphLoader(font, index, parseCFFCharstring, charstring, version) {
 
         // Preserve original charstring bytes for exact re-emit during make()
         // This helps CFF2 round-trips match expected byte sequences.
-        /** @type {any} */ (glyph)._charString = charstring;
+        /** @type {Glyph & {_charString: string}} */ (glyph)._charString = charstring;
 
-        /** @type {any} */ (glyph).path = function() {
+        (/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (glyph))).path = function() {
             const path = parseCFFCharstring(font, glyph, charstring, version);
             path.unitsPerEm = font.unitsPerEm;
             return path;
@@ -183,4 +187,5 @@ function cffGlyphLoader(font, index, parseCFFCharstring, charstring, version) {
     };
 }
 
+export { GlyphSet };
 export default { GlyphSet, glyphLoader, ttfGlyphLoader, cffGlyphLoader };

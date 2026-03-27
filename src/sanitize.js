@@ -1,9 +1,13 @@
 /**
  * Font Sanitization Module
- * 
+ *
  * Provides clean methods to fix common font export issues for better
  * cross-platform compatibility and to pass fontspector validation.
  * Each method is designed to be reusable for sanitizing font exports.
+ */
+
+/**
+ * @typedef {import('./font.js').default} SanitizeFont
  */
 
 // =============================================================================
@@ -15,12 +19,12 @@
  * Modern fonts should only use Windows platform (platformID=3).
  * Apple no longer produces Mac name table entries in their system fonts.
  * 
- * @param {Object} names - The font.names object
- * @returns {Object} - Sanitized names object without macintosh entries
+ * @param {Record<string, unknown>} names - The font.names object
+ * @returns {Record<string, unknown>} - Sanitized names object without macintosh entries
  */
 export function removeMacNameEntries(names) {
     if (!names) return names;
-    const result = {};
+    const result = /** @type {Record<string, unknown>} */ ({});
     for (const platform of Object.keys(names)) {
         if (platform !== 'macintosh') {
             result[platform] = names[platform];
@@ -34,7 +38,7 @@ export function removeMacNameEntries(names) {
  * The ltag table is an Apple-specific AAT table that is not part of the
  * OpenType specification and can cause fontspector validation failures.
  * 
- * @param {Object} font - The font object
+ * @param {SanitizeFont} font - The font object
  */
 export function removeLtagTable(font) {
     if (font.tables && font.tables.ltag) {
@@ -47,14 +51,14 @@ export function removeLtagTable(font) {
  * This produces consistent linespacing across Mac, GNU+Linux and Windows.
  * Updates OS/2 to match hhea values.
  * 
- * @param {Object} font - The font object
+ * @param {SanitizeFont} font - The font object
  */
 export function matchOS2HheaMetrics(font) {
     if (!font.tables || !font.tables.os2 || !font.tables.hhea) return;
-    
-    const hhea = font.tables.hhea;
-    const os2 = font.tables.os2;
-    
+
+    const hhea = /** @type {{ascender: number, descender: number, lineGap: number}} */ (font.tables.hhea);
+    const os2 = /** @type {{sTypoAscender: number, sTypoDescender: number, sTypoLineGap: number}} */ (font.tables.os2);
+
     // Update OS/2 typo metrics to match hhea
     os2.sTypoAscender = hhea.ascender;
     os2.sTypoDescender = hhea.descender;
@@ -65,7 +69,7 @@ export function matchOS2HheaMetrics(font) {
  * Sync head.fontRevision with name table version string.
  * The fontRevision in head and nameID 5 (version) should match.
  * 
- * @param {Object} font - The font object
+ * @param {SanitizeFont} font - The font object
  */
 export function syncFontVersion(font) {
     if (!font.tables || !font.tables.head) return;
@@ -80,7 +84,7 @@ export function syncFontVersion(font) {
         const major = parseInt(match[1], 10);
         const minor = match[2] ? parseInt(match[2].padEnd(3, '0').slice(0, 3), 10) : 0;
         const revision = major + minor / 1000;
-        font.tables.head.fontRevision = revision;
+        /** @type {{fontRevision: number}} */ (font.tables.head).fontRevision = revision;
     }
 }
 
@@ -89,25 +93,25 @@ export function syncFontVersion(font) {
  * According to OpenType spec, the default instance's subfamilyNameID
  * should be set to 2 (fontSubfamily) or 17 (preferredSubfamily).
  * 
- * @param {Object} font - The font object
+ * @param {SanitizeFont} font - The font object
  */
 export function fixDefaultInstanceNameID(font) {
     if (!font.tables || !font.tables.fvar) return;
-    
-    const fvar = font.tables.fvar;
+
+    const fvar = /** @type {{instances: Array<{coordinates: Record<string, number>, subfamilyNameID: number, name: Record<string, string>}>, axes: Array<{tag: string, defaultValue: number}>}} */ (font.tables.fvar);
     if (!fvar.instances || !fvar.axes) return;
-    
+
     // Find the default instance (coordinates match default values)
-    const defaultCoords = {};
+    const defaultCoords = /** @type {Record<string, number>} */ ({});
     for (const axis of fvar.axes) {
         defaultCoords[axis.tag] = axis.defaultValue;
     }
-    
+
     for (const instance of fvar.instances) {
-        const isDefault = fvar.axes.every(axis => 
+        const isDefault = fvar.axes.every(axis =>
             instance.coordinates[axis.tag] === axis.defaultValue
         );
-        
+
         if (isDefault) {
             // Set subfamilyNameID to 2 (fontSubfamily)
             instance.subfamilyNameID = 2;
@@ -121,7 +125,7 @@ export function fixDefaultInstanceNameID(font) {
  * Fix full font name to start with family name.
  * The FULL_FONT_NAME (nameID 4) must start with the Family Name.
  * 
- * @param {Object} font - The font object
+ * @param {SanitizeFont} font - The font object
  */
 export function fixFullFontName(font) {
     if (!font.names) return;
@@ -155,8 +159,8 @@ export function fixFullFontName(font) {
  * Apply all sanitization fixes to a font for export.
  * This is the main entry point for font sanitization.
  * 
- * @param {Object} font - The font object to sanitize (modified in place)
- * @returns {Object} - The sanitized font object
+ * @param {SanitizeFont} font - The font object to sanitize (modified in place)
+ * @returns {SanitizeFont} - The sanitized font object
  */
 export function sanitizeFontForExport(font) {
     // Remove Mac name entries
@@ -189,26 +193,26 @@ export function sanitizeFontForExport(font) {
  * Google Fonts requires each instance to have distinct coordinates.
  * Keeps the first instance with each unique coordinate set.
  * 
- * @param {Object} font - The font object
+ * @param {SanitizeFont} font - The font object
  * @returns {number} - Number of instances removed
  */
 export function removeDuplicateInstances(font) {
     if (!font.tables || !font.tables.fvar) return 0;
-    
-    const fvar = font.tables.fvar;
+
+    const fvar = /** @type {{instances: Array<{coordinates: Record<string, number>}>, axes: Array<{tag: string}>}} */ (font.tables.fvar);
     if (!fvar.instances || !fvar.axes) return 0;
-    
+
     const seen = new Set();
     const uniqueInstances = [];
     let removed = 0;
-    
+
     for (const instance of fvar.instances) {
         // Create a key from the coordinates
         const coordKey = fvar.axes.map(axis => {
             const val = instance.coordinates[axis.tag];
             return `${axis.tag}:${val}`;
         }).join(',');
-        
+
         if (!seen.has(coordKey)) {
             seen.add(coordKey);
             uniqueInstances.push(instance);
@@ -216,8 +220,8 @@ export function removeDuplicateInstances(font) {
             removed++;
         }
     }
-    
-    fvar.instances = uniqueInstances;
+
+    /** @type {{instances: unknown[]}} */ (font.tables.fvar).instances = uniqueInstances;
     return removed;
 }
 
@@ -226,29 +230,30 @@ export function removeDuplicateInstances(font) {
  * Google Fonts requires variable fonts to have an avar table, even if linear.
  * A linear avar table means no axis remapping occurs.
  * 
- * @param {Object} font - The font object
+ * @param {SanitizeFont} font - The font object
  * @returns {boolean} - Whether avar was created or already exists
  */
 export function ensureAvarTable(font) {
     if (!font.tables) return false;
-    
+
     // Only needed for variable fonts with fvar
-    if (!font.tables.fvar || !font.tables.fvar.axes) {
+    const fvarRaw = font.tables.fvar;
+    if (!fvarRaw || !/** @type {{axes?: unknown[]}} */ (fvarRaw).axes) {
         return false;
     }
-    
+
     // If avar already exists, we're good
     if (font.tables.avar) {
         return true;
     }
-    
+
     // Create a linear avar table
     // Linear mapping: -1 -> -1, 0 -> 0, 1 -> 1
     // The avar table format expects axisSegmentMaps as an array
     // Each element has axisValueMaps array with {fromCoordinate, toCoordinate}
-    const axes = font.tables.fvar.axes;
+    const axes = /** @type {{axes: unknown[]}} */ (fvarRaw).axes;
     const axisSegmentMaps = [];
-    
+
     for (let i = 0; i < axes.length; i++) {
         // Linear mapping with just 3 points: -1, 0, 1
         axisSegmentMaps.push({
@@ -259,11 +264,11 @@ export function ensureAvarTable(font) {
             ]
         });
     }
-    
+
     font.tables.avar = {
         axisSegmentMaps
     };
-    
+
     return true;
 }
 
@@ -275,8 +280,8 @@ export function ensureAvarTable(font) {
  * This function calculates the maximum yMax across all glyphs and updates
  * the font's ascender if it's too low. A small margin is added.
  * 
- * @param {Object} font - The font object  
- * @returns {Object} - { adjusted: boolean, oldAscender: number, newAscender: number, maxYMax: number }
+ * @param {SanitizeFont} font - The font object
+ * @returns {{ adjusted: boolean, oldAscender: number, newAscender: number, maxYMax: number }}
  */
 export function fixAscenderForGlyphBounds(font) {
     if (!font.glyphs || font.glyphs.length === 0) {
@@ -309,10 +314,10 @@ export function fixAscenderForGlyphBounds(font) {
         
         // Also update hhea and OS/2 tables if they exist
         if (font.tables && font.tables.hhea) {
-            font.tables.hhea.ascender = font.ascender;
+            /** @type {{ascender: number}} */ (font.tables.hhea).ascender = font.ascender;
         }
         if (font.tables && font.tables.os2) {
-            font.tables.os2.sTypoAscender = font.ascender;
+            /** @type {{sTypoAscender: number}} */ (font.tables.os2).sTypoAscender = font.ascender;
         }
         
         return { adjusted: true, oldAscender, newAscender: font.ascender, maxYMax };
@@ -325,17 +330,17 @@ export function fixAscenderForGlyphBounds(font) {
  * Set OS/2.sTypoLineGap to 0 as required by Google Fonts vertical metrics spec.
  * Also ensures lineGap in hhea is 0.
  * 
- * @param {Object} font - The font object
+ * @param {SanitizeFont} font - The font object
  */
 export function fixLineGap(font) {
     if (!font.tables) return;
-    
+
     if (font.tables.os2) {
-        font.tables.os2.sTypoLineGap = 0;
+        /** @type {{sTypoLineGap: number}} */ (font.tables.os2).sTypoLineGap = 0;
     }
-    
+
     if (font.tables.hhea) {
-        font.tables.hhea.lineGap = 0;
+        /** @type {{lineGap: number}} */ (font.tables.hhea).lineGap = 0;
     }
 }
 
@@ -343,17 +348,17 @@ export function fixLineGap(font) {
  * Check and optionally fix vertical metrics to be within Google Fonts recommended range.
  * The sum of hhea ascender + abs(descender) + linegap should be 1.2-1.5x of UPM.
  * 
- * @param {Object} font - The font object
- * @returns {Object} - { valid: boolean, ratio: number, message: string }
+ * @param {SanitizeFont} font - The font object
+ * @returns {{ valid: boolean, ratio: number, message: string }}
  */
 export function checkVerticalMetricsRatio(font) {
     if (!font.tables || !font.tables.hhea) {
         return { valid: false, ratio: 0, message: 'Missing hhea table' };
     }
     
-    const hhea = font.tables.hhea;
+    const hhea = /** @type {{ascender: number, descender: number, lineGap: number}} */ (font.tables.hhea);
     const upm = font.unitsPerEm || 1000;
-    
+
     const sum = hhea.ascender + Math.abs(hhea.descender) + (hhea.lineGap || 0);
     const ratio = sum / upm;
     
@@ -372,7 +377,7 @@ export function checkVerticalMetricsRatio(font) {
  * Ensure the font has a gasp table with all 4 flags ON for all sizes.
  * This is required by Google Fonts for optimal rendering.
  * 
- * @param {Object} font - The font object
+ * @param {SanitizeFont} font - The font object
  */
 export function ensureGaspTable(font) {
     if (!font.tables) font.tables = {};
@@ -399,28 +404,28 @@ export function ensureGaspTable(font) {
  * but no HVAR table. The HVAR table allows horizontal metrics to vary
  * across the design space.
  * 
- * @param {Object} font - The font object
+ * @param {SanitizeFont} font - The font object
  * @returns {boolean} - Whether HVAR was created or already exists
  */
 export function ensureHvarTable(font) {
     if (!font.tables) return false;
     
     // Only needed for variable fonts with gvar
-    const hasGvar = font.tables.gvar && font.tables.gvar.glyphVariations;
-    const hasFvar = font.tables.fvar && font.tables.fvar.axes;
-    
+    const hasGvar = font.tables.gvar && /** @type {{glyphVariations?: unknown}} */ (font.tables.gvar).glyphVariations;
+    const hasFvar = font.tables.fvar && /** @type {{axes?: unknown[]}} */ (font.tables.fvar).axes;
+
     if (!hasGvar || !hasFvar) {
         return false;
     }
-    
+
     // If HVAR already exists, we're good
-    if (font.tables.hvar && font.tables.hvar.itemVariationStore) {
+    if (font.tables.hvar && /** @type {{itemVariationStore?: unknown}} */ (font.tables.hvar).itemVariationStore) {
         return true;
     }
-    
+
     // Create a minimal HVAR table
     // This indicates no horizontal metric variations (all deltas are 0)
-    const axes = font.tables.fvar.axes;
+    const axes = /** @type {Array<{minValue: number, defaultValue: number, maxValue: number}>} */ (/** @type {{axes: unknown[]}} */ (font.tables.fvar).axes);
     const numGlyphs = font.glyphs ? font.glyphs.length : (font.numGlyphs || 1);
     
     // Create a simple itemVariationStore with one empty region
@@ -454,8 +459,8 @@ export function ensureHvarTable(font) {
  * Apply all Google Fonts profile sanitization fixes.
  * Includes all base sanitization plus Google-specific requirements.
  * 
- * @param {Object} font - The font object to sanitize (modified in place)
- * @returns {Object} - The sanitized font object
+ * @param {SanitizeFont} font - The font object to sanitize (modified in place)
+ * @returns {SanitizeFont} - The sanitized font object
  */
 export function sanitizeFontForGoogleFonts(font) {
     // First apply base sanitization

@@ -8,7 +8,7 @@ import { encode, sizeOf } from './types.js';
  * @class
  * @param {string} tableName
  * @param {Array} fields
- * @param {Object} options
+ * @param {Record<string, unknown>} [options]
  * @constructor
  */
 function Table(tableName, fields, options) {
@@ -38,7 +38,7 @@ function Table(tableName, fields, options) {
  * @return {Array}
  */
 Table.prototype.encode = function() {
-    return encode.TABLE(this);
+    return encode.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */ (/** @type {unknown} */ (this)));
 };
 
 /**
@@ -46,7 +46,7 @@ Table.prototype.encode = function() {
  * @return {number}
  */
 Table.prototype.sizeOf = function() {
-    return sizeOf.TABLE(this);
+    return sizeOf.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */ (/** @type {unknown} */ (this)));
 };
 
 /**
@@ -95,7 +95,7 @@ function recordList(itemName, records, itemCallback) {
 /**
  * @exports opentype.Coverage
  * @class
- * @param {Object} coverageTable
+ * @param {Record<string, unknown>} coverageTable
  * @constructor
  */
 function Coverage(coverageTable) {
@@ -155,7 +155,7 @@ ScriptList.prototype.constructor = ScriptList;
 /**
  * @exports opentype.FeatureList
  * @class
- * @param {Object} featureListTable
+ * @param {Record<string, unknown>} featureListTable
  * @constructor
  */
 function FeatureList(featureListTable) {
@@ -177,8 +177,8 @@ FeatureList.prototype.constructor = FeatureList;
 /**
  * @exports opentype.LookupList
  * @class
- * @param {Object} lookupListTable
- * @param {Object} subtableMakers
+ * @param {Record<string, unknown>} lookupListTable
+ * @param {Record<string, unknown>} subtableMakers
  * @constructor
  */
 function LookupList(lookupListTable, subtableMakers) {
@@ -197,7 +197,7 @@ LookupList.prototype.constructor = LookupList;
 /**
  * @exports opentype.ClassDef
  * @class
- * @param {Object} classDefTable
+ * @param {Record<string, unknown>} classDefTable
  * @constructor
  *
  * @see https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2#class-definition-table
@@ -231,6 +231,9 @@ ClassDef.prototype.constructor = ClassDef;
 
 // Record = same as Table, but inlined (a Table has an offset and its data is further in the stream)
 // Don't use offsets inside Records (probable bug), only in Tables.
+export { Table };
+// Also export Record as an alias for Table
+export const Record = Table;
 export default {
     Table,
     Record: Table,

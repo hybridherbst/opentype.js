@@ -728,13 +728,14 @@ Substitution.prototype._getOrCreateExtensionLookup = function(gsub, script, lang
     }
     
     // No existing extension lookup found, create a new one
-    const lookupIndex = gsub.lookups.length;
+    const gsubLookups = /** @type {Array<unknown>} */ (gsub.lookups);
+    const lookupIndex = gsubLookups.length;
     const extLookup = {
         lookupType: 7,  // Extension
         lookupFlag: 0,
         subtables: []  // Subtables will be added by the caller
     };
-    gsub.lookups.push(extLookup);
+    gsubLookups.push(extLookup);
     
     // Add the lookup to the feature's lookupListIndexes
     featureTable.lookupListIndexes.push(lookupIndex);

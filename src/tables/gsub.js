@@ -5,7 +5,7 @@ import check from '../check.js';
 import { Parser } from '../parse.js';
 import table from '../table.js';
 
-/** @type {Array<(this: Parser) => any>} */
+/** @type {Array<(this: Parser) => unknown>} */
 const subtableParsers = new Array(9);         // subtableParsers[0] is unused
 
 // https://www.microsoft.com/typography/OTSPEC/GSUB.htm#SS
@@ -611,7 +611,7 @@ function makeGsubTable(gsub) {
             {name: 'version', type: 'ULONG', value: 0x10000},
             {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
             {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
-            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, subtableMakers)}
+            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (subtableMakers)))}
         ]);
     }
 
@@ -622,7 +622,7 @@ function makeGsubTable(gsub) {
             {name: 'version', type: 'ULONG', value: 0x00010001},
             {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
             {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
-            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, subtableMakers)},
+            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (subtableMakers)))},
             {name: 'featureVariationsOffset', type: 'ULONG', value: 0} // placeholder
         ]);
 
@@ -667,7 +667,7 @@ function makeGsubTable(gsub) {
         {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
         {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
         {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
-        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, makersWithExtension)}
+        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (makersWithExtension)))}
     ];
 
     // Add featureVariationsOffset placeholder for version 1.1

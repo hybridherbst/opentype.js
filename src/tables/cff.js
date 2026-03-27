@@ -518,8 +518,9 @@ function gatherCFF2FontDicts(data, start, fdArray) {
 //    _nominalWidthX   bias added to width embedded within glyph description
 //
 //    _privateDict     saved copy of parsed Private DICT from Top DICT
+/** @returns {Array<Record<string, unknown>>} */
 function gatherCFFTopDicts(data, start, cffIndex, strings, version) {
-    const topDictArray = [];
+    const topDictArray = /** @type {Array<Record<string, unknown>>} */ ([]);
     for (let iTopDict = 0; iTopDict < cffIndex.length; iTopDict += 1) {
         const topDictData = new DataView(new Uint8Array(cffIndex[iTopDict]).buffer);
         const topDict = parseCFFTopDict(topDictData, 0, strings, version);
@@ -541,7 +542,7 @@ function gatherCFFTopDicts(data, start, cffIndex, strings, version) {
             }
             topDict._privateDict = privateDict;
         }
-        topDictArray.push(topDict);
+        topDictArray.push(/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (topDict)));
     }
     return topDictArray;
 }
@@ -645,16 +646,19 @@ function parseBlend(operands) {
 
 /**
  * Applies path styles according to a CFF font's PaintType
- * @param {any} font
- * @param {any} path
- * @returns {Number} paintType
+ * @param {Record<string, unknown>} font
+ * @param {import('../path.js').default} path
+ * @returns {number} paintType
  */
 function applyPaintType(font, path) {
-    const paintType = font.tables.cff && font.tables.cff.topDict && font.tables.cff.topDict.paintType || 0;
+    const tables = /** @type {Record<string, unknown>} */ (font.tables || {});
+    const cff = /** @type {Record<string, unknown>} */ (tables.cff || {});
+    const topDict = /** @type {Record<string, unknown>} */ (cff.topDict || {});
+    const paintType = /** @type {number} */ (topDict.paintType) || 0;
     if (paintType === 2) {
         path.fill = null;
         path.stroke = 'black';
-        path.strokeWidth = font.tables.cff.topDict.strokeWidth || 0;
+        path.strokeWidth = /** @type {number} */ (topDict.strokeWidth) || 0;
     }
     return paintType;
 }
@@ -759,7 +763,7 @@ function parseCFFCharstring(font, glyph, code, version, coords) {
             newPath.fill = path.fill;
             newPath.stroke = path.stroke;
             newPath.strokeWidth = path.strokeWidth;
-            if (/** @type {any} */ (path)._layers) /** @type {any} */ (newPath)._layers = /** @type {any} */ (path)._layers;
+            if (path._layers) newPath._layers = path._layers;
             return newPath;
         };
     }
@@ -1203,7 +1207,8 @@ function parseCFFCharstring(font, glyph, code, version, coords) {
                     }
 
                     var n = stack.pop();
-                    var axisCount = blendVector ? blendVector.length : /** @type {any} */ (vstore).itemVariationSubtables[vsindex].regionIndexes.length;
+                    var vstoreRec = /** @type {{ itemVariationSubtables: Array<{ regionIndexes: unknown[] }> }} */ (/** @type {unknown} */ (vstore));
+                    var axisCount = blendVector ? blendVector.length : vstoreRec.itemVariationSubtables[vsindex].regionIndexes.length;
                     var deltaSetCount = n * axisCount;
                     var delta = stack.length - deltaSetCount;
                     var deltaSetIndex = delta - n;
@@ -1624,7 +1629,7 @@ function parseCFFFDSelect(data, start, nGlyphs, fdArrayCount, version) {
 
 // Parse the `CFF` table, which contains the glyph outlines in PostScript format.
 function parseCFFTable(data, start, font, opt) {
-    /** @type {any} */
+    /** @type {Record<string, unknown>} */
     let resultTable;
     const header = parseCFFHeader(data, start);
     if (header.formatMajor === 2) {
@@ -1656,8 +1661,9 @@ function parseCFFTable(data, start, font, opt) {
     resultTable.topDict = topDict;
 
     if (topDict._privateDict) {
-        font.defaultWidthX = topDict._privateDict.defaultWidthX;
-        font.nominalWidthX = topDict._privateDict.nominalWidthX;
+        const privateDict = /** @type {Record<string, unknown>} */ (topDict._privateDict);
+        font.defaultWidthX = privateDict.defaultWidthX;
+        font.nominalWidthX = privateDict.nominalWidthX;
     }
 
     if ((header.formatMajor < 2) && topDict.ros[0] !== undefined && topDict.ros[1] !== undefined) {
@@ -1734,9 +1740,9 @@ function parseCFFTable(data, start, font, opt) {
     }
 
     if (header.formatMajor < 2) {
-        /** @type {any} */
+        /** @type {unknown} */
         let charset = [];
-        /** @type {any} */
+        /** @type {unknown} */
         let encoding = [];
 
         if (topDict.charset === 0) {
@@ -1756,10 +1762,10 @@ function parseCFFTable(data, start, font, opt) {
             // Expert encoding
             encoding = cffExpertEncoding;
         } else {
-            encoding = parseCFFEncoding(data, start + topDict.encoding);
+            encoding = parseCFFEncoding(data, start + /** @type {number} */ (topDict.encoding));
         }
 
-        font.cffEncoding = new CffEncoding(encoding, charset);
+        font.cffEncoding = new CffEncoding(/** @type {string} */ (/** @type {unknown} */ (encoding)), /** @type {Array} */ (/** @type {unknown} */ (charset)));
 
         // Prefer the CMAP encoding to the CFF encoding.
         font.encoding = font.encoding || font.cffEncoding;
@@ -1768,13 +1774,13 @@ function parseCFFTable(data, start, font, opt) {
     font.glyphs = new glyphset.GlyphSet(font);
     if (opt.lowMemory) {
         font._push = function (i) {
-            const charString = getCffIndexObject(i, charStringsIndex.offsets, data, start + topDict.charStrings, undefined, header.formatMajor);
-            font.glyphs.push(i, glyphset.cffGlyphLoader(font, i, parseCFFCharstring, /** @type {any} */ (charString), header.formatMajor));
+            const charString = getCffIndexObject(i, charStringsIndex.offsets, data, start + /** @type {number} */ (topDict.charStrings), undefined, header.formatMajor);
+            font.glyphs.push(i, glyphset.cffGlyphLoader(font, i, parseCFFCharstring, /** @type {string} */ (/** @type {unknown} */ (charString)), header.formatMajor));
         };
     } else {
         for (let i = 0; i < font.nGlyphs; i += 1) {
             const charString = charStringsIndex.objects[i];
-            font.glyphs.push(i, glyphset.cffGlyphLoader(font, i, parseCFFCharstring, /** @type {any} */ (charString), header.formatMajor));
+            font.glyphs.push(i, glyphset.cffGlyphLoader(font, i, parseCFFCharstring, /** @type {string} */ (/** @type {unknown} */ (charString)), header.formatMajor));
         }
     }
 
@@ -1809,7 +1815,7 @@ function encodeString(s, strings) {
     return sid;
 }
 
-/** @returns {any} */
+/** @returns {unknown} */
 function makeHeader(versionMajor) {
     // @TODO: if we have gvar data, we'll need to use the CFF2 format
     return new table.Record('Header', [
@@ -1824,13 +1830,13 @@ function makeHeader(versionMajor) {
 }
 
 function makeNameIndex(fontNames) {
-    /** @type {any} */
     const t = new table.Record('Name INDEX', [
         { name: 'names', type: 'INDEX', value: [] }
     ]);
-    t.names = [];
+    const tRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t));
+    tRec.names = [];
     for (let i = 0; i < fontNames.length; i += 1) {
-        t.names.push({ name: 'name_' + i, type: 'NAME', value: fontNames[i] });
+        /** @type {Array<{name: string, type: string, value: unknown}>} */ (tRec.names).push({ name: 'name_' + i, type: 'NAME', value: fontNames[i] });
     }
 
     return t;
@@ -1898,37 +1904,35 @@ function makeDict(meta, attrs, strings) {
 
 // The Top DICT houses the global font attributes.
 function makeTopDict(attrs, strings, version) {
-    /** @type {any} */
     const t = new table.Record('Top DICT', [
         { name: 'dict', type: 'DICT', value: {} }
     ]);
-    t.dict = makeDict(version > 1 ? TOP_DICT_META_CFF2 : TOP_DICT_META, attrs, strings);
+    /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t)).dict = makeDict(version > 1 ? TOP_DICT_META_CFF2 : TOP_DICT_META, attrs, strings);
     return t;
 }
 
 function makeTopDictIndex(topDict) {
-    /** @type {any} */
     const t = new table.Record('Top DICT INDEX', [
         { name: 'topDicts', type: 'INDEX', value: [] }
     ]);
-    t.topDicts = [{ name: 'topDict_0', type: 'TABLE', value: topDict }];
+    /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t)).topDicts = [{ name: 'topDict_0', type: 'TABLE', value: topDict }];
     return t;
 }
 
 function makeStringIndex(strings) {
-    /** @type {any} */
     const t = new table.Record('String INDEX', [
         { name: 'strings', type: 'INDEX', value: [] }
     ]);
-    t.strings = [];
+    const tRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t));
+    tRec.strings = [];
     for (let i = 0; i < strings.length; i += 1) {
-        t.strings.push({ name: 'string_' + i, type: 'STRING', value: strings[i] });
+        /** @type {Array<unknown>} */ (tRec.strings).push({ name: 'string_' + i, type: 'STRING', value: strings[i] });
     }
 
     return t;
 }
 
-/** @returns {any} */
+/** @returns {import('../table.js').Table} */
 function makeGlobalSubrIndex(version) {
     return new table.Record('Global Subr INDEX', [
         { name: 'subrs', type: version > 1 ? 'INDEX32' : 'INDEX', value: [] }
@@ -2153,48 +2157,46 @@ function glyphToOps(glyph, version, font) {
 }
 
 function makeCharStringsIndex(glyphs, version) {
-    /** @type {any} */
     const t = new table.Record('CharStrings INDEX', [
         { name: 'charStrings', type: version > 1 ? 'INDEX32' : 'INDEX', value: [] }
     ]);
+    const tRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t));
 
     for (let i = 0; i < glyphs.length; i += 1) {
         const glyph = glyphs.get(i);
         if (!glyph) continue;
         const ops = glyphToOps(glyph, version, glyphs.font) || [];
-        t.charStrings.push({ name: glyph.name || ('glyph_' + i), type: 'CHARSTRING', value: ops });
+        /** @type {Array<unknown>} */ (tRec.charStrings).push({ name: glyph.name || ('glyph_' + i), type: 'CHARSTRING', value: ops });
     }
 
     return t;
 }
 
 function makeFontDictIndex(fontDicts) {
-    /** @type {any} */
     const t = new table.Record('Font DICT INDEX', [
         { name: 'fontDicts', type: 'INDEX32', value: [] }
     ]);
-    t.fontDicts = [];
+    const tRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t));
+    tRec.fontDicts = [];
     for (let i = 0; i < fontDicts.length; i++) {
-        t.fontDicts.push({ name: `fontDict_${i}`, type: 'TABLE', value: fontDicts[i] });
+        /** @type {Array<unknown>} */ (tRec.fontDicts).push({ name: `fontDict_${i}`, type: 'TABLE', value: fontDicts[i] });
     }
     return t;
 }
 
 function makeFontDict(attrs, strings) {
-    /** @type {any} */
     const t = new table.Record('Font DICT', [
         { name: 'dict', type: 'DICT', value: {} }
     ]);
-    t.dict = makeDict(FONT_DICT_META, attrs, strings);
+    /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t)).dict = makeDict(FONT_DICT_META, attrs, strings);
     return t;
 }
 
 function makePrivateDict(attrs, strings, version) {
-    /** @type {any} */
     const t = new table.Record('Private DICT', [
         { name: 'dict', type: 'DICT', value: {} }
     ]);
-    t.dict = makeDict(version > 1 ? PRIVATE_DICT_META_CFF2 : PRIVATE_DICT_META, attrs, strings);
+    /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t)).dict = makeDict(version > 1 ? PRIVATE_DICT_META_CFF2 : PRIVATE_DICT_META, attrs, strings);
     return t;
 }
 
@@ -2219,6 +2221,8 @@ function makeCFFTable(glyphs, options, version) {
     ];
 
 
+    // Table with dynamic properties set by field names and supplemented at runtime
+    // eslint-disable-next-line jsdoc/check-types
     /** @type {any} */
     const t = new table.Table(cffVersion > 1 ? 'CFF2' : 'CFF ', tableFields);
 
@@ -2341,9 +2345,8 @@ function makeCFFTable(glyphs, options, version) {
                 const privAttrs = Object.assign({}, fd._privateDict || {});
                 privateTables.push(makePrivateDict(privAttrs, strings, 2));
                 if (fd._subrs && fd._subrs.length) {
-                    /** @type {any} */
                     const idx = new table.Record('Local Subr INDEX', [{ name: 'subrs', type: 'INDEX32', value: [] }]);
-                    idx.subrs = fd._subrs.map((bytes, j) => ({ name: `subr_${i}_${j}`, type: 'LITERAL', value: bytes }));
+                    /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (idx)).subrs = fd._subrs.map((bytes, j) => ({ name: `subr_${i}_${j}`, type: 'LITERAL', value: bytes }));
                     localSubrIndexes.push(idx);
                 } else {
                     localSubrIndexes.push(null);

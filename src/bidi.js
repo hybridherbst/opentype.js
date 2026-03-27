@@ -112,14 +112,14 @@ Bidi.prototype.registerFeatures = function (script, tags) {
 
 /**
  * Apply GSUB features
- * @param {any} font opentype font instance
+ * @param {unknown} font opentype font instance
  * @param {Array} features a list of features
  */
 Bidi.prototype.applyFeatures = function (font, features) {
     if (!font) throw new Error(
         'No valid font was provided to apply features'
     );
-    if (!this.query) this.query = new FeatureQuery(font);
+    if (!this.query) this.query = new FeatureQuery(/** @type {Record<string, unknown>} */ (font));
     for (let f = 0; f < features.length; f++) {
         const feature = features[f];
         if (!this.query.supports({script: feature.script})) continue;

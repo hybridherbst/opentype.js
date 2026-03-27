@@ -3,15 +3,15 @@ import { tinf_uncompress as inflate } from './tiny-inflate@1.0.3.esm.js';
 function isBrowser() {
     return (
         typeof window !== 'undefined' ||
-        typeof /** @type {any} */ (globalThis).WorkerGlobalScope !== 'undefined'
+        typeof (/** @type {{WorkerGlobalScope?: unknown}} */ (globalThis)).WorkerGlobalScope !== 'undefined'
     );
 }
 
 function isNode() {
     return (
         typeof window === 'undefined' &&
-        typeof /** @type {any} */ (globalThis).global === 'object' &&
-        typeof /** @type {any} */ (globalThis).process === 'object'
+        typeof (/** @type {{global?: unknown, process?: unknown}} */ (globalThis)).global === 'object' &&
+        typeof (/** @type {{global?: unknown, process?: unknown}} */ (globalThis)).process === 'object'
     );
 }
 

@@ -14,8 +14,19 @@ function Path() {
     this.fill = 'black';
     this.stroke = null;
     this.strokeWidth = 1;
-    // the _layer property is only set on computed paths during glyph rendering
-    // this._layers = [];
+    // the _layers property is only set on computed paths during glyph rendering
+    /** @type {Path[]|undefined} */
+    this._layers = undefined;
+    // the _image property is only set on SVG glyphs
+    /** @type {{image: CanvasImageSource, x: number, y: number, width: number, height: number}|undefined} */
+    this._image = undefined;
+    // COLRv1 paint data (optional, only set on color glyph layers)
+    /** @type {unknown} */
+    this._paint = undefined;
+    /** @type {number|undefined} */
+    this._alpha = undefined;
+    /** @type {unknown} */
+    this._transform = undefined;
 }
 
 const decimalRoundingCache = {};
@@ -33,7 +44,7 @@ function roundDecimal(float, places) {
         return integerPart + roundedDecimalPart;
     }
     
-    const roundedDecimalPart = +(Math.round(/** @type {any} */ (decimalPart + 'e+' + places)) + 'e-' + places);
+    const roundedDecimalPart = +(Math.round(/** @type {number} */ (/** @type {unknown} */ (decimalPart + 'e+' + places))) + 'e-' + places);
     decimalRoundingCache[places][decimalPart] = roundedDecimalPart;
 
     return integerPart + roundedDecimalPart;
@@ -443,11 +454,11 @@ Path.prototype.close = Path.prototype.closePath = function() {
 
 /**
  * Add the given path or list of commands to the commands of this path.
- * @param  {any} pathOrCommands - another opentype.Path, an opentype.BoundingBox, or an array of commands.
+ * @param  {Path|BoundingBox|Array<object>} pathOrCommands - another opentype.Path, an opentype.BoundingBox, or an array of commands.
  */
 Path.prototype.extend = function(pathOrCommands) {
-    if (pathOrCommands.commands) {
-        pathOrCommands = pathOrCommands.commands;
+    if (/** @type {Path} */ (pathOrCommands).commands) {
+        pathOrCommands = /** @type {Path} */ (pathOrCommands).commands;
     } else if (pathOrCommands instanceof BoundingBox) {
         const box = pathOrCommands;
         this.moveTo(box.x1, box.y1);
@@ -463,7 +474,7 @@ Path.prototype.extend = function(pathOrCommands) {
 
 /**
  * Calculate the bounding box of the path.
- * @returns {any}
+ * @returns {BoundingBox}
  */
 Path.prototype.getBoundingBox = function() {
     const box = new BoundingBox();
@@ -511,7 +522,7 @@ Path.prototype.getBoundingBox = function() {
 
 /**
  * Draw the path to a 2D context.
- * @this {any}
+ * @this {Path}
  * @param {CanvasRenderingContext2D} ctx - A 2D drawing context.
  */
 Path.prototype.draw = function(ctx) {
@@ -644,7 +655,7 @@ Path.prototype.toPathData = function(options) {
 
 /**
  * Convert the path to an SVG <path> element, as a string.
- * @this {any}
+ * @this {Path}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
  * @param  {string} [pathData] - will be calculated automatically, but can be provided from Glyph's wrapper function
  * @return {string}
@@ -691,7 +702,7 @@ Path.prototype.toSVG = function(options, pathData) {
 
 /**
  * Convert the path to a DOM element.
- * @this {any}
+ * @this {Path}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
  * @param  {string} [pathData] - will be calculated automatically, but can be provided from Glyph's wrapper function
  * @return {SVGPathElement}
@@ -703,7 +714,7 @@ Path.prototype.toDOMElement = function(options, pathData) {
         for (let l = 0; l < this._layers.length; l++) {
             group.appendChild(this._layers[l].toDOMElement(options));
         }
-        return /** @type {any} */ (group);
+        return /** @type {SVGPathElement} */ (/** @type {unknown} */ (group));
     }
     if (!pathData) {
         pathData = this.toPathData(options);
@@ -733,7 +744,7 @@ Path.prototype.toDOMElement = function(options, pathData) {
  * Get structured color path data for COLR font layers.
  * Returns an array of {d: string, fill: string} objects for each color layer,
  * or null if no color layers exist (regular monochrome path).
- * @this {any}
+ * @this {Path}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options for path data generation
  * @return {Array<{d: string, fill: string}>|null}
  */

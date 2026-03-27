@@ -27,8 +27,9 @@ function singleSubstitutionFormat2(action, tokens, index) {
  * @param {number} index token index
  */
 function chainingSubstitutionFormat3(action, tokens, index) {
-    for(let i = 0; i < action.substitution.length; i++) {
-        const subst = action.substitution[i];
+    const substitution = /** @type {Array<unknown>} */ (action.substitution);
+    for(let i = 0; i < substitution.length; i++) {
+        const subst = substitution[i];
         const token = tokens[index + i];
         if (Array.isArray(subst)) {
             if (subst.length){
@@ -51,8 +52,9 @@ function chainingSubstitutionFormat3(action, tokens, index) {
  */
 function ligatureSubstitutionFormat1(action, tokens, index) {
     let token = tokens[index];
-    token.setState(action.tag, action.substitution.ligGlyph);
-    const compsCount = action.substitution.components.length;
+    const ligSubst = /** @type {{ligGlyph: unknown, components: Array<unknown>}} */ (action.substitution);
+    token.setState(action.tag, ligSubst.ligGlyph);
+    const compsCount = ligSubst.components.length;
     for (let i = 0; i < compsCount; i++) {
         token = tokens[index + i + 1];
         token.setState('deleted', true);

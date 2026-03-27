@@ -65,7 +65,7 @@ export class LayerManager {
     /**
      * Gets the layers for a specific glyph
      * @param {number} glyphIndex
-     * @returns {Array<Object>} array of layer objects {glyph, paletteIndex}
+     * @returns {Array<{glyph: import('./glyph.js').default, paletteIndex: number}>} array of layer objects {glyph, paletteIndex}
      */
     get(glyphIndex) {
         const font = this.font;
@@ -110,7 +110,7 @@ export class LayerManager {
      * Gets the COLRv1 paint tree for a specific glyph.
      * Returns the raw paint DAG or null if not found.
      * @param {number} glyphIndex
-     * @returns {Object|null} paint tree node
+     * @returns {Record<string, unknown>|null} paint tree node
      */
     getPaintTree(glyphIndex) {
         const colr = this.font.tables.colr;
@@ -144,9 +144,9 @@ export class LayerManager {
 
     /**
      * Recursively flatten a paint node into layers.
-     * @param {Object} paint - paint node
+     * @param {Record<string, unknown>} paint - paint node
      * @param {Array} layers - output array
-     * @param {Object|null} transform - accumulated transform matrix
+     * @param {Record<string, unknown>|null} transform - accumulated transform matrix
      * @private
      */
     _flattenPaint(paint, layers, transform) {
@@ -155,17 +155,17 @@ export class LayerManager {
 
         switch (paint.format) {
             case 1: { // PaintColrLayers
-                for (const child of paint.layers) {
+                for (const child of /** @type {Iterable<Record<string, unknown>>} */ (paint.layers)) {
                     this._flattenPaint(child, layers, transform);
                 }
                 break;
             }
 
             case 10: { // PaintGlyph - clips to glyph outline, fills with inner paint
-                const glyph = font.glyphs.get(paint.glyphID);
+                const glyph = font.glyphs.get(/** @type {number} */ (paint.glyphID));
                 if (!glyph) break;
-                
-                const innerPaint = paint.paint;
+
+                const innerPaint = /** @type {Record<string, unknown>} */ (paint.paint);
                 if (innerPaint.format === 2 || innerPaint.format === 3) {
                     // PaintSolid / PaintVarSolid → simple v0-compatible layer
                     layers.push({
@@ -186,117 +186,117 @@ export class LayerManager {
             }
 
             case 11: { // PaintColrGlyph - reference another color glyph's paint
-                const colr = font.tables.colr;
+                const colr = /** @type {{baseGlyphPaintRecords?: Array<{glyphID: number, paint: Record<string, unknown>}>}} */ (font.tables.colr);
                 if (colr.baseGlyphPaintRecords) {
-                    const refRecord = binarySearch(colr.baseGlyphPaintRecords, 'glyphID', paint.glyphID);
+                    const refRecord = binarySearch(colr.baseGlyphPaintRecords, 'glyphID', /** @type {number} */ (paint.glyphID));
                     if (refRecord) {
-                        this._flattenPaint(refRecord.paint, layers, transform);
+                        this._flattenPaint(/** @type {Record<string, unknown>} */ (refRecord.paint), layers, transform);
                     }
                 }
                 break;
             }
 
             case 12: case 13: { // PaintTransform / PaintVarTransform
-                const m = paint.transform;
+                const m = /** @type {Record<string, unknown>} */ (paint.transform);
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
-                this._flattenPaint(paint.paint, layers, newTransform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
                 break;
             }
 
             case 14: case 15: { // PaintTranslate / PaintVarTranslate
                 const m = { xx: 1, yx: 0, xy: 0, yy: 1, dx: paint.dx, dy: paint.dy };
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
-                this._flattenPaint(paint.paint, layers, newTransform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
                 break;
             }
 
             case 16: case 17: { // PaintScale / PaintVarScale
                 const m = { xx: paint.scaleX, yx: 0, xy: 0, yy: paint.scaleY, dx: 0, dy: 0 };
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
-                this._flattenPaint(paint.paint, layers, newTransform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
                 break;
             }
 
             case 18: case 19: { // PaintScaleAroundCenter
                 const { scaleX, scaleY, centerX, centerY } = paint;
                 const m = composeTransformAroundCenter(
-                    { xx: scaleX, yx: 0, xy: 0, yy: scaleY, dx: 0, dy: 0 },
-                    centerX, centerY
+                    { xx: /** @type {number} */ (scaleX), yx: 0, xy: 0, yy: /** @type {number} */ (scaleY), dx: 0, dy: 0 },
+                    /** @type {number} */ (centerX), /** @type {number} */ (centerY)
                 );
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
-                this._flattenPaint(paint.paint, layers, newTransform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
                 break;
             }
 
             case 20: case 21: { // PaintScaleUniform
-                const s = paint.scale;
+                const s = /** @type {number} */ (paint.scale);
                 const m = { xx: s, yx: 0, xy: 0, yy: s, dx: 0, dy: 0 };
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
-                this._flattenPaint(paint.paint, layers, newTransform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
                 break;
             }
 
             case 22: case 23: { // PaintScaleUniformAroundCenter
-                const s = paint.scale;
+                const s = /** @type {number} */ (paint.scale);
                 const m = composeTransformAroundCenter(
                     { xx: s, yx: 0, xy: 0, yy: s, dx: 0, dy: 0 },
-                    paint.centerX, paint.centerY
+                    /** @type {number} */ (paint.centerX), /** @type {number} */ (paint.centerY)
                 );
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
-                this._flattenPaint(paint.paint, layers, newTransform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
                 break;
             }
 
             case 24: case 25: { // PaintRotate
-                const radians = colrAngleToRadians(paint.angle);
+                const radians = colrAngleToRadians(/** @type {number} */ (paint.angle));
                 const cos = Math.cos(radians);
                 const sin = Math.sin(radians);
                 const m = { xx: cos, yx: sin, xy: -sin, yy: cos, dx: 0, dy: 0 };
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
-                this._flattenPaint(paint.paint, layers, newTransform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
                 break;
             }
 
             case 26: case 27: { // PaintRotateAroundCenter
-                const radians = colrAngleToRadians(paint.angle);
+                const radians = colrAngleToRadians(/** @type {number} */ (paint.angle));
                 const cos = Math.cos(radians);
                 const sin = Math.sin(radians);
                 const m = composeTransformAroundCenter(
                     { xx: cos, yx: sin, xy: -sin, yy: cos, dx: 0, dy: 0 },
-                    paint.centerX, paint.centerY
+                    /** @type {number} */ (paint.centerX), /** @type {number} */ (paint.centerY)
                 );
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
-                this._flattenPaint(paint.paint, layers, newTransform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
                 break;
             }
 
             case 28: case 29: { // PaintSkew
-                const tanX = Math.tan(colrAngleToRadians(paint.xSkewAngle));
-                const tanY = Math.tan(colrAngleToRadians(paint.ySkewAngle));
+                const tanX = Math.tan(colrAngleToRadians(/** @type {number} */ (paint.xSkewAngle)));
+                const tanY = Math.tan(colrAngleToRadians(/** @type {number} */ (paint.ySkewAngle)));
                 const m = { xx: 1, yx: tanY, xy: tanX, yy: 1, dx: 0, dy: 0 };
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
-                this._flattenPaint(paint.paint, layers, newTransform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
                 break;
             }
 
             case 30: case 31: { // PaintSkewAroundCenter
-                const tanX = Math.tan(colrAngleToRadians(paint.xSkewAngle));
-                const tanY = Math.tan(colrAngleToRadians(paint.ySkewAngle));
+                const tanX = Math.tan(colrAngleToRadians(/** @type {number} */ (paint.xSkewAngle)));
+                const tanY = Math.tan(colrAngleToRadians(/** @type {number} */ (paint.ySkewAngle)));
                 const m = composeTransformAroundCenter(
                     { xx: 1, yx: tanY, xy: tanX, yy: 1, dx: 0, dy: 0 },
-                    paint.centerX, paint.centerY
+                    /** @type {number} */ (paint.centerX), /** @type {number} */ (paint.centerY)
                 );
                 const newTransform = transform ? multiplyTransforms(transform, m) : m;
-                this._flattenPaint(paint.paint, layers, newTransform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
                 break;
             }
 
             case 32: { // PaintComposite
                 // Flatten backdrop first, then source. Tag each source layer
                 // with the composite mode so the renderer can apply blending.
-                this._flattenPaint(paint.backdrop, layers, transform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.backdrop), layers, transform);
                 const sourceStart = layers.length;
-                this._flattenPaint(paint.source, layers, transform);
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.source), layers, transform);
                 // Apply composite mode to every source layer
                 for (let i = sourceStart; i < layers.length; i++) {
                     layers[i].compositeMode = paint.compositeMode;
@@ -316,7 +316,7 @@ export class LayerManager {
     /**
      * Adds one or more layers to a glyph, at the end or at a specific position.
      * @param {number} glyphIndex glyph index to add the layer(s) to.
-     * @param {Array|Object} layers layer object {glyph, paletteIndex}/{glyphID, paletteIndex} or array of layer objects.
+     * @param {Array|{glyph: import('./glyph.js').default|number, paletteIndex: number}} layers layer object {glyph, paletteIndex}/{glyphID, paletteIndex} or array of layer objects.
      * @param {number=} position position to insert the layers at (will default to adding at the end).
      */
     add(glyphIndex, layers, position) {
@@ -371,14 +371,14 @@ export class LayerManager {
      * @param {number} paletteIndex new color to set for the layer by zero-based index in any palette
      */
     setPaletteIndex(glyphIndex, layerIndex, paletteIndex) {
-        let layers = this.get(glyphIndex);
+        const layers = this.get(glyphIndex);
         if (layers[layerIndex]) {
-            layers = layers.map((layer, index) => ({
+            const convertedLayers = layers.map((layer, index) => ({
                 glyphID: layer.glyph.index,
                 paletteIndex: index === layerIndex ? paletteIndex : layer.paletteIndex,
             }));
 
-            this.updateColrTable(glyphIndex, layers);
+            this.updateColrTable(glyphIndex, convertedLayers);
         } else {
             console.error('Invalid layer index');
         }
@@ -392,18 +392,18 @@ export class LayerManager {
      */
     remove(glyphIndex, start, end = start) {
         // Get the current layers for the glyph.
-        let currentLayers = this.get(glyphIndex);
-    
+        const currentLayersRaw = this.get(glyphIndex);
+
         // Convert to the expected format for updateColrTable if necessary.
-        currentLayers = currentLayers.map(layer => ({
+        const currentLayers = currentLayersRaw.map(layer => ({
             glyphID: layer.glyph.index,
             paletteIndex: layer.paletteIndex,
         }));
-    
+
         // Directly remove the specified range from the currentLayers array.
         // Splice modifies the array in place and removes elements between start and end indices.
         currentLayers.splice(start, end - start + 1);
-    
+
         // Update the COLR table with the modified layers array.
         this.updateColrTable(glyphIndex, currentLayers);
     }
@@ -413,7 +413,7 @@ export class LayerManager {
      * ensuring that it's inserted at the correct position, updating numLayers, and adjusting firstLayerIndex values
      * for all baseGlyphRecords according to any deletions or insertions.
      * @param {number} glyphIndex 
-     * @param {Array<Object>} layers array of layer objects {glyphID, paletteIndex}
+     * @param {Array<{glyphID: number, paletteIndex: number}>} layers array of layer objects {glyphID, paletteIndex}
      */
     updateColrTable(glyphIndex, layers) {
         // Ensure the COLR table exists with the correct structure

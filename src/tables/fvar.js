@@ -6,7 +6,8 @@ import parse from '../parse.js';
 import table from '../table.js';
 import { getNameByID } from './name.js';
 
-function makeFvarAxis(n, axis, /** @type {any} */ _names) {
+// eslint-disable-next-line no-unused-vars
+function makeFvarAxis(n, axis, _names) {
     return [
         {name: 'tag_' + n, type: 'TAG', value: axis.tag},
         {name: 'minValue_' + n, type: 'FIXED', value: axis.minValue << 16},
@@ -84,8 +85,7 @@ function parseFvarInstance(data, start, axes, names, instanceSize) {
 }
 
 function makeFvarTable(fvar, names) {
-    
-    /** @type {any} */
+
     const result = new table.Table('fvar', [
         {name: 'version', type: 'ULONG', value: 0x10000},
         {name: 'offsetToData', type: 'USHORT', value: 0},
@@ -95,10 +95,11 @@ function makeFvarTable(fvar, names) {
         {name: 'instanceCount', type: 'USHORT', value: fvar.instances.length},
         {name: 'instanceSize', type: 'USHORT', value: 4 + fvar.axes.length * 4}
     ]);
-    result.offsetToData = result.sizeOf();
+    const resultRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (result));
+    resultRec.offsetToData = result.sizeOf();
 
     for (let i = 0; i < fvar.axes.length; i++) {
-        result.fields = result.fields.concat(makeFvarAxis(i, fvar.axes[i], names));
+        resultRec.fields = /** @type {Array} */ (resultRec.fields).concat(makeFvarAxis(i, fvar.axes[i], names));
     }
 
     const optionalFields = {};
@@ -106,7 +107,8 @@ function makeFvarTable(fvar, names) {
     // first loop over instances: find out if at least one has postScriptNameID defined
     for (let j = 0; j < fvar.instances.length; j++) {
         if(fvar.instances[j].postScriptNameID !== undefined) {
-            result.instanceSize += 2;
+            /** @type {number} */ (resultRec.instanceSize);
+            resultRec.instanceSize = /** @type {number} */ (resultRec.instanceSize) + 2;
             optionalFields.postScriptNameID = true;
             break;
         }
@@ -114,7 +116,7 @@ function makeFvarTable(fvar, names) {
 
     // second loop over instances: find out if at least one has postScriptNameID defined
     for (let j = 0; j < fvar.instances.length; j++) {
-        result.fields = result.fields.concat(makeFvarInstance(
+        resultRec.fields = /** @type {Array} */ (resultRec.fields).concat(makeFvarInstance(
             j,
             fvar.instances[j],
             fvar.axes,

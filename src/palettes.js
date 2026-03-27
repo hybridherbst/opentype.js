@@ -3,7 +3,7 @@ import { getPaletteColor, parseColor, formatColor } from './tables/cpal.js';
 /**
  * @exports opentype.PaletteManager
  * @class
- * @param {any} font
+ * @param {object} font
  */
 export class PaletteManager {
     // private properties don't work with reify
@@ -17,8 +17,8 @@ export class PaletteManager {
     // defaultValue = 0x000000FF;
 
     /**
-     * 
-     * @param {any} font
+     *
+     * @param {object} font
      */
     constructor(font) {
         /**
@@ -31,11 +31,11 @@ export class PaletteManager {
 
     /**
      * Returns the font's cpal table object if present
-     * @returns {Object}
+     * @returns {{ numPaletteEntries: number, colorRecords: Array<number>, colorRecordIndices: Array<number> } | false}
      */
     cpal() {
         if (this.font.tables && this.font.tables.cpal) {
-            return this.font.tables.cpal;
+            return /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */ (this.font.tables.cpal);
         }
         return false;
     }
@@ -64,8 +64,8 @@ export class PaletteManager {
 
     /**
      * Converts a color value string or array of color value strings to CPAL integer color value(s)
-     * @param {string|Array<string>} color
-     * @returns {any}
+     * @param {string|Array<string|number>} color
+     * @returns {number|Array<number>}
      */
     toCPALcolor(color) {
         if (Array.isArray(color)) {
@@ -82,9 +82,9 @@ export class PaletteManager {
      * @param {number} _colorCount Number of colors to fill the palette with, defaults to the value of the numPaletteEntries field. Used internally by extend() and shouldn't be set manually
      * @returns 
      */
-    fillPalette(palette, colors = [], _colorCount = this.cpal().numPaletteEntries) {
-        palette = Number.isInteger(palette) ? this.get(/** @type {any} */ (palette), 'raw') : palette;
-        return Object.assign(Array(_colorCount).fill(this.defaultValue), this.toCPALcolor(/** @type {any} */ (palette)).concat(this.toCPALcolor(/** @type {any} */ (colors))));
+    fillPalette(palette, colors = [], _colorCount = /** @type {{numPaletteEntries: number}} */ (/** @type {unknown} */ (this.cpal())).numPaletteEntries) {
+        palette = Number.isInteger(palette) ? this.get(/** @type {number} */ (palette), 'raw') : palette;
+        return Object.assign(Array(_colorCount).fill(this.defaultValue), (/** @type {Array<number>} */ (this.toCPALcolor(/** @type {string|Array<string|number>} */ (palette)))).concat(this.toCPALcolor(/** @type {string|Array<string|number>} */ (colors))));
     }
 
     /**
@@ -95,7 +95,7 @@ export class PaletteManager {
         if(this.ensureCPAL(Array(num).fill(this.defaultValue))) {
             return;
         }
-        const cpal = this.cpal();
+        const cpal = /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */ (/** @type {unknown} */ (this.cpal()));
 
         const newCount = cpal.numPaletteEntries + num;
 
@@ -103,7 +103,7 @@ export class PaletteManager {
             .map(palette => this.fillPalette(palette, [], newCount));
         
         cpal.numPaletteEntries = newCount;
-        cpal.colorRecords = this.toCPALcolor(palettes.flat());
+        cpal.colorRecords = /** @type {number[]} */ (this.toCPALcolor(palettes.flat()));
         this.updateIndices();
     }
 
@@ -136,15 +136,15 @@ export class PaletteManager {
      * @returns 
      */
     setColor(index, colors, paletteIndex = 0) {
-        index = parseInt(/** @type {any} */ (index));
-        paletteIndex = parseInt(/** @type {any} */ (paletteIndex));
+        index = parseInt(/** @type {string} */ (/** @type {unknown} */ (index)));
+        paletteIndex = parseInt(/** @type {string} */ (/** @type {unknown} */ (paletteIndex)));
         let palettes = this.getAll('raw');
         let palette = palettes[paletteIndex];
         if (!palette) {
             throw Error(`paletteIndex ${paletteIndex} out of range`);
         }
         
-        const cpal = this.cpal();
+        const cpal = /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */ (/** @type {unknown} */ (this.cpal()));
         const colorCount = cpal.numPaletteEntries;
 
         if (!Array.isArray(colors)) {
@@ -158,7 +158,7 @@ export class PaletteManager {
         }
 
         for(let i = 0; i < colors.length; i++) {
-            palette[i + index] = this.toCPALcolor(/** @type {any} */ (colors[i]));
+            palette[i + index] = this.toCPALcolor(/** @type {string|Array<string|number>} */ (colors[i]));
         }
         cpal.colorRecords = palettes.flat();
         this.updateIndices();
@@ -174,17 +174,17 @@ export class PaletteManager {
             return;
         }
 
-        const cpal = this.cpal();
+        const cpal = /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */ (/** @type {unknown} */ (this.cpal()));
         const colorCount = cpal.numPaletteEntries;
         if (colors && colors.length) {
-            colors = this.toCPALcolor(colors);
+            colors = /** @type {number[]} */ (this.toCPALcolor(colors));
             if (colors.length > colorCount) {
                 this.extend(colors.length - colorCount);
             } else if (colors.length < colorCount) {
                 colors = this.fillPalette(colors);
             }
             cpal.colorRecordIndices.push(cpal.colorRecords.length);
-            cpal.colorRecords.push(...colors);
+            cpal.colorRecords.push(.../** @type {number[]} */ (colors));
         } else {
             cpal.colorRecordIndices.push(cpal.colorRecords.length);
             cpal.colorRecords.push(...Array(colorCount).fill(this.defaultValue));
@@ -198,7 +198,7 @@ export class PaletteManager {
     delete(paletteIndex) {
         const palettes = this.getAll('raw');
         delete palettes[paletteIndex];
-        const cpal = this.cpal();
+        const cpal = /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */ (/** @type {unknown} */ (this.cpal()));
         cpal.colorRecordIndices.pop();
         cpal.colorRecords = palettes.flat();
     }
@@ -212,7 +212,7 @@ export class PaletteManager {
         if(colorIndex === replacementIndex) {
             throw Error('replacementIndex cannot be the same as colorIndex');
         }
-        const cpal = this.cpal();
+        const cpal = /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */ (/** @type {unknown} */ (this.cpal()));
         const palettes = this.getAll('raw');
         const updatedPalettes = [];
         if (replacementIndex > cpal.numPaletteEntries - 1) {
@@ -265,7 +265,7 @@ export class PaletteManager {
             cpal.colorRecordIndices[i] -= i;
         }
         cpal.numPaletteEntries = Math.max(0, cpal.numPaletteEntries - 1);
-        cpal.colorRecords = this.toCPALcolor(flattenedPalettes);
+        cpal.colorRecords = /** @type {number[]} */ (this.toCPALcolor(flattenedPalettes));
     }        
 
     /**
@@ -278,7 +278,7 @@ export class PaletteManager {
             if (!colors || !colors.length) {
                 colors = [this.defaultValue];
             } else {
-                colors = this.toCPALcolor(colors);
+                colors = /** @type {number[]} */ (this.toCPALcolor(colors));
             }
 
             this.font.tables.cpal = {
@@ -296,7 +296,7 @@ export class PaletteManager {
      * Mainly used internally. Recalculates the colorRecordIndices array based on the numPaletteEntries and number of palettes
      */
     updateIndices() {
-        const cpal = this.cpal();
+        const cpal = /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */ (/** @type {unknown} */ (this.cpal()));
         const paletteCount = Math.ceil(cpal.colorRecords.length/cpal.numPaletteEntries);
         cpal.colorRecordIndices = [];
         for(let i = 0; i < paletteCount; i++) {

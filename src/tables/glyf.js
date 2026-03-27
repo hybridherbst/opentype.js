@@ -6,6 +6,20 @@ import glyphset from '../glyphset.js';
 import parse from '../parse.js';
 import Path from '../path.js';
 
+/**
+ * @typedef {import('../glyph.js').Glyph & {
+ *   numberOfContours?: number,
+ *   contourEnds?: number[],
+ *   instructions?: number[],
+ *   components?: Array<{glyphIndex: number, dx: number, dy: number, xScale?: number, yScale?: number, scale01?: number, scale10?: number}>,
+ *   _xMin?: number,
+ *   _yMin?: number,
+ *   _xMax?: number,
+ *   _yMax?: number,
+ *   isComposite?: boolean
+ * }} TrueTypeGlyph
+ */
+
 // Parse the coordinate data for a glyph.
 function parseGlyphCoordinate(p, flag, previousValue, shortVectorBitMask, sameBitMask) {
     let v;
@@ -80,7 +94,7 @@ function parseGlyph(glyph, data, start) {
             if (numberOfCoordinates > 0) {
                 for (let i = 0; i < numberOfCoordinates; i += 1) {
                     flag = flags[i];
-                    point = /** @type {any} */ ({});
+                    point = /** @type {{ onCurve: boolean, lastPointOfContour: boolean, x?: number, y?: number }} */ ({});
                     point.onCurve = !!(flag & 1);
                     point.lastPointOfContour = endPointIndices.indexOf(i) >= 0;
                     points.push(point);
@@ -441,7 +455,7 @@ function cubicToQuadratics(x0, y0, x1, y1, x2, y2, x3, y3, tolerance = 1, _depth
  * 
  * @param {Path} path - The path to convert
  * @param {number} [tolerance=1] - Maximum error for cubic-to-quadratic conversion
- * @returns {Object} { points: Array, contourEnds: Array }
+ * @returns {{ points: Array<{x: number, y: number, onCurve: boolean}>, contourEnds: Array<number> }}
  */
 function pathToPoints(path, tolerance = 1) {
     const points = [];
@@ -525,7 +539,7 @@ function pathToPoints(path, tolerance = 1) {
 
 /**
  * Encode a single simple glyph to TrueType glyf format.
- * @param {any} glyph - The glyph to encode
+ * @param {TrueTypeGlyph} glyph - The glyph to encode
  * @returns {Uint8Array} The encoded glyph data
  */
 function encodeSimpleGlyph(glyph) {
@@ -552,7 +566,7 @@ function encodeSimpleGlyph(glyph) {
 
 /**
  * Encode a glyph from its original TrueType points.
- * @param {any} glyph - The glyph with original points data
+ * @param {TrueTypeGlyph} glyph - The glyph with original points data
  * @returns {Uint8Array} The encoded glyph data
  */
 function encodeSimpleGlyphFromPoints(glyph) {
@@ -691,7 +705,7 @@ function encodePointsToGlyf(points, contourEnds, instructions) {
 
 /**
  * Encode a composite glyph
- * @param {any} glyph - The composite glyph to encode
+ * @param {TrueTypeGlyph} glyph - The composite glyph to encode
  * @returns {Uint8Array} The encoded glyph data
  */
 function encodeCompositeGlyph(glyph) {
@@ -811,8 +825,8 @@ function encodeCompositeGlyph(glyph) {
 
 /**
  * Make a glyf table from a GlyphSet.
- * @param {any} glyphs - The glyphs to encode
- * @returns {Object} { glyfTable: Table, locaTable: Array }
+ * @param {import('../glyphset.js').GlyphSet} glyphs - The glyphs to encode
+ * @returns {{ glyfData: Uint8Array, offsets: Array<number> }}
  */
 function makeGlyfTable(glyphs) {
     const glyphDataList = [];
@@ -820,7 +834,7 @@ function makeGlyfTable(glyphs) {
     let currentOffset = 0;
     
     for (let i = 0; i < glyphs.length; i++) {
-        const glyph = glyphs.get(i);
+        const glyph = /** @type {TrueTypeGlyph} */ (glyphs.get(i));
         // Force glyph loading to ensure isComposite is set (for lazy-loaded glyphs)
         if (glyph.path === undefined && typeof glyph.getPath === 'function') {
             try {
@@ -830,8 +844,8 @@ function makeGlyfTable(glyphs) {
             }
         }
         // Use composite encoder for composite glyphs, simple encoder otherwise
-        const glyphData = glyph.isComposite 
-            ? encodeCompositeGlyph(glyph) 
+        const glyphData = glyph.isComposite
+            ? encodeCompositeGlyph(glyph)
             : encodeSimpleGlyph(glyph);
         glyphDataList.push(glyphData);
         currentOffset += glyphData.length;

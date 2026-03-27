@@ -1,5 +1,4 @@
-import * as _tokenizer from '../../tokenizer.js';
-const ContextParams = /** @type {any} */ (_tokenizer).ContextParams;
+import { ContextParams } from '../../tokenizer.js';
 import applySubstitution from '../applySubstitution.js';
 
 // @TODO: use commonFeatureUtils.js for reduction of code duplication
@@ -7,17 +6,17 @@ import applySubstitution from '../applySubstitution.js';
 
 /**
  * Update context params
- * @param {any} tokens a list of tokens
+ * @param {unknown[]} tokens a list of tokens
  * @param {number} index current item index
  */
 function getContextParams(tokens, index) {
-    const context = tokens.map(token => token.activeState.value);
+    const context = tokens.map(token => /** @type {{activeState: {value: unknown}}} */ (token).activeState.value);
     return new ContextParams(context, index || 0);
 }
 
 /**
  * Apply ccmp replacement ligatures to a context range
- * @param {any} range a range of tokens
+ * @param {unknown} range a range of tokens
  */
 function ccmpReplacementLigatures(range) {
     const script = 'delf';

@@ -592,7 +592,7 @@ Hinting.prototype.exec = function(glyph, ppem) {
     const font = this.font;
     let prepState = this._prepState;
 
-    if (!prepState || /** @type {any} */ (prepState).ppem !== ppem) {
+    if (!prepState || /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).ppem !== ppem) {
         let fpgmState = this._fpgmState;
 
         if (!fpgmState) {
@@ -604,12 +604,12 @@ Hinting.prototype.exec = function(glyph, ppem) {
             this._fpgmState =
                 new State('fpgm', font.tables.fpgm);
 
-            /** @type {any} */ (fpgmState).funcs = [ ];
-            /** @type {any} */ (fpgmState).font = font;
+            /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (fpgmState)).funcs = [ ];
+            /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (fpgmState)).font = font;
 
             if (DEBUG) {
                 console.log('---EXEC FPGM---');
-                /** @type {any} */ (fpgmState).step = -1;
+                /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (fpgmState)).step = -1;
             }
 
             try {
@@ -630,24 +630,24 @@ Hinting.prototype.exec = function(glyph, ppem) {
         this._prepState =
             new State('prep', font.tables.prep);
 
-        /** @type {any} */ (prepState).ppem = ppem;
+        /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).ppem = ppem;
 
         // Creates a copy of the cvt table
         // and scales it to the current ppem setting.
         const oCvt = font.variation && font.variation.process.getCvarTransform() || font.tables.cvt;
         if (oCvt) {
-            const cvt = /** @type {any} */ (prepState).cvt = new Array(oCvt.length);
+            const cvt = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).cvt = new Array(oCvt.length);
             const scale = ppem / font.unitsPerEm;
             for (let c = 0; c < oCvt.length; c++) {
                 cvt[c] = oCvt[c] * scale;
             }
         } else {
-            /** @type {any} */ (prepState).cvt = [];
+            /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).cvt = [];
         }
 
         if (DEBUG) {
             console.log('---EXEC PREP---');
-            /** @type {any} */ (prepState).step = -1;
+            /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).step = -1;
         }
 
         try {
@@ -677,19 +677,18 @@ Hinting.prototype.exec = function(glyph, ppem) {
 /*
 * Executes the hinting program for a glyph.
 */
-execGlyph = function(glyph, /** @type {any} */ prepState) {
+execGlyph = function(glyph, /** @type {Record<string, unknown>} */ prepState) {
     // original point positions
-    const xScale = prepState.ppem / prepState.font.unitsPerEm;
+    const xScale = /** @type {number} */ (prepState.ppem) / /** @type {number} */ ((/** @type {Record<string, unknown>} */ (prepState.font)).unitsPerEm);
     const yScale = xScale;
     let components = glyph.components;
     let contours;
     let gZone;
-    /** @type {any} */
     let state;
 
     State.prototype = prepState;
     if (!components) {
-        state = new State('glyf', glyph.instructions);
+        state = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (new State('glyf', glyph.instructions)));
         if (DEBUG) {
             console.log('---EXEC GLYPH---');
             state.step = -1;
@@ -697,14 +696,14 @@ execGlyph = function(glyph, /** @type {any} */ prepState) {
         execComponent(glyph, state, xScale, yScale);
         gZone = state.gZone;
     } else {
-        const font = prepState.font;
+        const font = /** @type {Record<string, unknown>} */ (prepState.font);
         gZone = [];
         contours = [];
         for (let i = 0; i < components.length; i++) {
             const c = components[i];
-            const cg = font.glyphs.get(c.glyphIndex);
+            const cg = /** @type {Record<string, unknown>} */ ((/** @type {{ glyphs: { get: Function } }} */ (font)).glyphs.get(c.glyphIndex));
 
-            state = new State('glyf', cg.instructions);
+            state = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (new State('glyf', cg.instructions)));
 
             if (DEBUG) {
                 console.log('---EXEC COMP ' + i + '---');
@@ -716,8 +715,8 @@ execGlyph = function(glyph, /** @type {any} */ prepState) {
             // post processes the component points
             const dx = Math.round(c.dx * xScale);
             const dy = Math.round(c.dy * yScale);
-            const gz = state.gZone;
-            const cc = state.contours;
+            const gz = /** @type {Array<{x: number, y: number, xo: number, yo: number, xTouched: boolean, yTouched: boolean}>} */ (state.gZone);
+            const cc = /** @type {number[]} */ (state.contours);
             for (let pi = 0; pi < gz.length; pi++) {
                 const p = gz[pi];
                 p.xTouched = p.yTouched = false;
@@ -734,7 +733,7 @@ execGlyph = function(glyph, /** @type {any} */ prepState) {
 
         if (glyph.instructions && !state.inhibitGridFit) {
             // the composite has instructions on its own
-            state = new State('glyf', glyph.instructions);
+            state = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (new State('glyf', glyph.instructions)));
 
             state.gZone = state.z0 = state.z1 = state.z2 = gZone;
 

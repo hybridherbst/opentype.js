@@ -10,7 +10,7 @@ import Path from './path.js';
  * Convert a CFF2 variable font to TrueType variable font format.
  * This extracts deltas from CFF2 blend operators and creates gvar table data.
  * 
- * @param {any} font - The font to convert (modifies in place)
+ * @param {object} font - The font to convert (modifies in place)
  * @returns {boolean} True if conversion was successful
  */
 export function convertCFF2ToTTF(font) {
@@ -134,7 +134,7 @@ export function convertCFF2ToTTF(font) {
  * @param {Array} regions - Variation regions from vstore
  * @param {number} axisCount - Number of variation axes
  * @param {number} [tolerance=1] - Cubic to quadratic conversion tolerance
- * @returns {Object} { points, contourEnds, deltasPerRegion }
+ * @returns {{points: Array, contourEnds: Array, deltasPerRegion: Array}} { points, contourEnds, deltasPerRegion }
  */
 function convertCFF2PathToTTFWithDeltas(path, regions, axisCount, tolerance = 1) {
     const points = [];
@@ -326,7 +326,7 @@ function convertCFF2PathToTTFWithDeltas(path, regions, axisCount, tolerance = 1)
  * Convert a TrueType variable font to CFF2 variable font format.
  * This extracts deltas from gvar and creates CFF2 blend operators with vstore.
  * 
- * @param {any} font - The font to convert (modifies in place)
+ * @param {object} font - The font to convert (modifies in place)
  * @returns {boolean} True if conversion was successful
  */
 export function convertTTFToCFF2(font) {
@@ -465,8 +465,8 @@ export function convertTTFToCFF2(font) {
  * Convert gvar deltas to CFF2 command deltas format.
  * Maps TrueType point deltas to CFF2 path command deltas.
  * 
- * @param {any} glyph - The glyph to process
- * @param {Object} glyphVariation - The gvar variation data for this glyph
+ * @param {object} glyph - The glyph to process
+ * @param {object} glyphVariation - The gvar variation data for this glyph
  * @param {Array} sharedTuples - Shared tuple records
  * @param {Map} tupleToRegionIndex - Map from tuple key to region index
  * @param {number} numRegions - Total number of regions
@@ -648,7 +648,7 @@ function convertGvarDeltasToCFF2Deltas(glyph, glyphVariation, sharedTuples, tupl
  * Convert a static CFF font (no variation) to TrueType format.
  * This handles cubic-to-quadratic bezier conversion for all glyphs.
  * 
- * @param {any} font - The font to convert (modifies in place)
+ * @param {object} font - The font to convert (modifies in place)
  * @returns {boolean} True if conversion was successful
  */
 export function convertStaticCFFToTTF(font) {
@@ -693,7 +693,7 @@ export function convertStaticCFFToTTF(font) {
  * Convert a static TrueType font (no variation) to CFF format.
  * This handles quadratic-to-cubic bezier conversion for all glyphs.
  * 
- * @param {any} font - The font to convert (modifies in place)
+ * @param {object} font - The font to convert (modifies in place)
  * @returns {boolean} True if conversion was successful
  */
 export function convertStaticTTFToCFF(font) {
@@ -721,7 +721,7 @@ export function convertStaticTTFToCFF(font) {
         const cubicPath = quadraticToCubic(glyph.path);
         
         // Preserve unitsPerEm on the new path (critical for getPath scaling)
-        /** @type {any} */ (cubicPath).unitsPerEm = unitsPerEm;
+        /** @type {object} */ (cubicPath).unitsPerEm = unitsPerEm;
         
         glyph.path = cubicPath;
         
@@ -746,7 +746,7 @@ export function convertStaticTTFToCFF(font) {
  * Convert a font to a specific format, handling both static and variable fonts.
  * This is the main entry point for format conversion.
  * 
- * @param {any} font - The font to convert (modifies in place)
+ * @param {object} font - The font to convert (modifies in place)
  * @param {string} targetFormat - Target format: 'truetype' or 'cff'
  * @returns {boolean} True if conversion was successful (or already in target format)
  */

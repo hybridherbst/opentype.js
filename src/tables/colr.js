@@ -123,10 +123,10 @@ function parseAffine2x3(p, isVariable) {
  * Recursively parse a paint table at the given absolute offset.
  * @param {DataView} data - raw font data
  * @param {number} offset - absolute byte offset of the paint table
- * @param {Object} layerList - parsed layer list (array of paint offsets) for PaintColrLayers
+ * @param {Array<number> | null} layerList - parsed layer list (array of paint offsets) for PaintColrLayers
  * @param {number} colrTableStart - absolute offset of the COLR table start
- * @param {Set} visited - cycle detection
- * @returns {Object} parsed paint node
+ * @param {Set<number>} visited - cycle detection
+ * @returns {Record<string, unknown>} parsed paint node
  */
 function parsePaintTable(data, offset, layerList, colrTableStart, visited) {
     if (visited.has(offset)) {
@@ -365,9 +365,11 @@ function parsePaintTable(data, offset, layerList, colrTableStart, visited) {
  * Parse a ClipList
  * @param {DataView} data
  * @param {number} offset - absolute offset
- * @returns {Array<{ startGlyphID, endGlyphID, clipBox }>}
+ * @returns {Array<{ startGlyphID: number, endGlyphID: number, clipBox: Record<string, unknown> }>}
  */
-/** @returns {any} */
+/**
+ * @returns {{ format: number, clips: Array<{startGlyphID: number, endGlyphID: number, clipBox: {format: number, xMin: number, yMin: number, xMax: number, yMax: number, varIndexBase?: number}}> }}
+ */
 function parseClipList(data, offset) {
     const p = new Parser(data, offset);
     const clipFormat = p.parseByte();
@@ -1178,17 +1180,18 @@ function makeColrTable(colr) {
  * Compute the ClipBox for a specific glyph at given normalized variation coordinates.
  * Applies ItemVariationStore deltas if the ClipBox has a varIndexBase (format 2).
  *
- * @param {Object} colr - Parsed COLR table (from parseColrTable)
+ * @param {Record<string, unknown>} colr - Parsed COLR table (from parseColrTable)
  * @param {number} glyphID - Glyph index
- * @param {Object} fvar - Parsed fvar table (font.tables.fvar)
+ * @param {Record<string, unknown>} fvar - Parsed fvar table (font.tables.fvar)
  * @param {Record<string, number>} coords - Variation coordinates (e.g. {wght: 700})
  * @returns {{ xMin: number, yMin: number, xMax: number, yMax: number } | null}
  */
 function getClipBoxAtCoords(colr, glyphID, fvar, coords) {
-    if (!colr.clipList || !colr.clipList.clips) return null;
+    const clipList = /** @type {Record<string, unknown>} */ (colr.clipList);
+    if (!clipList || !clipList.clips) return null;
 
     // Find the clip entry for this glyph
-    const clip = colr.clipList.clips.find(
+    const clip = /** @type {Array<{startGlyphID: number, endGlyphID: number, clipBox: {format: number, xMin: number, yMin: number, xMax: number, yMax: number, varIndexBase?: number}}>} */ (clipList.clips).find(
         c => glyphID >= c.startGlyphID && glyphID <= c.endGlyphID
     );
     if (!clip || !clip.clipBox) return null;
@@ -1202,7 +1205,7 @@ function getClipBoxAtCoords(colr, glyphID, fvar, coords) {
 
     // Compute normalized coordinates
     const normalizedCoords = [];
-    for (const axis of fvar.axes) {
+    for (const axis of /** @type {Array<{tag: string, defaultValue: number, minValue: number, maxValue: number}>} */ (fvar.axes)) {
         const val = coords[axis.tag] ?? axis.defaultValue;
         let norm;
         if (val === axis.defaultValue) {
@@ -1221,8 +1224,10 @@ function getClipBoxAtCoords(colr, glyphID, fvar, coords) {
         let varIdx = box.varIndexBase + i;
         // Apply VarIndexMap if present
         let outerIndex, innerIndex;
-        if (colr.varIndexMap && colr.varIndexMap.map && varIdx < colr.varIndexMap.map.length) {
-            const entry = colr.varIndexMap.map[varIdx];
+        const varIndexMap = /** @type {Record<string, unknown>} */ (colr.varIndexMap);
+        const varIndexMapArr = varIndexMap && /** @type {Array<{outerIndex: number, innerIndex: number}>} */ (varIndexMap.map);
+        if (varIndexMapArr && varIdx < varIndexMapArr.length) {
+            const entry = varIndexMapArr[varIdx];
             outerIndex = entry.outerIndex;
             innerIndex = entry.innerIndex;
         } else {
@@ -1233,21 +1238,23 @@ function getClipBoxAtCoords(colr, glyphID, fvar, coords) {
         // 0xFFFF / -1 in outerIndex means no variation for this field
         if (outerIndex < 0 || outerIndex === 0xFFFF || innerIndex === 0xFFFF) continue;
 
-        const subtable = colr.varStore.itemVariationSubtables[outerIndex];
+        const varStore = /** @type {Record<string, unknown>} */ (colr.varStore);
+        const subtable = /** @type {Array<Record<string, unknown>>} */ (varStore.itemVariationSubtables)[outerIndex];
         if (!subtable) continue;
-        const deltaSet = subtable.deltaSets[innerIndex];
+        const deltaSet = /** @type {Array<number[]>} */ (subtable.deltaSets)[innerIndex];
         if (!deltaSet) continue;
 
         // Compute scalar for each region and sum deltas
         let delta = 0;
-        for (let r = 0; r < subtable.regionIndexes.length; r++) {
-            const regionIdx = subtable.regionIndexes[r];
-            const region = colr.varStore.variationRegions[regionIdx];
+        for (let r = 0; r < /** @type {number[]} */ (subtable.regionIndexes).length; r++) {
+            const regionIdx = /** @type {number[]} */ (subtable.regionIndexes)[r];
+            const region = /** @type {Array<Record<string, unknown>>} */ (varStore.variationRegions)[regionIdx];
             if (!region) continue;
 
             let scalar = 1;
-            for (let a = 0; a < region.regionAxes.length && a < normalizedCoords.length; a++) {
-                const ra = region.regionAxes[a];
+            const regionAxes = /** @type {Array<{peakCoord: number, startCoord: number, endCoord: number}>} */ (region.regionAxes);
+            for (let a = 0; a < regionAxes.length && a < normalizedCoords.length; a++) {
+                const ra = regionAxes[a];
                 const coord = normalizedCoords[a];
                 if (coord === 0 || ra.peakCoord === 0) {
                     if (ra.peakCoord !== 0) scalar = 0;

@@ -463,7 +463,7 @@ Parser.prototype.parseValueRecord = function(valueFormat, parentTableOffset) {
  * Parse a Device table or VariationIndex table
  * https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#device-and-variationindex-tables
  * @param {number} absoluteOffset - Absolute offset from start of font data
- * @returns {Object} - Device table or VariationIndex table data
+ * @returns {Record<string, unknown>|null} - Device table or VariationIndex table data
  */
 Parser.prototype.parseDeviceOrVariationIndex = function(absoluteOffset) {
     const savedOffset = this.offset;

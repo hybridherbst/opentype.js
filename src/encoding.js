@@ -191,7 +191,7 @@ const standardNames = [
  * @exports opentype.DefaultEncoding
  * @class
  * @constructor
- * @param {any} font
+ * @param {import('./font.js').default} font
  */
 function DefaultEncoding(font) {
     this.font = font;
@@ -217,7 +217,7 @@ DefaultEncoding.prototype.charToGlyphIndex = function(c) {
  * @exports opentype.CmapEncoding
  * @class
  * @constructor
- * @param {Object} cmap - a object with the cmap encoded data
+ * @param {{glyphIndexMap: Record<string, number>}} cmap - a object with the cmap encoded data
  */
 function CmapEncoding(cmap) {
     this.cmap = cmap;
@@ -257,7 +257,7 @@ CffEncoding.prototype.charToGlyphIndex = function(s) {
  * @exports opentype.GlyphNames
  * @class
  * @constructor
- * @param {Object} post
+ * @param {{version: number, numberOfGlyphs: number, glyphNameIndex: number[], names: string[]}} post
  */
 function GlyphNames(post) {
     switch (post.version) {
@@ -351,8 +351,8 @@ function addGlyphNamesToUnicodeMap(font) {
 
 /**
  * @alias opentype.addGlyphNames
- * @param {any} font
- * @param {Object} opt
+ * @param {import('./font.js').default} font
+ * @param {{lowMemory?: boolean}} opt
  */
 function addGlyphNames(font, opt) {
     if (opt.lowMemory) {

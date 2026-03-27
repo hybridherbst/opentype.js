@@ -853,11 +853,13 @@ function makeNameTable(names, ltag, options = {}) {
         }
     }
 
-    nameRecords.sort(function(/** @type {any} */ a, /** @type {any} */ b) {
-        return ((a.platformID - b.platformID) ||
-                (a.encodingID - b.encodingID) ||
-                (a.languageID - b.languageID) ||
-                (a.nameID - b.nameID));
+    nameRecords.sort(function(a, b) {
+        const ar = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (a));
+        const br = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (b));
+        return ((/** @type {number} */ (ar.platformID) - /** @type {number} */ (br.platformID)) ||
+                (/** @type {number} */ (ar.encodingID) - /** @type {number} */ (br.encodingID)) ||
+                (/** @type {number} */ (ar.languageID) - /** @type {number} */ (br.languageID)) ||
+                (/** @type {number} */ (ar.nameID) - /** @type {number} */ (br.nameID)));
     });
 
     const t = new table.Table('name', [

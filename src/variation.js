@@ -32,7 +32,7 @@ export class VariationManager {
 
     /**
      * Retrieves the default coordinates for the font's variation axes.
-     * @returns {Object} An object mapping axis tags to their default values.
+     * @returns {Record<string, number>} An object mapping axis tags to their default values.
      */
     getDefaultCoordinates() {
         const fvar = this.fvar();
@@ -67,7 +67,7 @@ export class VariationManager {
 
     /**
      * Retrieves the index of the variation instance matching the coordinates object or -1 if not able to determine
-     * @param {number|Object} coordinates An object where keys are axis tags and values are the corresponding variation values.
+     * @param {number|Record<string, number>} coordinates An object where keys are axis tags and values are the corresponding variation values.
      * @returns {number} The index of the matching instance or -1 if no match is found.
      */
     getInstanceIndex(coordinates) {
@@ -85,7 +85,6 @@ export class VariationManager {
     /**
      * Retrieves a variation instance by its zero-based index
      * @param {number} index - zero-based index of the variation instance
-     * @returns {Object} - variation instance or null if the index is invalid.
      */
     getInstance(index) {
         return this.fvar().instances && this.fvar().instances[index];
@@ -93,7 +92,7 @@ export class VariationManager {
 
     /**
      * Set the variation coordinates to use by default for rendering in the font.defaultRenderOptions
-     * @param {number|Object} instanceIdOrObject Either the zero-based index of a variation instance or an object with axis tags as keys and variation values as values
+     * @param {number|object} instanceIdOrObject Either the zero-based index of a variation instance or an object with axis tags as keys and variation values as values
      */
     set(instanceIdOrObject) {
         let variationData;
@@ -119,56 +118,41 @@ export class VariationManager {
 
     /**
      * Returns the variation coordinates currently set in the font.defaultRenderOptions
-     * @returns {Object}
+     * @returns {Record<string, number>}
      */
     get() {
         return Object.assign({}, this.font.defaultRenderOptions.variation);
     }
 
-    /**
-     * Helper method that returns the font's avar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's avar table if present */
     avar() {
         return this.font.tables.avar;
     }
 
-    /**
-     * Helper method that returns the font's cvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's cvar table if present */
     cvar() {
         return this.font.tables.cvar;
     }
 
-    /**
-     * Helper method that returns the font's fvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's fvar table if present */
     fvar() {
         return this.font.tables.fvar;
     }
 
-    /**
-     * Helper method that returns the font's gvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's gvar table if present */
     gvar() {
         return this.font.tables.gvar;
     }
 
-    /**
-     * Helper method that returns the font's hvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's hvar table if present */
     hvar() {
         return this.font.tables.hvar;
     }
 
     /**
      * Add a new variation axis to the font.
-     * 
-     * @param {Object} axisOptions - The axis configuration
+     *
+     * @param {object} axisOptions - The axis configuration
      * @param {string} axisOptions.tag - 4-character axis tag (e.g., 'wght', 'SNAP')
      * @param {string} axisOptions.name - Human-readable name for the axis
      * @param {number} axisOptions.minValue - Minimum value for the axis
@@ -177,7 +161,7 @@ export class VariationManager {
      * @param {Function} [axisOptions.deltaGenerator] - Optional function(glyph, font) that returns 
      *        {deltas: number[], deltasY: number[]} for each glyph when axis is at max.
      *        If not provided, no gvar deltas are added for this axis.
-     * @returns {Object} The newly added axis
+     * @returns {Record<string, unknown>} The newly added axis
      */
     addAxis(axisOptions) {
         const { tag, name, minValue, defaultValue, maxValue, deltaGenerator } = axisOptions;
@@ -270,11 +254,11 @@ export class VariationManager {
 
     /**
      * Add a named instance to the font's fvar table.
-     * 
-     * @param {Object} instanceOptions - The instance configuration
+     *
+     * @param {object} instanceOptions - The instance configuration
      * @param {string} instanceOptions.name - Human-readable name (e.g., "Bold")
-     * @param {Object} instanceOptions.coordinates - Object mapping axis tags to values
-     * @returns {Object} The newly added instance
+     * @param {Record<string, number>} instanceOptions.coordinates - Object mapping axis tags to values
+     * @returns {Record<string, unknown>} The newly added instance
      */
     addInstance(instanceOptions) {
         const { name, coordinates } = instanceOptions;
@@ -720,10 +704,10 @@ export class VariationManager {
     /**
      * Compute deltas by comparing two glyph paths.
      * This is a helper for creating deltaGenerator functions.
-     * 
-     * @param {any} basePath - The base glyph path (at default axis value)
-     * @param {any} targetPath - The target glyph path (at max axis value)
-     * @returns {Object} { deltas: number[], deltasY: number[] }
+     *
+     * @param {{commands: Array<{type: string, x?: number, y?: number, x1?: number, y1?: number, x2?: number, y2?: number}>}} basePath - The base glyph path (at default axis value)
+     * @param {{commands: Array<{type: string, x?: number, y?: number, x1?: number, y1?: number, x2?: number, y2?: number}>}} targetPath - The target glyph path (at max axis value)
+     * @returns {{deltas: number[], deltasY: number[]}} { deltas: number[], deltasY: number[] }
      */
     static computeDeltas(basePath, targetPath) {
         const baseCommands = basePath.commands;

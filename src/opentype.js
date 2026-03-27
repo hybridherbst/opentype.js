@@ -57,7 +57,7 @@ import { VariationManager } from './variation.js';
  * @param  {Function} callback - The function to call when the font load completes
  */
 function loadFromFile(path, callback) {
-    import(/** @type {any} */ ('fs')).then(fs => {
+    import(/** @type {string} */ ('fs')).then(fs => {
         fs.readFile(path, function(err, buffer) {
             if (err) {
                 return callback(err.message);
@@ -118,7 +118,7 @@ function loadFromUrl(url, callback) {
         } else {
             // Fallback to built-in http/https via dynamic import
             const isHttps = url.startsWith('https:');
-            (isHttps ? import(/** @type {any} */ ('https')) : import(/** @type {any} */ ('http'))).then(mod => {
+            (isHttps ? import(/** @type {string} */ ('https')) : import(/** @type {string} */ ('http'))).then(mod => {
                 const lib = mod.default || mod;
                 const request = lib.request(url, res => {
                     if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
@@ -126,9 +126,9 @@ function loadFromUrl(url, callback) {
                     }
                     res.setEncoding('binary');
                     const chunks = [];
-                    res.on('data', chunk => chunks.push(/** @type {any} */ (globalThis).Buffer.from(chunk, 'binary')));
+                    res.on('data', chunk => chunks.push(/** @type {{Buffer: {from: Function}}} */ (/** @type {unknown} */ (globalThis)).Buffer.from(chunk, 'binary')));
                     res.on('end', () => {
-                        const b = /** @type {any} */ (globalThis).Buffer.concat(chunks);
+                        const b = /** @type {{Buffer: {concat: Function}}} */ (/** @type {unknown} */ (globalThis)).Buffer.concat(chunks);
                         const ab = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
                         callback(null, ab);
                     });
@@ -147,7 +147,7 @@ function loadFromUrl(url, callback) {
  * Parses OpenType table entries.
  * @param  {DataView} data
  * @param  {Number} numTables
- * @return {Object[]}
+ * @return {Array<{tag: string, checksum: number, offset: number, length: number, compression: boolean}>}
  */
 function parseOpenTypeTableEntries(data, numTables, directoryOffset = 0) {
     const tableEntries = [];
@@ -167,7 +167,7 @@ function parseOpenTypeTableEntries(data, numTables, directoryOffset = 0) {
 /**
  * Parse TTC (TrueType Collection) header and resolve the selected face offset.
  * @param {DataView} data
- * @param {Object} opt
+ * @param {{collectionIndex?: number, ttcIndex?: number, fontIndex?: number}} [opt]
  * @return {{numFonts: number, index: number, fontOffset: number}}
  */
 function parseTTCHeader(data, opt = {}) {
@@ -177,7 +177,7 @@ function parseTTCHeader(data, opt = {}) {
     }
 
     const requestedIndex = opt.collectionIndex ?? opt.ttcIndex ?? opt.fontIndex ?? 0;
-    const index = Number.parseInt(requestedIndex, 10);
+    const index = Number.parseInt(String(requestedIndex), 10);
     if (!Number.isInteger(index) || index < 0 || index >= numFonts) {
         throw new Error(`TTC font index out of range (${index}); collection has ${numFonts} font(s)`);
     }
@@ -194,7 +194,7 @@ function parseTTCHeader(data, opt = {}) {
  * Parses WOFF table entries.
  * @param  {DataView} data
  * @param  {Number} numTables
- * @return {Object[]}
+ * @return {Array<{tag: string, offset: number, compression: string|boolean, compressedLength: number, length: number}>}
  */
 function parseWOFFTableEntries(data, numTables) {
     const tableEntries = [];
@@ -220,14 +220,14 @@ function parseWOFFTableEntries(data, numTables) {
 }
 
 /**
- * @typedef {Object} TableData
+ * @typedef {object} TableData
  * @property {DataView} data - The DataView
  * @property {number} offset - The data offset.
  */
 
 /**
  * @param  {DataView} data
- * @param  {Object} tableEntry
+ * @param  {{tag?: string, offset: number, compression: string|boolean, compressedLength?: number, length: number}} tableEntry
  * @return {TableData}
  */
 function uncompressTable(data, tableEntry) {
@@ -252,7 +252,7 @@ function uncompressTable(data, tableEntry) {
  * List the table tags in a font binary without fully parsing it.
  * Useful for detecting font capabilities (e.g. COLR, CBDT, glyf) before a full parse.
  * @param  {ArrayBuffer} buffer - The font file data
- * @return {{tags: Set<string>, isTrueType: boolean, isCFF: boolean, isWOFF: boolean, isCollection: boolean, isValid: boolean, tableEntries: Object[], collectionNumFonts?: number, collectionIndex?: number}}
+ * @return {{tags: Set<string>, isTrueType: boolean, isCFF: boolean, isWOFF: boolean, isCollection: boolean, isValid: boolean, tableEntries: Array<{tag: string, offset: number, compression: string|boolean, length: number}>, collectionNumFonts?: number, collectionIndex?: number}}
  */
 function listTables(buffer, opt = {}) {
     if (buffer.constructor !== ArrayBuffer) {
@@ -316,7 +316,7 @@ function listTables(buffer, opt = {}) {
  * Parse the OpenType file data (as an ArrayBuffer) and return a Font object.
  * Throws an error if the font could not be parsed.
  * @param  {ArrayBuffer} buffer
- * @param  {Object} opt - options for parsing
+ * @param  {Record<string, unknown>} [opt] - options for parsing
  * @return {Font}
  */
 function parseBuffer(buffer, opt={}) {
@@ -325,7 +325,6 @@ function parseBuffer(buffer, opt={}) {
 
     // Since the constructor can also be called to create new fonts from scratch, we indicate this
     // should be an empty font that we'll fill with our own data.
-    /** @type {any} */
     const font = new Font({empty: true});
 
     if (buffer.constructor !== ArrayBuffer) { // convert node Buffer
@@ -407,7 +406,7 @@ function parseBuffer(buffer, opt={}) {
             case 'cmap':
                 table = uncompressTable(data, tableEntry);
                 font.tables.cmap = cmap.parse(table.data, table.offset);
-                font.encoding = /** @type {any} */ (new CmapEncoding(font.tables.cmap));
+                font.encoding = /** @type {import('./encoding.js').DefaultEncoding} */ (/** @type {unknown} */ (new CmapEncoding(/** @type {{glyphIndexMap: Record<string, number>}} */ (font.tables.cmap))));
                 break;
             case 'cvt ' :
                 table = uncompressTable(data, tableEntry);
@@ -431,19 +430,23 @@ function parseBuffer(buffer, opt={}) {
                 p = new parse.Parser(table.data, table.offset);
                 font.tables.fpgm = p.parseByteList(tableEntry.length);
                 break;
-            case 'head':
+            case 'head': {
                 table = uncompressTable(data, tableEntry);
                 font.tables.head = head.parse(table.data, table.offset);
-                font.unitsPerEm = font.tables.head.unitsPerEm;
-                indexToLocFormat = font.tables.head.indexToLocFormat;
+                const headTable = /** @type {{unitsPerEm: number, indexToLocFormat: number}} */ (font.tables.head);
+                font.unitsPerEm = headTable.unitsPerEm;
+                indexToLocFormat = headTable.indexToLocFormat;
                 break;
-            case 'hhea':
+            }
+            case 'hhea': {
                 table = uncompressTable(data, tableEntry);
                 font.tables.hhea = hhea.parse(table.data, table.offset);
-                font.ascender = font.tables.hhea.ascender;
-                font.descender = font.tables.hhea.descender;
-                font.numberOfHMetrics = font.tables.hhea.numberOfHMetrics;
+                const hheaTable = /** @type {{ascender: number, descender: number, numberOfHMetrics: number}} */ (font.tables.hhea);
+                font.ascender = hheaTable.ascender;
+                font.descender = hheaTable.descender;
+                font.numberOfHMetrics = hheaTable.numberOfHMetrics;
                 break;
+            }
             case 'HVAR':
                 hvarTableEntry = tableEntry;
                 break;
@@ -462,11 +465,12 @@ function parseBuffer(buffer, opt={}) {
                 table = uncompressTable(data, tableEntry);
                 font.tables.cpal = cpal.parse(table.data, table.offset);
                 break;
-            case 'maxp':
+            case 'maxp': {
                 table = uncompressTable(data, tableEntry);
                 font.tables.maxp = maxp.parse(table.data, table.offset);
-                font.numGlyphs = font.tables.maxp.numGlyphs;
+                font.numGlyphs = /** @type {{numGlyphs: number}} */ (font.tables.maxp).numGlyphs;
                 break;
+            }
             case 'name':
                 nameTableEntry = tableEntry;
                 break;
@@ -477,7 +481,7 @@ function parseBuffer(buffer, opt={}) {
             case 'post':
                 table = uncompressTable(data, tableEntry);
                 font.tables.post = post.parse(table.data, table.offset);
-                font.glyphNames = new GlyphNames(font.tables.post);
+                font.glyphNames = new GlyphNames(/** @type {{version: number, numberOfGlyphs: number, glyphNameIndex: number[], names: string[]}} */ (font.tables.post));
                 break;
             case 'prep' :
                 table = uncompressTable(data, tableEntry);
@@ -551,9 +555,9 @@ function parseBuffer(buffer, opt={}) {
 
     if (kernTableEntry) {
         const kernTable = uncompressTable(data, kernTableEntry);
-        font.kerningPairs = kern.parse(kernTable.data, kernTable.offset);
+        font.kerningPairs = /** @type {Record<string, number>} */ (kern.parse(kernTable.data, kernTable.offset));
     } else {
-        font.kerningPairs = {};
+        font.kerningPairs = /** @type {Record<string, number>} */ ({});
     }
 
     if (gdefTableEntry) {
@@ -631,7 +635,7 @@ function parseBuffer(buffer, opt={}) {
     if (metaTableEntry) {
         const metaTable = uncompressTable(data, metaTableEntry);
         font.tables.meta = meta.parse(metaTable.data, metaTable.offset);
-        font.metas = font.tables.meta;
+        font.metas = /** @type {Record<string, unknown>} */ (font.tables.meta);
     }
     
     font.palettes = new PaletteManager(font);

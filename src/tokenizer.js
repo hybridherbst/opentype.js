@@ -65,7 +65,7 @@ function Event(eventId) {
 
 /**
  * Initialize a core events and auto subscribe required event handlers
- * @param {any} events an object that enlists core events handlers
+ * @param {Record<string, Function>} events an object that enlists core events handlers
  */
 function initializeCoreEvents(events) {
     const coreEvents = [
@@ -104,7 +104,7 @@ function initializeCoreEvents(events) {
 
 /**
  * Converts a string into a list of tokens
- * @param {any} events tokenizer core events
+ * @param {Record<string, Function>} [events] tokenizer core events
  */
 function Tokenizer(events) {
     this.tokens = [];
@@ -119,7 +119,7 @@ function Tokenizer(events) {
 /**
  * Sets the state of a token, usually called by a state modifier.
  * @param {string} key state item key
- * @param {any} value state item value
+ * @param {unknown} value state item value
  */
 Token.prototype.setState = function(key, value) {
     this.state[key] = value;
@@ -174,7 +174,7 @@ Tokenizer.prototype.replaceRange = function (startIndex, offset, tokens, silent)
     const isTokenType = tokens.every(token => token instanceof Token);
     if (!isNaN(startIndex) && this.inboundIndex(startIndex) && isTokenType) {
         const replaced = this.tokens.splice.apply(
-            this.tokens, /** @type {any} */ ([startIndex, offset]).concat(tokens)
+            this.tokens, /** @type {[number, number, ...Token[]]} */ ([startIndex, offset]).concat(tokens)
         );
         if (!silent) this.dispatch('replaceToken', [startIndex, offset, tokens]);
         return [replaced, tokens];
@@ -186,7 +186,7 @@ Tokenizer.prototype.replaceRange = function (startIndex, offset, tokens, silent)
 /**
  * Replace a token with another token
  * @param {number} index token index
- * @param {any} token a token to replace
+ * @param {Token} token a token to replace
  * @param {boolean} silent dispatch events and update context ranges
  */
 Tokenizer.prototype.replaceToken = function (index, token, silent) {
@@ -239,7 +239,7 @@ Tokenizer.prototype.insertToken = function (tokens, index, silent) {
     );
     if (tokenType) {
         this.tokens.splice.apply(
-            this.tokens, /** @type {any} */ ([index, 0]).concat(tokens)
+            this.tokens, /** @type {[number, number, ...Token[]]} */ ([index, 0]).concat(tokens)
         );
         if (!silent) this.dispatch('insertToken', [tokens, index]);
         return tokens;
@@ -367,7 +367,7 @@ Tokenizer.prototype.on = function(eventName, eventHandler) {
 /**
  * Dispatches an event
  * @param {string} eventName event name
- * @param {any} args event handler arguments
+ * @param {unknown[]} [args] event handler arguments
  */
 Tokenizer.prototype.dispatch = function(eventName, args) {
     const event = this.events[eventName];
@@ -467,7 +467,7 @@ Tokenizer.prototype.setEndOffset = function (offset, contextName) {
     const startIndex = this.getContext(contextName).openRange.startIndex;
     let range = new ContextRange(startIndex, offset, contextName);
     const ranges = this.getContext(contextName).ranges;
-    /** @type {any} */ (range).rangeId = `${contextName}.${ranges.length}`;
+    /** @type {ContextRange & {rangeId: string}} */ (range).rangeId = `${contextName}.${ranges.length}`;
     ranges.push(range);
     this.getContext(contextName).openRange = null;
     return range;

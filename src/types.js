@@ -895,7 +895,7 @@ sizeOf.INDEX32 = function(v) {
  * Convert an object to a CFF DICT structure.
  * The keys should be numeric.
  * The values should be objects containing name / type / value.
- * @param {Object} m
+ * @param {Record<number, {type: string, value: unknown, blend?: unknown}>} m
  * @returns {Array}
  */
 encode.DICT = function(m) {
@@ -910,7 +910,7 @@ encode.DICT = function(m) {
         // Build operands without mutating v.value (important when size/encode is called repeatedly)
         const operandValue = v.blend ? (Array.isArray(v.value) ? v.value.concat([v.blend]) : [v.value, v.blend]) : v.value;
         // Value comes before the key.
-        const enc1 = encode.OPERAND(operandValue, v.type);
+        const enc1 = encode.OPERAND(/** @type {Array} */ (/** @type {unknown} */ (operandValue)), v.type);
         const enc2 = encode.OPERATOR(k);
         for (let j = 0; j < enc1.length; j++) {
             d.push(enc1[j]);
@@ -929,7 +929,7 @@ encode.DICT = function(m) {
 };
 
 /**
- * @param {Object} m
+ * @param {Record<number, {type: string, value: unknown, blend?: unknown}>} m
  * @returns {number}
  */
 sizeOf.DICT = function(m) {
@@ -1066,7 +1066,7 @@ sizeOf.CHARSTRING = function(ops) {
 
 /**
  * Convert an object containing name / type / value to bytes.
- * @param {Object} v
+ * @param {{type: string, value: unknown}|Array<{type: string, value: unknown}>} v
  * @returns {Array}
  */
 encode.OBJECT = function(v) {
@@ -1087,7 +1087,7 @@ encode.OBJECT = function(v) {
 };
 
 /**
- * @param {Object} v
+ * @param {{type: string, value: unknown}|Array<{type: string, value: unknown}>} v
  * @returns {number}
  */
 sizeOf.OBJECT = function(v) {
@@ -1107,7 +1107,7 @@ sizeOf.OBJECT = function(v) {
  * Convert a table object to bytes.
  * A table contains a list of fields containing the metadata (name, type and default value).
  * The table itself has the field values set as attributes.
- * @param {Object} table
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string}} table
  * @returns {Array}
  */
 encode.TABLE = function(table) {
@@ -1139,7 +1139,7 @@ encode.TABLE = function(table) {
             // If the table.fields are set to NULL, don't add it as subtable data,
             // so the offset will be set to 0 but no table data will be added.
             // This is required e.g. for classSeqRuleSetOffsets with no defined contexts.
-            if (value && value.fields !== null) {
+            if (value && /** @type {Record<string, unknown>} */ (value).fields !== null) {
                 subtableOffsets.push(d.length);
                 subtables.push(bytes);
             }
@@ -1166,7 +1166,7 @@ encode.TABLE = function(table) {
 };
 
 /**
- * @param {Object} table
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>}} table
  * @returns {number}
  */
 sizeOf.TABLE = function(table) {
