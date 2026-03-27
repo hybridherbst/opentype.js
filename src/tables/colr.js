@@ -478,14 +478,22 @@ function parseColrTable(data, start) {
 
         // ── Parse ItemVariationStore (for VarClipBox, VarPaint*, etc.) ──
         if (itemVariationStoreOffset > 0) {
-            const ivsParser = new Parser(data, start + itemVariationStoreOffset);
-            result.varStore = ivsParser.parseItemVariationStore();
+            try {
+                const ivsParser = new Parser(data, start + itemVariationStoreOffset);
+                result.varStore = ivsParser.parseItemVariationStore();
+            } catch (_e) {
+                // Some fonts have invalid or unsupported IVS data; skip gracefully
+            }
         }
 
         // ── Parse DeltaSetIndexMap ──
         if (varIndexMapOffset > 0) {
-            const dimParser = new Parser(data, start + varIndexMapOffset);
-            result.varIndexMap = dimParser.parseDeltaSetIndexMap();
+            try {
+                const dimParser = new Parser(data, start + varIndexMapOffset);
+                result.varIndexMap = dimParser.parseDeltaSetIndexMap();
+            } catch (_e) {
+                // Some fonts have invalid VarIndexMap data; skip gracefully
+            }
         }
 
         // Store raw offsets for roundtrip (writing will need them)
