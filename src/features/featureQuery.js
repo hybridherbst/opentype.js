@@ -2,7 +2,6 @@
  * Query a feature by some of it's properties to lookup a glyph substitution.
  */
 
-// @ts-ignore
 import { ContextParams } from '../tokenizer.js';
 import { isTashkeelArabicChar } from '../char.js';
 

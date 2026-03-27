@@ -38,6 +38,8 @@ import { chunkArray } from '../util.js';
  * @property {number} [languageGroup] - Language group code (CFF2)
  * @property {number} [expansionFactor] - Limit for global coloring algorithm (CFF2)
  * @property {number} [vsindex] - Variation store index (CFF2)
+ * @property {number[]} [stemSnapH] - Horizontal stem snap values (CFF2)
+ * @property {number[]} [stemSnapV] - Vertical stem snap values (CFF2)
  */
 
 /**
@@ -69,8 +71,9 @@ import { chunkArray } from '../util.js';
  * @property {number} [cidFontType] - CID font type
  * @property {number} [cidCount] - Count of CIDs in the font
  * @property {number} [uidBase] - UID base value for CID fonts
- * @property {number} [fdArray] - Offset to Font DICT INDEX for CID fonts (also set to parsed array after parsing)
- * @property {number} [fdSelect] - Offset to FDSelect table for CID fonts (also set to parsed data after parsing)
+ * @property {number} [fdArray] - Offset to Font DICT INDEX for CID fonts
+ * @property {number} [fdSelect] - Offset to FDSelect table for CID fonts
+ * @property {number} [vstore] - Offset to variation store (CFF2 only)
  * @property {string|null} [fontName] - PostScript font name for CID fonts (SID)
  * @property {Array} [_subrs] - Parsed local subroutines (added during parsing)
  * @property {number} [_subrsBias] - Subroutine bias (added during parsing)

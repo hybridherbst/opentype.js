@@ -5,6 +5,9 @@ import check from './check.js';
 import Layout from './layout.js';
 import { arraysEqual } from './util.js';
 
+/** @typedef {import('./tables/gsub.js').GsubTable} GsubTable */
+/** @typedef {import('./tables/gsub.js').GsubLookupTable} GsubLookupTable */
+
 /**
  * @exports opentype.Substitution
  * @class
@@ -31,13 +34,12 @@ function getSubstFormat(lookupTable, format, defaultSubtable) {
     return undefined;
 }
 
-// @ts-ignore - Substitution inherits from Layout
 Substitution.prototype = Layout.prototype;
 
 /**
  * Create a default GSUB table.
  * @this {object}
- * @return {Record<string, unknown>} gsub - The GSUB table.
+ * @return {GsubTable} gsub - The GSUB table.
  */
 Substitution.prototype.createDefaultTable = function() {
     // Generate a default empty GSUB table with just a DFLT script and dflt lang sys.
@@ -701,13 +703,13 @@ Substitution.prototype._getOrCreateSingleSubLookupExtension = function(gsub, sub
  * CRITICAL: This reuses the same lookup for the same feature/type to preserve
  * blocking rule semantics (blocking rules only work within the same lookup).
  * @private
- * @param {Record<string, unknown>} gsub - The GSUB table
+ * @param {GsubTable} gsub - The GSUB table
  * @param {string} script - Script tag
  * @param {string} language - Language tag
  * @param {string} feature - Feature tag (e.g., 'calt')
  * @param {number} innerLookupType - The lookup type for the extension's inner content (e.g., 6 for chaining)
  * @this {object}
- * @returns {Record<string, unknown>} The extension lookup to add subtables to
+ * @returns {GsubLookupTable} The extension lookup to add subtables to
  */
 Substitution.prototype._getOrCreateExtensionLookup = function(gsub, script, language, feature, innerLookupType) {
     // Get or create the feature table

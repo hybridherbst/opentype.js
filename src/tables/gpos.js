@@ -381,10 +381,14 @@ subtableParsers[9] = function parseLookup9() {
  * @property {number} [yPlacement] - y placement adjustment
  * @property {number} [xAdvance] - x advance adjustment
  * @property {number} [yAdvance] - y advance adjustment
- * @property {object} [xPlaDevice] - device/variation table for x placement
- * @property {object} [yPlaDevice] - device/variation table for y placement
- * @property {object} [xAdvDevice] - device/variation table for x advance
- * @property {object} [yAdvDevice] - device/variation table for y advance
+ * @property {number} [xPlaDeviceOffset] - raw offset to x placement device table
+ * @property {object} [xPlaDevice] - parsed device/variation table for x placement
+ * @property {number} [yPlaDeviceOffset] - raw offset to y placement device table
+ * @property {object} [yPlaDevice] - parsed device/variation table for y placement
+ * @property {number} [xAdvDeviceOffset] - raw offset to x advance device table
+ * @property {object} [xAdvDevice] - parsed device/variation table for x advance
+ * @property {number} [yAdvDeviceOffset] - raw offset to y advance device table
+ * @property {object} [yAdvDevice] - parsed device/variation table for y advance
  */
 
 /**
@@ -394,6 +398,8 @@ subtableParsers[9] = function parseLookup9() {
  * @property {number} xCoordinate - x coordinate
  * @property {number} yCoordinate - y coordinate
  * @property {number} [anchorPoint] - (format 2) contour point index
+ * @property {object} [xDevice] - (format 3) device/variation table for x coordinate
+ * @property {object} [yDevice] - (format 3) device/variation table for y coordinate
  */
 
 /**
