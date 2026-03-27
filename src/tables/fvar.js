@@ -6,6 +6,31 @@ import parse from '../parse.js';
 import table from '../table.js';
 import { getNameByID } from './name.js';
 
+/**
+ * @typedef {object} FvarAxis
+ * @property {string} tag - Four-character axis tag (e.g. 'wght', 'wdth')
+ * @property {number} minValue - Minimum value for this axis
+ * @property {number} defaultValue - Default value for this axis
+ * @property {number} maxValue - Maximum value for this axis
+ * @property {number} axisNameID - Name ID for the axis name in the 'name' table
+ * @property {string} name - Human-readable axis name resolved from the 'name' table
+ */
+
+/**
+ * @typedef {object} FvarInstance
+ * @property {number} subfamilyNameID - Name ID for the instance subfamily name in the 'name' table
+ * @property {string} name - Human-readable instance name resolved from the 'name' table
+ * @property {Record<string, number>} coordinates - Map of axis tag to coordinate value for this instance
+ * @property {number|undefined} postScriptNameID - Optional name ID for the PostScript name (undefined if absent)
+ * @property {string|undefined} postScriptName - Optional PostScript name resolved from the 'name' table
+ */
+
+/**
+ * @typedef {object} FvarTable
+ * @property {FvarAxis[]} axes - Array of variation axes defined in the font
+ * @property {FvarInstance[]} instances - Array of named variation instances
+ */
+
 // eslint-disable-next-line no-unused-vars
 function makeFvarAxis(n, axis, _names) {
     return [

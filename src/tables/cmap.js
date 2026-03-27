@@ -7,6 +7,38 @@ import table from '../table.js';
 import { eightBitMacEncodings } from '../types.js';
 import { getEncoding } from '../tables/name.js';
 
+/**
+ * @typedef {object} CmapFormat4
+ * Format 4 cmap subtable (segment mapping to delta values, BMP only)
+ * @property {number} length - Length in bytes of the subtable
+ * @property {number} language - Language code (0 for Unicode)
+ * @property {number} segCount - Number of segments
+ * @property {Record<number, number>} glyphIndexMap - Map of Unicode code point to glyph index
+ */
+
+/**
+ * @typedef {object} CmapFormat12
+ * Format 12 cmap subtable (segmented coverage, full Unicode range)
+ * @property {number} length - Length in bytes of the subtable
+ * @property {number} language - Language code (0 for Unicode)
+ * @property {number} groupCount - Number of sequential map groups
+ * @property {Record<number, number>} glyphIndexMap - Map of Unicode code point to glyph index
+ */
+
+/**
+ * @typedef {object} CmapTable
+ * Parsed representation of the 'cmap' table, containing the selected subtable.
+ * @property {number} version - Table version (always 0)
+ * @property {number} numTables - Number of subtables in the cmap
+ * @property {number} format - Format of the selected subtable (0, 4, 12, or 13)
+ * @property {number} [length] - Length in bytes of the selected subtable
+ * @property {number} [language] - Language code of the selected subtable
+ * @property {number} [segCount] - Segment count (format 4 only)
+ * @property {number} [groupCount] - Group count (format 12/13 only)
+ * @property {Record<number, number>} [glyphIndexMap] - Map of Unicode code point to glyph index
+ * @property {Record<number, {varSelector: number, defaultUVS?: object, nonDefaultUVS?: object}>} [varSelectorList] - Format 14 variation selector records
+ */
+
 function parseCmapTableFormat0(cmap, p, platformID, encodingID) {
     // Length in bytes of the index map
     cmap.length = p.parseUShort();

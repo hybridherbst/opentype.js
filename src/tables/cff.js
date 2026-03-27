@@ -21,6 +21,72 @@ import Path from '../path.js';
 import table from '../table.js';
 import { chunkArray } from '../util.js';
 
+/**
+ * @typedef {object} CffPrivateDict
+ * @property {number} subrs - Offset to local subroutines
+ * @property {number} defaultWidthX - Default width for glyphs not in hmtx
+ * @property {number} nominalWidthX - Bias added to widths stored in charstrings
+ * @property {number[]} [blueValues] - PostScript alignment zones (CFF2)
+ * @property {number[]} [otherBlues] - Additional alignment zones (CFF2)
+ * @property {number[]} [familyBlues] - Family alignment zones (CFF2)
+ * @property {number[]} [familyOtherBlues] - Additional family alignment zones (CFF2)
+ * @property {number} [blueScale] - Point size at which overshoot suppression stops (CFF2)
+ * @property {number} [blueShift] - Value of the overshoot (CFF2)
+ * @property {number} [blueFuzz] - Extension of alignment zones (CFF2)
+ * @property {number} [stdHW] - Dominant width of horizontal stems (CFF2)
+ * @property {number} [stdVW] - Dominant width of vertical stems (CFF2)
+ * @property {number} [languageGroup] - Language group code (CFF2)
+ * @property {number} [expansionFactor] - Limit for global coloring algorithm (CFF2)
+ * @property {number} [vsindex] - Variation store index (CFF2)
+ */
+
+/**
+ * @typedef {object} CffTopDict
+ * @property {string|null} version - Version of the font (SID)
+ * @property {string|null} notice - Copyright notice (SID)
+ * @property {string|null} copyright - Copyright string (SID)
+ * @property {string|null} fullName - Full name of the font (SID)
+ * @property {string|null} familyName - Family name of the font (SID)
+ * @property {string|null} weight - Weight of the font, e.g. 'Bold' (SID)
+ * @property {number} isFixedPitch - 1 if fixed-pitch (monospaced), 0 otherwise
+ * @property {number} italicAngle - Angle of italic in degrees counter-clockwise from vertical
+ * @property {number} underlinePosition - Underline position
+ * @property {number} underlineThickness - Underline thickness
+ * @property {number} paintType - 0 for fill, 2 for stroke
+ * @property {number} charstringType - Charstring type (always 2 for Type 2)
+ * @property {number[]} fontMatrix - Six-element transformation matrix
+ * @property {number|null} uniqueId - Unique identifier for the font
+ * @property {number[]} fontBBox - Font bounding box [xMin, yMin, xMax, yMax]
+ * @property {number} strokeWidth - Dominant width of strokes for paintType 2
+ * @property {Array|null} xuid - Extended unique id
+ * @property {number} charset - Offset to charset data (0=ISOAdobe, 1=Expert, 2=ExpertSubset)
+ * @property {number} encoding - Offset to encoding data (0=standard, 1=expert)
+ * @property {number} charStrings - Offset to charstrings INDEX
+ * @property {number[]} private - Two-element array [size, offset] of Private DICT
+ * @property {Array|null} [ros] - Registry-Ordering-Supplement for CID-keyed fonts
+ * @property {number} [cidFontVersion] - CID font version
+ * @property {number} [cidFontRevision] - CID font revision
+ * @property {number} [cidFontType] - CID font type
+ * @property {number} [cidCount] - Count of CIDs in the font
+ * @property {number} [uidBase] - UID base value for CID fonts
+ * @property {number} [fdArray] - Offset to Font DICT INDEX for CID fonts (also set to parsed array after parsing)
+ * @property {number} [fdSelect] - Offset to FDSelect table for CID fonts (also set to parsed data after parsing)
+ * @property {string|null} [fontName] - PostScript font name for CID fonts (SID)
+ * @property {Array} [_subrs] - Parsed local subroutines (added during parsing)
+ * @property {number} [_subrsBias] - Subroutine bias (added during parsing)
+ * @property {number} [_defaultWidthX] - Default glyph width (added during parsing)
+ * @property {number} [_nominalWidthX] - Nominal glyph width (added during parsing)
+ * @property {CffPrivateDict} [_privateDict] - Parsed Private DICT (added during parsing)
+ * @property {Array} [_fdArray] - Parsed Font DICT array for CID fonts (added during parsing)
+ * @property {Array} [_fdSelect] - Parsed FDSelect data for CID fonts (added during parsing)
+ * @property {object} [_vstore] - Parsed variation store for CFF2 fonts (added during parsing)
+ */
+
+/**
+ * @typedef {object} CffTable
+ * @property {CffTopDict} topDict - The parsed top-level CFF dictionary
+ */
+
 // Custom equals function that can also check lists.
 function equals(a, b) {
     if (a === b) {
