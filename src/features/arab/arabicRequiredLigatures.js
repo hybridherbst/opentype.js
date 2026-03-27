@@ -2,21 +2,8 @@
  * Apply Arabic required ligatures feature to a range of tokens
  */
 
-import { ContextParams } from '../../tokenizer.js';
 import applySubstitution from '../applySubstitution.js';
-
-// @TODO: use commonFeatureUtils.js for reduction of code duplication
-// once #564 has been merged.
-
-/**
- * Update context params
- * @param {unknown[]} tokens a list of tokens
- * @param {number} index current item index
- */
-function getContextParams(tokens, index) {
-    const context = tokens.map(token => /** @type {{activeState: {value: unknown}}} */ (token).activeState.value);
-    return new ContextParams(context, index || 0);
-}
+import { getContextParams } from '../commonFeatureUtils.js';
 
 /**
  * Apply Arabic required ligatures to a context range

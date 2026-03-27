@@ -2,18 +2,8 @@
  * Apply Thai Glyph Composition feature to tokens
  */
 
-import { ContextParams } from '../../tokenizer.js';
 import applySubstitution from '../applySubstitution.js';
-
-/**
-  * Update context params
-  * @param {unknown[]} tokens a list of tokens
-  * @param {number} index current item index
-  */
-function getContextParams(tokens, index) {
-    const context = tokens.map(token => /** @type {{activeState: {value: unknown}}} */ (token).activeState.value);
-    return new ContextParams(context, index || 0);
-}
+import { getContextParams } from '../commonFeatureUtils.js';
 
 /**
   * Apply Thai required glyphs composition substitutions
