@@ -283,7 +283,7 @@ subtableParsers[8] = function parseLookup8() {
  * A feature record: tag + feature table.
  * @typedef {object} FeatureRecord
  * @property {string} tag - 4-character feature tag
- * @property {{params: number, lookupListIndexes: number[]}} feature - feature table
+ * @property {{featureParams: number, lookupListIndexes: number[]}} feature - feature table
  */
 
 /**

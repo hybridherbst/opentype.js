@@ -36,7 +36,7 @@ import { getEncoding } from '../tables/name.js';
  * @property {number} [segCount] - Segment count (format 4 only)
  * @property {number} [groupCount] - Group count (format 12/13 only)
  * @property {Record<number, number>} [glyphIndexMap] - Map of Unicode code point to glyph index
- * @property {Record<number, {varSelector: number, defaultUVS?: object, nonDefaultUVS?: object}>} [varSelectorList] - Format 14 variation selector records
+ * @property {Record<number, {varSelector: number, defaultUVS?: {ranges: Array<{startUnicodeValue: number, additionalCount: number}>}, nonDefaultUVS?: {uvsMappings: Record<number, {unicodeValue: number, glyphID: number}>}}>} [varSelectorList] - Format 14 variation selector records
  */
 
 function parseCmapTableFormat0(cmap, p, platformID, encodingID) {
