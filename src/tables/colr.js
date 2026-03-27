@@ -476,24 +476,19 @@ function parseColrTable(data, start) {
             result.clipList = parseClipList(data, start + clipListOffset);
         }
 
-        // ── Parse ItemVariationStore (for VarClipBox, VarPaint*, etc.) ──
-        if (itemVariationStoreOffset > 0) {
-            try {
-                const ivsParser = new Parser(data, start + itemVariationStoreOffset);
-                result.varStore = ivsParser.parseItemVariationStore();
-            } catch (_e) {
-                // Some fonts have invalid or unsupported IVS data; skip gracefully
-            }
+        // ── Parse ItemVariationStore and DeltaSetIndexMap ──
+        // Bounds-check: offsets must point past the 34-byte COLR header and
+        // within the DataView. Early COLRv1 draft fonts (e.g. samples-glyf_colr_1.ttf)
+        // have garbage in these fields — their bytes are leftover v0 data.
+        const headerSize = 34; // v0 (14) + v1 extension (20)
+        const tableEnd = data.byteLength;
+        if (itemVariationStoreOffset >= headerSize && start + itemVariationStoreOffset + 4 < tableEnd) {
+            const ivsParser = new Parser(data, start + itemVariationStoreOffset);
+            result.varStore = ivsParser.parseItemVariationStore();
         }
-
-        // ── Parse DeltaSetIndexMap ──
-        if (varIndexMapOffset > 0) {
-            try {
-                const dimParser = new Parser(data, start + varIndexMapOffset);
-                result.varIndexMap = dimParser.parseDeltaSetIndexMap();
-            } catch (_e) {
-                // Some fonts have invalid VarIndexMap data; skip gracefully
-            }
+        if (varIndexMapOffset >= headerSize && start + varIndexMapOffset + 4 < tableEnd) {
+            const dimParser = new Parser(data, start + varIndexMapOffset);
+            result.varIndexMap = dimParser.parseDeltaSetIndexMap();
         }
 
         // Store raw offsets for roundtrip (writing will need them)
