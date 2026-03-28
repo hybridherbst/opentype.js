@@ -1485,7 +1485,7 @@ function makeGposTable(gpos) {
             {name: 'version', type: 'ULONG', value: 0x10000},
             {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
             {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
-            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (subtableMakers)))}
+            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, subtableMakers)}
         ]);
     }
 
@@ -1509,7 +1509,7 @@ function makeGposTable(gpos) {
         {name: 'version', type: 'ULONG', value: 0x10000},
         {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
         {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
-        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (makersWithExtension)))}
+        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, makersWithExtension)}
     ]);
 
     // Phase 2: Encode the main table, then append extension data and patch offsets

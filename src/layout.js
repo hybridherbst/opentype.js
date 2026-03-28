@@ -223,7 +223,7 @@ Layout.prototype = {
      * @param {string} [language='dlft']
      * @param {string} [feature] - One of the codes listed at https://www.microsoft.com/typography/OTSPEC/featurelist.htm
      * @param {boolean} [create] - forces the creation of the feature table if it doesn't exist.
-     * @return {{params: number, lookupListIndexes: number[]}|undefined}
+     * @return {{featureParams: number, lookupListIndexes: number[]}|undefined}
      */
     getFeatureTable: function(script, language, feature, create) {
         const langSysTable = this.getLangSysTable(script, language, create);
@@ -323,7 +323,7 @@ Layout.prototype = {
                 return [lookupTable];
             }
         }
-        return tables;
+        return /** @type {GsubLookupTable[]|GposLookupTable[]} */ (tables);
     },
 
     /**

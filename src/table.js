@@ -155,7 +155,7 @@ ScriptList.prototype.constructor = ScriptList;
 /**
  * @exports opentype.FeatureList
  * @class
- * @param {Record<string, unknown>} featureListTable
+ * @param {Array<{tag: string, feature: {featureParams: number, lookupListIndexes: number[]}}>} featureListTable
  * @constructor
  */
 function FeatureList(featureListTable) {
@@ -177,8 +177,8 @@ FeatureList.prototype.constructor = FeatureList;
 /**
  * @exports opentype.LookupList
  * @class
- * @param {Record<string, unknown>} lookupListTable
- * @param {Record<string, unknown>} subtableMakers
+ * @param {Array<{lookupType: number, lookupFlag: number, subtables: unknown[], markFilteringSet?: number}>} lookupListTable
+ * @param {Record<number, Function>} subtableMakers
  * @constructor
  */
 function LookupList(lookupListTable, subtableMakers) {
