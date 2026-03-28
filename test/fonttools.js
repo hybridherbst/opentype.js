@@ -262,14 +262,16 @@ describe('fonttools validation', function() {
         });
         
         it('should validate existing variable font (Roboto)', function() {
-            const fontPath = path.join(__dirname, 'fonts/Roboto-Regular-Variable.woff2');
+            // Use the TTF variant — opentype.js cannot parse WOFF2 in Node without
+            // an external Brotli decompressor, so we use the TTF version instead.
+            const fontPath = path.join(__dirname, 'fonts/Roboto-Variable.ttf');
             if (!fs.existsSync(fontPath)) {
                 this.skip(); // Skip if font not available
             }
-            
+
             const buffer = fs.readFileSync(fontPath);
             const font = opentype.parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
-            
+
             // Re-export
             const outputPath = path.join(OUTPUT_DIR, 'Roboto-VF-reexport.ttf');
             const arrayBuffer = font.toArrayBuffer();
@@ -298,16 +300,77 @@ describe('fonttools validation', function() {
             assert.ok(font.unitsPerEm > 0, 'Should have unitsPerEm');
         });
         
-        it('should validate CID-keyed font', function() {
-            const fontPath = path.join(__dirname, 'fonts/makeSans.otf');
+        it('should validate CAT-Eckmann TTF font', function() {
+            const fontPath = path.join(__dirname, 'fonts/CAT-Eckmann.ttf');
             if (!fs.existsSync(fontPath)) {
                 this.skip();
             }
-            
+
             const buffer = fs.readFileSync(fontPath);
             const font = opentype.parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
-            
+
             assert.ok(font.glyphs.length > 0, 'Should have glyphs');
+
+            // Re-export and validate
+            const outputPath = path.join(OUTPUT_DIR, 'CAT-Eckmann-reexport.ttf');
+            fs.writeFileSync(outputPath, Buffer.from(font.toArrayBuffer()));
+
+            const issues = runFonttoolsValidation(outputPath);
+            const errors = issues.filter(i => i.severity === 'ERROR' || i.severity === 'FATAL');
+            assert.strictEqual(errors.length, 0,
+                `Font has errors: ${errors.map(e => `[${e.test}] ${e.message}`).join(', ')}`);
+        });
+    });
+
+    describe('Additional fonts - double roundtrip', function() {
+        this.timeout(60000);
+
+        const additionalFonts = [
+            { name: 'HIKARUMONO-Regular.otf', outName: 'HIKARUMONO-Regular-reexport.ttf' },
+            { name: 'SchulfibelNord-Linie2.ttf', outName: 'SchulfibelNord-Linie2-reexport.ttf' },
+        ];
+
+        for (const { name, outName } of additionalFonts) {
+            it(`should double-roundtrip ${name}`, function() {
+                const fontPath = path.join(__dirname, 'fonts', name);
+                if (!fs.existsSync(fontPath)) { this.skip(); }
+
+                const buffer = fs.readFileSync(fontPath);
+                const font = opentype.parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+                assert.ok(font.glyphs.length > 0, 'Should have glyphs');
+
+                const outputPath = path.join(OUTPUT_DIR, outName);
+                fs.writeFileSync(outputPath, Buffer.from(font.toArrayBuffer()));
+
+                const issues = runFonttoolsValidation(outputPath);
+                const errors = issues.filter(i => i.severity === 'ERROR' || i.severity === 'FATAL');
+                assert.strictEqual(errors.length, 0,
+                    `Font has errors: ${errors.map(e => `[${e.test}] ${e.message}`).join(', ')}`);
+            });
+        }
+
+        it('should double-roundtrip all Baltic fonts', function() {
+            const balticDir = path.join(__dirname, 'fonts/Baltic_Fonts');
+            if (!fs.existsSync(balticDir)) { this.skip(); }
+
+            const ttfs = fs.readdirSync(balticDir).filter(f => f.endsWith('.ttf'));
+            assert.ok(ttfs.length > 0, 'Baltic_Fonts folder should contain TTF files');
+
+            for (const name of ttfs) {
+                const fontPath = path.join(balticDir, name);
+                const buffer = fs.readFileSync(fontPath);
+                const font = opentype.parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+                assert.ok(font.glyphs.length > 0, `${name}: should have glyphs`);
+
+                const outName = `Baltic-${name.replace(/ /g, '_')}-reexport.ttf`;
+                const outputPath = path.join(OUTPUT_DIR, outName);
+                fs.writeFileSync(outputPath, Buffer.from(font.toArrayBuffer()));
+
+                const issues = runFonttoolsValidation(outputPath);
+                const errors = issues.filter(i => i.severity === 'ERROR' || i.severity === 'FATAL');
+                assert.strictEqual(errors.length, 0,
+                    `${name} has errors: ${errors.map(e => `[${e.test}] ${e.message}`).join(', ')}`);
+            }
         });
     });
 
