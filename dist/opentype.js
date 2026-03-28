@@ -318,10 +318,13 @@ var opentype = (() => {
 
   // src/util.js
   function isBrowser() {
-    return typeof window !== "undefined" || typeof WorkerGlobalScope !== "undefined";
+    return typeof window !== "undefined" || typeof /** @type {{WorkerGlobalScope?: unknown}} */
+    globalThis.WorkerGlobalScope !== "undefined";
   }
   function isNode() {
-    return typeof window === "undefined" && typeof global === "object" && typeof process === "object";
+    return typeof window === "undefined" && typeof /** @type {{global?: unknown, process?: unknown}} */
+    globalThis.global === "object" && typeof /** @type {{global?: unknown, process?: unknown}} */
+    globalThis.process === "object";
   }
   function checkArgument(expression, message) {
     if (!expression) {
@@ -548,6 +551,11 @@ var opentype = (() => {
     this.fill = "black";
     this.stroke = null;
     this.strokeWidth = 1;
+    this._layers = void 0;
+    this._image = void 0;
+    this._paint = void 0;
+    this._alpha = void 0;
+    this._transform = void 0;
   }
   var decimalRoundingCache = {};
   function roundDecimal(float, places) {
@@ -560,7 +568,11 @@ var opentype = (() => {
       const roundedDecimalPart2 = decimalRoundingCache[places][decimalPart];
       return integerPart + roundedDecimalPart2;
     }
-    const roundedDecimalPart = +(Math.round(decimalPart + "e+" + places) + "e-" + places);
+    const roundedDecimalPart = +(Math.round(
+      /** @type {number} */
+      /** @type {unknown} */
+      decimalPart + "e+" + places
+    ) + "e-" + places);
     decimalRoundingCache[places][decimalPart] = roundedDecimalPart;
     return integerPart + roundedDecimalPart;
   }
@@ -716,8 +728,12 @@ var opentype = (() => {
         }
       }
     }
-    for (let i = 0; i < pathData.length; i++) {
-      const token = pathData.charAt(i);
+    const pathStr = (
+      /** @type {string} */
+      pathData
+    );
+    for (let i = 0; i < pathStr.length; i++) {
+      const token = pathStr.charAt(i);
       const lastBuffer = buffer[buffer.length - 1];
       if (number.indexOf(token) > -1) {
         buffer[buffer.length - 1] += token;
@@ -830,8 +846,12 @@ var opentype = (() => {
     });
   };
   Path.prototype.extend = function(pathOrCommands) {
-    if (pathOrCommands.commands) {
-      pathOrCommands = pathOrCommands.commands;
+    if (
+      /** @type {Path} */
+      pathOrCommands.commands
+    ) {
+      pathOrCommands = /** @type {Path} */
+      pathOrCommands.commands;
     } else if (pathOrCommands instanceof bbox_default) {
       const box = pathOrCommands;
       this.moveTo(box.x1, box.y1);
@@ -1029,7 +1049,11 @@ var opentype = (() => {
       for (let l = 0; l < this._layers.length; l++) {
         group.appendChild(this._layers[l].toDOMElement(options));
       }
-      return group;
+      return (
+        /** @type {SVGPathElement} */
+        /** @type {unknown} */
+        group
+      );
     }
     if (!pathData) {
       pathData = this.toPathData(options);
@@ -1046,7 +1070,7 @@ var opentype = (() => {
     }
     if (this.stroke) {
       newPath.setAttribute("stroke", this.stroke);
-      newPath.setAttribute("stroke-width", this.strokeWidth);
+      newPath.setAttribute("stroke-width", String(this.strokeWidth));
     }
     return newPath;
   };
@@ -1881,7 +1905,7 @@ var opentype = (() => {
       } else if (entrySize === 3) {
         entry = this.parseUInt24();
       } else if (entrySize === 4) {
-        entry = this.getULong();
+        entry = this.parseULong();
       } else {
         throw new Error(`Invalid entry size of ${entrySize}`);
       }
@@ -2618,7 +2642,12 @@ var opentype = (() => {
       const k = parseInt(keys[i], 0);
       const v = m[k];
       const operandValue = v.blend ? Array.isArray(v.value) ? v.value.concat([v.blend]) : [v.value, v.blend] : v.value;
-      const enc1 = encode.OPERAND(operandValue, v.type);
+      const enc1 = encode.OPERAND(
+        /** @type {Array} */
+        /** @type {unknown} */
+        operandValue,
+        v.type
+      );
       const enc2 = encode.OPERATOR(k);
       for (let j = 0; j < enc1.length; j++) {
         d.push(enc1[j]);
@@ -2768,7 +2797,8 @@ var opentype = (() => {
       }
       const bytes = encodingFunction(value);
       if (field.type === "TABLE") {
-        if (value && value.fields !== null) {
+        if (value && /** @type {Record<string, unknown>} */
+        value.fields !== null) {
           subtableOffsets.push(d.length);
           subtables.push(bytes);
         }
@@ -2846,10 +2876,18 @@ var opentype = (() => {
     }
   }
   Table.prototype.encode = function() {
-    return encode.TABLE(this);
+    return encode.TABLE(
+      /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */
+      /** @type {unknown} */
+      this
+    );
   };
   Table.prototype.sizeOf = function() {
-    return sizeOf.TABLE(this);
+    return sizeOf.TABLE(
+      /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */
+      /** @type {unknown} */
+      this
+    );
   };
   function ushortList(itemName, list, count) {
     if (count === void 0) {
@@ -3712,6 +3750,11 @@ var opentype = (() => {
     }
     return usePath.toDOMElement(options);
   };
+  Glyph.prototype.path;
+  Glyph.prototype.isComposite;
+  Glyph.prototype._advanceWidth;
+  Glyph.prototype._leftSideBearing;
+  Glyph.prototype.getBlendPath;
   var glyph_default = Glyph;
 
   // src/tables/name.js
@@ -4645,7 +4688,27 @@ var opentype = (() => {
       }
     }
     nameRecords.sort(function(a, b) {
-      return a.platformID - b.platformID || a.encodingID - b.encodingID || a.languageID - b.languageID || a.nameID - b.nameID;
+      const ar = (
+        /** @type {Record<string, unknown>} */
+        /** @type {unknown} */
+        a
+      );
+      const br = (
+        /** @type {Record<string, unknown>} */
+        /** @type {unknown} */
+        b
+      );
+      return (
+        /** @type {number} */
+        ar.platformID - /** @type {number} */
+        br.platformID || /** @type {number} */
+        ar.encodingID - /** @type {number} */
+        br.encodingID || /** @type {number} */
+        ar.languageID - /** @type {number} */
+        br.languageID || /** @type {number} */
+        ar.nameID - /** @type {number} */
+        br.nameID
+      );
     });
     const t = new table_default.Table("name", [
       { name: "format", type: "USHORT", value: 0 },
@@ -4894,18 +4957,26 @@ var opentype = (() => {
       { name: "rangeShift", type: "USHORT", value: 0 }
     ]);
     const t = new table_default.Table("cmap", cmapTable);
-    t.segments = [];
+    const tRec = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      t
+    );
+    tRec.segments = [];
     for (i = 0; i < glyphs.length; i += 1) {
       const glyph = glyphs.get(i);
       for (let j = 0; j < glyph.unicodes.length; j += 1) {
-        addSegment(t, glyph.unicodes[j], i);
+        addSegment(tRec, glyph.unicodes[j], i);
       }
     }
-    t.segments.sort(function(a, b) {
+    tRec.segments.sort(function(a, b) {
       return a.start - b.start;
     });
-    addTerminatorSegment(t);
-    const segCount = t.segments.length;
+    addTerminatorSegment(tRec);
+    const segCount = (
+      /** @type {Array} */
+      tRec.segments.length
+    );
     let segCountToRemove = 0;
     let endCounts = [];
     let startCounts = [];
@@ -4914,7 +4985,10 @@ var opentype = (() => {
     let glyphIds = [];
     let cmap12Groups = [];
     for (i = 0; i < segCount; i += 1) {
-      const segment = t.segments[i];
+      const segment = (
+        /** @type {Array<{start: number, end: number, delta: number, offset: number, glyphIndex?: number, glyphId?: number}>} */
+        tRec.segments[i]
+      );
       if (segment.end <= 65535 && segment.start <= 65535) {
         endCounts.push({ name: "end_" + i, type: "USHORT", value: segment.end });
         startCounts.push({ name: "start_" + i, type: "USHORT", value: segment.start });
@@ -4932,10 +5006,12 @@ var opentype = (() => {
         cmap12Groups.push({ name: "cmap12Glyph_" + i, type: "ULONG", value: segment.glyphIndex });
       }
     }
-    t.segCountX2 = (segCount - segCountToRemove) * 2;
-    t.searchRange = Math.pow(2, Math.floor(Math.log(segCount - segCountToRemove) / Math.log(2))) * 2;
-    t.entrySelector = Math.log(t.searchRange / 2) / Math.log(2);
-    t.rangeShift = t.segCountX2 - t.searchRange;
+    const segCountX2 = (segCount - segCountToRemove) * 2;
+    tRec.segCountX2 = segCountX2;
+    const searchRange2 = Math.pow(2, Math.floor(Math.log(segCount - segCountToRemove) / Math.log(2))) * 2;
+    tRec.searchRange = searchRange2;
+    tRec.entrySelector = Math.log(searchRange2 / 2) / Math.log(2);
+    tRec.rangeShift = segCountX2 - searchRange2;
     for (let i2 = 0; i2 < endCounts.length; i2++) {
       t.fields.push(endCounts[i2]);
     }
@@ -4952,13 +5028,14 @@ var opentype = (() => {
     for (let i2 = 0; i2 < glyphIds.length; i2++) {
       t.fields.push(glyphIds[i2]);
     }
-    t.cmap4Length = 14 + // Subtable header
+    const cmap4Length = 14 + // Subtable header
     endCounts.length * 2 + 2 + // reservedPad
     startCounts.length * 2 + idDeltas.length * 2 + idRangeOffsets.length * 2 + glyphIds.length * 2;
+    tRec.cmap4Length = cmap4Length;
     if (!isPlan0Only) {
       const cmap12Length = 16 + // Subtable header
       cmap12Groups.length * 4;
-      t.cmap12Offset = 12 + 2 * 2 + 4 + t.cmap4Length;
+      tRec.cmap12Offset = 12 + 2 * 2 + 4 + cmap4Length;
       t.fields.push(...[
         { name: "cmap12Format", type: "USHORT", value: 12 },
         { name: "cmap12Reserved", type: "USHORT", value: 0 },
@@ -6778,8 +6855,13 @@ var opentype = (() => {
   }
   GlyphSet.prototype.get = function(index) {
     if (this.glyphs[index] === void 0) {
-      if (this.font._push) {
-        this.font._push(index);
+      const font = (
+        /** @type {Record<string, unknown>} */
+        this.font
+      );
+      if (font._push) {
+        /** @type {Function} */
+        font._push(index);
       } else {
         throw new Error(`Glyph ${index} not loaded and no _push function available`);
       }
@@ -6787,15 +6869,32 @@ var opentype = (() => {
         this.glyphs[index] = this.glyphs[index]();
       }
       let glyph = this.glyphs[index];
-      let unicodeObj = this.font._IndexToUnicodeMap[index];
+      const indexToUnicodeMap = (
+        /** @type {Record<string, unknown>} */
+        font._IndexToUnicodeMap
+      );
+      let unicodeObj = (
+        /** @type {{ unicodes: number[] } | undefined} */
+        indexToUnicodeMap && indexToUnicodeMap[index]
+      );
       if (unicodeObj) {
         for (let j = 0; j < unicodeObj.unicodes.length; j++)
           glyph.addUnicode(unicodeObj.unicodes[j]);
       }
-      if (this.font.cffEncoding) {
-        glyph.name = this.font.cffEncoding.charset[index];
-      } else if (this.font.glyphNames.names) {
-        glyph.name = this.font.glyphNames.glyphIndexToName(index);
+      const cffEncoding = (
+        /** @type {Record<string, unknown>} */
+        font.cffEncoding
+      );
+      const glyphNames = (
+        /** @type {Record<string, unknown>} */
+        font.glyphNames
+      );
+      if (cffEncoding) {
+        glyph.name = /** @type {string[]} */
+        cffEncoding.charset[index];
+      } else if (glyphNames && glyphNames.names) {
+        glyph.name = /** @type {{ glyphIndexToName: Function }} */
+        glyphNames.glyphIndexToName(index);
       }
       if (this.font._hmtxTableData && this.font._hmtxTableData[index] !== void 0) {
         this.glyphs[index].advanceWidth = this.font._hmtxTableData[index].advanceWidth;
@@ -6818,6 +6917,8 @@ var opentype = (() => {
   function ttfGlyphLoader(font, index, parseGlyph2, data, position, buildPath2) {
     return function() {
       const glyph = new glyph_default({ index, font });
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
       glyph.path = function() {
         parseGlyph2(glyph, data, position);
         const path = buildPath2(font.glyphs, glyph);
@@ -6836,6 +6937,8 @@ var opentype = (() => {
     return function() {
       const glyph = new glyph_default({ index, font });
       glyph._charString = charstring;
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
       glyph.path = function() {
         const path = parseCFFCharstring2(font, glyph, charstring, version);
         path.unitsPerEm = font.unitsPerEm;
@@ -6862,7 +6965,12 @@ var opentype = (() => {
       );
     }
     const t = new table_default.Record("ItemVariationStore", fields);
-    let currentOffset = t.variationRegionListOffset = t.sizeOf();
+    const tRec = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      t
+    );
+    let currentOffset = tRec.variationRegionListOffset = t.sizeOf();
     const axisCount = fvar.axes.length;
     t.fields.push({ name: "axisCount", type: "USHORT", value: axisCount });
     const VariationRegionList = table_default.recordList("variationRegions", variationRegions, (record, i) => {
@@ -6914,8 +7022,13 @@ var opentype = (() => {
       { name: "length", type: "USHORT", value: 0 },
       { name: "itemVariationStore", type: "RECORD", value: inner }
     ]);
-    t.length = inner.sizeOf();
-    t.itemVariationStore = inner;
+    const tRec2 = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      t
+    );
+    tRec2.length = inner.sizeOf();
+    tRec2.itemVariationStore = inner;
     return t;
   }
 
@@ -7311,7 +7424,10 @@ var opentype = (() => {
     return fontDictArray;
   }
   function gatherCFFTopDicts(data, start, cffIndex, strings, version) {
-    const topDictArray = [];
+    const topDictArray = (
+      /** @type {Array<Record<string, unknown>>} */
+      []
+    );
     for (let iTopDict = 0; iTopDict < cffIndex.length; iTopDict += 1) {
       const topDictData = new DataView(new Uint8Array(cffIndex[iTopDict]).buffer);
       const topDict = parseCFFTopDict(topDictData, 0, strings, version);
@@ -7333,7 +7449,11 @@ var opentype = (() => {
         }
         topDict._privateDict = privateDict;
       }
-      topDictArray.push(topDict);
+      topDictArray.push(
+        /** @type {Record<string, unknown>} */
+        /** @type {unknown} */
+        topDict
+      );
     }
     return topDictArray;
   }
@@ -7420,11 +7540,27 @@ var opentype = (() => {
     return blends;
   }
   function applyPaintType(font, path) {
-    const paintType = font.tables.cff && font.tables.cff.topDict && font.tables.cff.topDict.paintType || 0;
+    const tables = (
+      /** @type {Record<string, unknown>} */
+      font.tables || {}
+    );
+    const cff = (
+      /** @type {Record<string, unknown>} */
+      tables.cff || {}
+    );
+    const topDict = (
+      /** @type {Record<string, unknown>} */
+      cff.topDict || {}
+    );
+    const paintType = (
+      /** @type {number} */
+      topDict.paintType || 0
+    );
     if (paintType === 2) {
       path.fill = null;
       path.stroke = "black";
-      path.strokeWidth = font.tables.cff.topDict.strokeWidth || 0;
+      path.strokeWidth = /** @type {number} */
+      topDict.strokeWidth || 0;
     }
     return paintType;
   }
@@ -7929,7 +8065,12 @@ var opentype = (() => {
               blendVector = font.variation && coords && font.variation.process.getBlendVector(vstore, vsindex, coords);
             }
             var n = stack.pop();
-            var axisCount = blendVector ? blendVector.length : vstore.itemVariationSubtables[vsindex].regionIndexes.length;
+            var vstoreRec = (
+              /** @type {{ itemVariationSubtables: Array<{ regionIndexes: unknown[] }> }} */
+              /** @type {unknown} */
+              vstore
+            );
+            var axisCount = blendVector ? blendVector.length : vstoreRec.itemVariationSubtables[vsindex].regionIndexes.length;
             var deltaSetCount = n * axisCount;
             var delta = stack.length - deltaSetCount;
             var deltaSetIndex = delta - n;
@@ -8330,8 +8471,12 @@ var opentype = (() => {
     }
     resultTable.topDict = topDict;
     if (topDict._privateDict) {
-      font.defaultWidthX = topDict._privateDict.defaultWidthX;
-      font.nominalWidthX = topDict._privateDict.nominalWidthX;
+      const privateDict = (
+        /** @type {Record<string, unknown>} */
+        topDict._privateDict
+      );
+      font.defaultWidthX = privateDict.defaultWidthX;
+      font.nominalWidthX = privateDict.nominalWidthX;
     }
     if (header.formatMajor < 2 && topDict.ros[0] !== void 0 && topDict.ros[1] !== void 0) {
       font.isCIDFont = true;
@@ -8413,21 +8558,46 @@ var opentype = (() => {
       } else if (topDict.encoding === 1) {
         encoding = cffExpertEncoding;
       } else {
-        encoding = parseCFFEncoding(data, start + topDict.encoding);
+        encoding = parseCFFEncoding(data, start + /** @type {number} */
+        topDict.encoding);
       }
-      font.cffEncoding = new CffEncoding(encoding, charset);
+      font.cffEncoding = new CffEncoding(
+        /** @type {string} */
+        /** @type {unknown} */
+        encoding,
+        /** @type {Array} */
+        /** @type {unknown} */
+        charset
+      );
       font.encoding = font.encoding || font.cffEncoding;
     }
     font.glyphs = new glyphset_default.GlyphSet(font);
     if (opt.lowMemory) {
       font._push = function(i) {
-        const charString = getCffIndexObject(i, charStringsIndex.offsets, data, start + topDict.charStrings, void 0, header.formatMajor);
-        font.glyphs.push(i, glyphset_default.cffGlyphLoader(font, i, parseCFFCharstring, charString, header.formatMajor));
+        const charString = getCffIndexObject(i, charStringsIndex.offsets, data, start + /** @type {number} */
+        topDict.charStrings, void 0, header.formatMajor);
+        font.glyphs.push(i, glyphset_default.cffGlyphLoader(
+          font,
+          i,
+          parseCFFCharstring,
+          /** @type {string} */
+          /** @type {unknown} */
+          charString,
+          header.formatMajor
+        ));
       };
     } else {
       for (let i = 0; i < font.nGlyphs; i += 1) {
         const charString = charStringsIndex.objects[i];
-        font.glyphs.push(i, glyphset_default.cffGlyphLoader(font, i, parseCFFCharstring, charString, header.formatMajor));
+        font.glyphs.push(i, glyphset_default.cffGlyphLoader(
+          font,
+          i,
+          parseCFFCharstring,
+          /** @type {string} */
+          /** @type {unknown} */
+          charString,
+          header.formatMajor
+        ));
       }
     }
     if (topDict.vstore) {
@@ -8463,9 +8633,14 @@ var opentype = (() => {
     const t = new table_default.Record("Name INDEX", [
       { name: "names", type: "INDEX", value: [] }
     ]);
-    t.names = [];
+    const tRec = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      t
+    );
+    tRec.names = [];
     for (let i = 0; i < fontNames.length; i += 1) {
-      t.names.push({ name: "name_" + i, type: "NAME", value: fontNames[i] });
+      tRec.names.push({ name: "name_" + i, type: "NAME", value: fontNames[i] });
     }
     return t;
   }
@@ -8521,6 +8696,7 @@ var opentype = (() => {
     const t = new table_default.Record("Top DICT", [
       { name: "dict", type: "DICT", value: {} }
     ]);
+    /** @type {unknown} */
     t.dict = makeDict(version > 1 ? TOP_DICT_META_CFF2 : TOP_DICT_META, attrs, strings);
     return t;
   }
@@ -8528,6 +8704,7 @@ var opentype = (() => {
     const t = new table_default.Record("Top DICT INDEX", [
       { name: "topDicts", type: "INDEX", value: [] }
     ]);
+    /** @type {unknown} */
     t.topDicts = [{ name: "topDict_0", type: "TABLE", value: topDict }];
     return t;
   }
@@ -8535,9 +8712,14 @@ var opentype = (() => {
     const t = new table_default.Record("String INDEX", [
       { name: "strings", type: "INDEX", value: [] }
     ]);
-    t.strings = [];
+    const tRec = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      t
+    );
+    tRec.strings = [];
     for (let i = 0; i < strings.length; i += 1) {
-      t.strings.push({ name: "string_" + i, type: "STRING", value: strings[i] });
+      tRec.strings.push({ name: "string_" + i, type: "STRING", value: strings[i] });
     }
     return t;
   }
@@ -8734,12 +8916,17 @@ var opentype = (() => {
     const t = new table_default.Record("CharStrings INDEX", [
       { name: "charStrings", type: version > 1 ? "INDEX32" : "INDEX", value: [] }
     ]);
+    const tRec = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      t
+    );
     for (let i = 0; i < glyphs.length; i += 1) {
       const glyph = glyphs.get(i);
       if (!glyph)
         continue;
       const ops = glyphToOps(glyph, version, glyphs.font) || [];
-      t.charStrings.push({ name: glyph.name || "glyph_" + i, type: "CHARSTRING", value: ops });
+      tRec.charStrings.push({ name: glyph.name || "glyph_" + i, type: "CHARSTRING", value: ops });
     }
     return t;
   }
@@ -8747,9 +8934,14 @@ var opentype = (() => {
     const t = new table_default.Record("Font DICT INDEX", [
       { name: "fontDicts", type: "INDEX32", value: [] }
     ]);
-    t.fontDicts = [];
+    const tRec = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      t
+    );
+    tRec.fontDicts = [];
     for (let i = 0; i < fontDicts.length; i++) {
-      t.fontDicts.push({ name: `fontDict_${i}`, type: "TABLE", value: fontDicts[i] });
+      tRec.fontDicts.push({ name: `fontDict_${i}`, type: "TABLE", value: fontDicts[i] });
     }
     return t;
   }
@@ -8757,6 +8949,7 @@ var opentype = (() => {
     const t = new table_default.Record("Font DICT", [
       { name: "dict", type: "DICT", value: {} }
     ]);
+    /** @type {unknown} */
     t.dict = makeDict(FONT_DICT_META, attrs, strings);
     return t;
   }
@@ -8764,6 +8957,7 @@ var opentype = (() => {
     const t = new table_default.Record("Private DICT", [
       { name: "dict", type: "DICT", value: {} }
     ]);
+    /** @type {unknown} */
     t.dict = makeDict(version > 1 ? PRIVATE_DICT_META_CFF2 : PRIVATE_DICT_META, attrs, strings);
     return t;
   }
@@ -8871,6 +9065,7 @@ var opentype = (() => {
           privateTables.push(makePrivateDict(privAttrs, strings, 2));
           if (fd._subrs && fd._subrs.length) {
             const idx = new table_default.Record("Local Subr INDEX", [{ name: "subrs", type: "INDEX32", value: [] }]);
+            /** @type {unknown} */
             idx.subrs = fd._subrs.map((bytes, j) => ({ name: `subr_${i}_${j}`, type: "LITERAL", value: bytes }));
             localSubrIndexes.push(idx);
           } else {
@@ -10887,7 +11082,11 @@ var opentype = (() => {
         canonicalIndex.push(cidx);
       }
       const coverageTable = new table_default.Coverage(subtable.coverage);
-      const coverageBytes = encode.TABLE(coverageTable);
+      const coverageBytes = encode.TABLE(
+        /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */
+        /** @type {unknown} */
+        coverageTable
+      );
       const headerSize = 10 + pairSets.length * 2;
       let offset = headerSize;
       const uniquePairSetPositions = [];
@@ -10965,9 +11164,21 @@ var opentype = (() => {
       const class1Count = subtable.class1Count || 0;
       const class2Count = subtable.class2Count || 0;
       const classRecords = subtable.classRecords || [];
-      const coverageBytes = encode.TABLE(new table_default.Coverage(subtable.coverage));
-      const classDef1Bytes = subtable.classDef1 ? encode.TABLE(new table_default.ClassDef(subtable.classDef1)) : [];
-      const classDef2Bytes = subtable.classDef2 ? encode.TABLE(new table_default.ClassDef(subtable.classDef2)) : [];
+      const coverageBytes = encode.TABLE(
+        /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */
+        /** @type {unknown} */
+        new table_default.Coverage(subtable.coverage)
+      );
+      const classDef1Bytes = subtable.classDef1 ? encode.TABLE(
+        /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */
+        /** @type {unknown} */
+        new table_default.ClassDef(subtable.classDef1)
+      ) : [];
+      const classDef2Bytes = subtable.classDef2 ? encode.TABLE(
+        /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */
+        /** @type {unknown} */
+        new table_default.ClassDef(subtable.classDef2)
+      ) : [];
       const d = [];
       const devicePatches = [];
       pushUShort(d, 2);
@@ -11011,7 +11222,11 @@ var opentype = (() => {
     var _a, _b, _c, _d, _e;
     check_default.assert(subtable.posFormat === 1, "Lookup type 3 posFormat must be 1.");
     const coverageTable = makeCoverageTable(subtable.coverage);
-    const coverageSize = (coverageTable == null ? void 0 : coverageTable.sizeOf()) || 0;
+    const coverageSize = (
+      /** @type {{ sizeOf: () => number }} */
+      /** @type {unknown} */
+      (coverageTable == null ? void 0 : coverageTable.sizeOf()) || 0
+    );
     const entryExitCount = ((_a = subtable.entryExitRecords) == null ? void 0 : _a.length) || 0;
     const anchorTables = [];
     if (subtable.entryExitRecords) {
@@ -11293,8 +11508,16 @@ var opentype = (() => {
       const backtrackCoverageTable = makeCoverageTable(subtable.backtrackCoverage);
       const inputCoverageTable = makeCoverageTable(subtable.inputCoverage);
       const headerSize = 6;
-      const backtrackSize = (backtrackCoverageTable == null ? void 0 : backtrackCoverageTable.sizeOf()) || 0;
-      const inputSize = (inputCoverageTable == null ? void 0 : inputCoverageTable.sizeOf()) || 0;
+      const backtrackSize = (
+        /** @type {{ sizeOf: () => number }} */
+        /** @type {unknown} */
+        (backtrackCoverageTable == null ? void 0 : backtrackCoverageTable.sizeOf()) || 0
+      );
+      const inputSize = (
+        /** @type {{ sizeOf: () => number }} */
+        /** @type {unknown} */
+        (inputCoverageTable == null ? void 0 : inputCoverageTable.sizeOf()) || 0
+      );
       const posRules = subtable.posRuleSet || [];
       return new table_default.Table("chainingContextTable", [
         { name: "posFormat", type: "USHORT", value: 1 },
@@ -11941,6 +12164,16 @@ var opentype = (() => {
       if (clipListOffset > 0) {
         result.clipList = parseClipList(data, start + clipListOffset);
       }
+      const headerSize = 34;
+      const tableEnd = data.byteLength;
+      if (itemVariationStoreOffset >= headerSize && start + itemVariationStoreOffset + 4 < tableEnd) {
+        const ivsParser = new Parser(data, start + itemVariationStoreOffset);
+        result.varStore = ivsParser.parseItemVariationStore();
+      }
+      if (varIndexMapOffset >= headerSize && start + varIndexMapOffset + 4 < tableEnd) {
+        const dimParser = new Parser(data, start + varIndexMapOffset);
+        result.varIndexMap = dimParser.parseDeltaSetIndexMap();
+      }
       result._v1Offsets = {
         baseGlyphListOffset,
         layerListOffset,
@@ -12482,7 +12715,126 @@ var opentype = (() => {
       { name: "colrV1Data", type: "LITERAL", value: new Uint8Array(buf) }
     ]);
   }
-  var colr_default = { parse: parseColrTable, make: makeColrTable, PaintFormat, CompositeMode };
+  function getClipBoxAtCoords(colr, glyphID, fvar, coords) {
+    var _a;
+    const clipList = (
+      /** @type {Record<string, unknown>} */
+      colr.clipList
+    );
+    if (!clipList || !clipList.clips)
+      return null;
+    const clip = (
+      /** @type {Array<{startGlyphID: number, endGlyphID: number, clipBox: {format: number, xMin: number, yMin: number, xMax: number, yMax: number, varIndexBase?: number}}>} */
+      clipList.clips.find(
+        (c) => glyphID >= c.startGlyphID && glyphID <= c.endGlyphID
+      )
+    );
+    if (!clip || !clip.clipBox)
+      return null;
+    const box = clip.clipBox;
+    const result = { xMin: box.xMin, yMin: box.yMin, xMax: box.xMax, yMax: box.yMax };
+    if (box.format !== 2 || box.varIndexBase === void 0)
+      return result;
+    if (!colr.varStore || !fvar)
+      return result;
+    const normalizedCoords = [];
+    for (
+      const axis of
+      /** @type {Array<{tag: string, defaultValue: number, minValue: number, maxValue: number}>} */
+      fvar.axes
+    ) {
+      const val = (_a = coords[axis.tag]) != null ? _a : axis.defaultValue;
+      let norm;
+      if (val === axis.defaultValue) {
+        norm = 0;
+      } else if (val < axis.defaultValue) {
+        norm = -(axis.defaultValue - val) / (axis.defaultValue - axis.minValue || 1);
+      } else {
+        norm = (val - axis.defaultValue) / (axis.maxValue - axis.defaultValue || 1);
+      }
+      normalizedCoords.push(Math.max(-1, Math.min(1, norm)));
+    }
+    const fields = ["xMin", "yMin", "xMax", "yMax"];
+    for (let i = 0; i < fields.length; i++) {
+      let varIdx = box.varIndexBase + i;
+      let outerIndex, innerIndex;
+      const varIndexMap = (
+        /** @type {Record<string, unknown>} */
+        colr.varIndexMap
+      );
+      const varIndexMapArr = varIndexMap && /** @type {Array<{outerIndex: number, innerIndex: number}>} */
+      varIndexMap.map;
+      if (varIndexMapArr && varIdx < varIndexMapArr.length) {
+        const entry = varIndexMapArr[varIdx];
+        outerIndex = entry.outerIndex;
+        innerIndex = entry.innerIndex;
+      } else {
+        outerIndex = 0;
+        innerIndex = varIdx;
+      }
+      if (outerIndex < 0 || outerIndex === 65535 || innerIndex === 65535)
+        continue;
+      const varStore = (
+        /** @type {Record<string, unknown>} */
+        colr.varStore
+      );
+      const subtable = (
+        /** @type {Array<Record<string, unknown>>} */
+        varStore.itemVariationSubtables[outerIndex]
+      );
+      if (!subtable)
+        continue;
+      const deltaSet = (
+        /** @type {Array<number[]>} */
+        subtable.deltaSets[innerIndex]
+      );
+      if (!deltaSet)
+        continue;
+      let delta = 0;
+      for (let r = 0; r < /** @type {number[]} */
+      subtable.regionIndexes.length; r++) {
+        const regionIdx = (
+          /** @type {number[]} */
+          subtable.regionIndexes[r]
+        );
+        const region = (
+          /** @type {Array<Record<string, unknown>>} */
+          varStore.variationRegions[regionIdx]
+        );
+        if (!region)
+          continue;
+        let scalar = 1;
+        const regionAxes = (
+          /** @type {Array<{peakCoord: number, startCoord: number, endCoord: number}>} */
+          region.regionAxes
+        );
+        for (let a = 0; a < regionAxes.length && a < normalizedCoords.length; a++) {
+          const ra = regionAxes[a];
+          const coord = normalizedCoords[a];
+          if (coord === 0 || ra.peakCoord === 0) {
+            if (ra.peakCoord !== 0)
+              scalar = 0;
+            continue;
+          }
+          if (coord < ra.startCoord || coord > ra.endCoord) {
+            scalar = 0;
+            break;
+          }
+          if (coord === ra.peakCoord)
+            continue;
+          if (coord < ra.peakCoord) {
+            scalar *= (coord - ra.startCoord) / (ra.peakCoord - ra.startCoord);
+          } else {
+            scalar *= (ra.endCoord - coord) / (ra.endCoord - ra.peakCoord);
+          }
+        }
+        delta += deltaSet[r] * scalar;
+      }
+      result[fields[i]] += Math.round(delta);
+    }
+    return result;
+  }
+  var colr_default = { parse: parseColrTable, make: makeColrTable, getClipBoxAtCoords, PaintFormat, CompositeMode };
 
   // src/tables/cvt.js
   function parseCvtTable(data, start, length) {
@@ -12548,7 +12900,7 @@ var opentype = (() => {
   var prep_default = { parse: parsePrepTable, make: makePrepTable };
 
   // src/tables/fvar.js
-  function makeFvarAxis(n, axis) {
+  function makeFvarAxis(n, axis, _names) {
     return [
       { name: "tag_" + n, type: "TAG", value: axis.tag },
       { name: "minValue_" + n, type: "FIXED", value: axis.minValue << 16 },
@@ -12624,20 +12976,29 @@ var opentype = (() => {
       { name: "instanceCount", type: "USHORT", value: fvar.instances.length },
       { name: "instanceSize", type: "USHORT", value: 4 + fvar.axes.length * 4 }
     ]);
-    result.offsetToData = result.sizeOf();
+    const resultRec = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      result
+    );
+    resultRec.offsetToData = result.sizeOf();
     for (let i = 0; i < fvar.axes.length; i++) {
-      result.fields = result.fields.concat(makeFvarAxis(i, fvar.axes[i], names));
+      resultRec.fields = /** @type {Array} */
+      resultRec.fields.concat(makeFvarAxis(i, fvar.axes[i], names));
     }
     const optionalFields = {};
     for (let j = 0; j < fvar.instances.length; j++) {
       if (fvar.instances[j].postScriptNameID !== void 0) {
-        result.instanceSize += 2;
+        resultRec.instanceSize;
+        resultRec.instanceSize = /** @type {number} */
+        resultRec.instanceSize + 2;
         optionalFields.postScriptNameID = true;
         break;
       }
     }
     for (let j = 0; j < fvar.instances.length; j++) {
-      result.fields = result.fields.concat(makeFvarInstance(
+      resultRec.fields = /** @type {Array} */
+      resultRec.fields.concat(makeFvarInstance(
         j,
         fvar.instances[j],
         fvar.axes,
@@ -12676,7 +13037,8 @@ var opentype = (() => {
     ordering: Parser.uShort
   };
   var axisValueParsers = new Array(5);
-  axisValueParsers[1] = function axisValueParser1() {
+  axisValueParsers[1] = /** @this {import('../parse.js').Parser} */
+  function axisValueParser1() {
     return {
       axisIndex: this.parseUShort(),
       flags: this.parseUShort(),
@@ -12684,7 +13046,8 @@ var opentype = (() => {
       value: this.parseFixed()
     };
   };
-  axisValueParsers[2] = function axisValueParser2() {
+  axisValueParsers[2] = /** @this {import('../parse.js').Parser} */
+  function axisValueParser2() {
     return {
       axisIndex: this.parseUShort(),
       flags: this.parseUShort(),
@@ -12694,7 +13057,8 @@ var opentype = (() => {
       rangeMaxValue: this.parseFixed()
     };
   };
-  axisValueParsers[3] = function axisValueParser3() {
+  axisValueParsers[3] = /** @this {import('../parse.js').Parser} */
+  function axisValueParser3() {
     return {
       axisIndex: this.parseUShort(),
       flags: this.parseUShort(),
@@ -12703,7 +13067,8 @@ var opentype = (() => {
       linkedValue: this.parseFixed()
     };
   };
-  axisValueParsers[4] = function axisValueParser4() {
+  axisValueParsers[4] = /** @this {import('../parse.js').Parser} */
+  function axisValueParser4() {
     const axisCount = this.parseUShort();
     return {
       flags: this.parseUShort(),
@@ -12847,10 +13212,16 @@ var opentype = (() => {
       { name: "offsetToAxisValueOffsets", type: "ULONG", value: 0 },
       { name: "elidedFallbackNameID", type: "USHORT", value: STAT.elidedFallbackNameID }
     ]);
-    result.designAxesOffset = result.offsetToAxisValueOffsets = result.sizeOf();
+    const resultRec = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      result
+    );
+    resultRec.designAxesOffset = resultRec.offsetToAxisValueOffsets = result.sizeOf();
     for (let i = 0; i < STAT.axes.length; i++) {
       const axisRecord = makeSTATAxisRecord(i, STAT.axes[i]);
-      result.offsetToAxisValueOffsets += axisRecord.sizeOf();
+      resultRec.offsetToAxisValueOffsets = /** @type {number} */
+      resultRec.offsetToAxisValueOffsets + axisRecord.sizeOf();
       result.fields = result.fields.concat(axisRecord.fields);
     }
     const axisValueOffsets = [];
@@ -13301,7 +13672,7 @@ var opentype = (() => {
   var gvar_default = { make: makeGvarTable, parse: parseGvarTable };
 
   // src/tables/hvar.js
-  function parseHvarTable(data, start) {
+  function parseHvarTable(data, start, _fvar) {
     const p = new parse_default.Parser(data, start);
     const tableVersionMajor = p.parseUShort();
     const tableVersionMinor = p.parseUShort();
@@ -13838,7 +14209,8 @@ var opentype = (() => {
         if (numberOfCoordinates > 0) {
           for (let i = 0; i < numberOfCoordinates; i += 1) {
             flag = flags[i];
-            point = {};
+            point = /** @type {{ onCurve: boolean, lastPointOfContour: boolean, x?: number, y?: number }} */
+            {};
             point.onCurve = !!(flag & 1);
             point.lastPointOfContour = endPointIndices.indexOf(i) >= 0;
             points.push(point);
@@ -14388,7 +14760,10 @@ var opentype = (() => {
     const offsets = [0];
     let currentOffset = 0;
     for (let i = 0; i < glyphs.length; i++) {
-      const glyph = glyphs.get(i);
+      const glyph = (
+        /** @type {TrueTypeGlyph} */
+        glyphs.get(i)
+      );
       if (glyph.path === void 0 && typeof glyph.getPath === "function") {
         try {
           glyph.getPath();
@@ -14480,15 +14855,22 @@ var opentype = (() => {
       { name: "entrySelector", type: "USHORT", value: 0 },
       { name: "rangeShift", type: "USHORT", value: 0 }
     ]);
-    sfnt.tables = tables;
-    sfnt.numTables = tables.length;
-    const highestPowerOf2 = Math.pow(2, log22(sfnt.numTables));
-    sfnt.searchRange = 16 * highestPowerOf2;
-    sfnt.entrySelector = log22(highestPowerOf2);
-    sfnt.rangeShift = sfnt.numTables * 16 - sfnt.searchRange;
+    const sfntRec = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      sfnt
+    );
+    sfntRec.tables = tables;
+    const numTables = tables.length;
+    sfntRec.numTables = numTables;
+    const highestPowerOf2 = Math.pow(2, log22(numTables));
+    const searchRange2 = 16 * highestPowerOf2;
+    sfntRec.searchRange = searchRange2;
+    sfntRec.entrySelector = log22(highestPowerOf2);
+    sfntRec.rangeShift = numTables * 16 - searchRange2;
     const recordFields = [];
     const tableFields = [];
-    let offset = sfnt.sizeOf() + makeTableRecord().sizeOf() * sfnt.numTables;
+    let offset = sfnt.sizeOf() + makeTableRecord().sizeOf() * numTables;
     while (offset % 4 !== 0) {
       offset += 1;
       tableFields.push({ name: "padding", type: "BYTE", value: 0 });
@@ -14498,7 +14880,12 @@ var opentype = (() => {
       check_default.argument(t.tableName.length === 4, "Table name" + t.tableName + " is invalid.");
       const tableLength = t.sizeOf();
       const tableRecord = makeTableRecord(t.tableName, computeCheckSum(t.encode()), offset, tableLength);
-      recordFields.push({ name: tableRecord.tag + " Table Record", type: "RECORD", value: tableRecord });
+      const tableRecordRec = (
+        /** @type {Record<string, unknown>} */
+        /** @type {unknown} */
+        tableRecord
+      );
+      recordFields.push({ name: String(tableRecordRec.tag) + " Table Record", type: "RECORD", value: tableRecord });
       tableFields.push({ name: t.tableName + " table", type: "RECORD", value: t });
       offset += tableLength;
       check_default.argument(!isNaN(offset), "Something went wrong calculating the offset.");
@@ -14508,7 +14895,17 @@ var opentype = (() => {
       }
     }
     recordFields.sort(function(r1, r2) {
-      if (r1.value.tag > r2.value.tag) {
+      const tag1 = (
+        /** @type {{ tag: string }} */
+        /** @type {unknown} */
+        r1.value.tag
+      );
+      const tag2 = (
+        /** @type {{ tag: string }} */
+        /** @type {unknown} */
+        r2.value.tag
+      );
+      if (tag1 > tag2) {
         return 1;
       } else {
         return -1;
@@ -14543,7 +14940,10 @@ var opentype = (() => {
     let maxComponentElements = 0;
     let maxComponentDepth = 0;
     for (let i = 0; i < glyphs.length; i++) {
-      const glyphObj = glyphs.get(i);
+      const glyphObj = (
+        /** @type {import('../glyph.js').Glyph & { components?: Array<{glyphIndex: number, dx: number, dy: number}> }} */
+        glyphs.get(i)
+      );
       if (!glyphObj)
         continue;
       let numPoints = 0;
@@ -14835,6 +15235,8 @@ var opentype = (() => {
       const glyfResult = glyf_default.make(font.glyphs);
       const maxOffset = glyfResult.offsets[glyfResult.offsets.length - 1];
       const useShortLoca = maxOffset < 65536 * 2;
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
       headTable.indexToLocFormat = useShortLoca ? 0 : 1;
       for (const field of headTable.fields) {
         if (field.name === "indexToLocFormat") {
@@ -15036,13 +15438,15 @@ var opentype = (() => {
     binSearch,
     /**
      * Get or create the Layout table (GSUB, GPOS etc).
-     * @param  {boolean} create - Whether to create a new one.
-     * @return {Object} The GSUB or GPOS table.
+     * @param  {boolean} [create] - Whether to create a new one.
+     * @return {GsubTable|GposTable|undefined} The GSUB or GPOS table.
      */
     getTable: function(create) {
       let layout = this.font.tables[this.tableName];
       if (!layout && create) {
-        layout = this.font.tables[this.tableName] = this.createDefaultTable();
+        layout = this.font.tables[this.tableName] = /** @type {{ createDefaultTable: Function }} */
+        /** @type {unknown} */
+        this.createDefaultTable();
       }
       return layout;
     },
@@ -15056,9 +15460,12 @@ var opentype = (() => {
       if (!layout) {
         return [];
       }
-      return layout.scripts.map(function(script) {
-        return script.tag;
-      });
+      return (
+        /** @type {ScriptRecord[]} */
+        layout.scripts.map(function(script) {
+          return script.tag;
+        })
+      );
     },
     /**
      * Returns the best bet for a script name.
@@ -15072,8 +15479,12 @@ var opentype = (() => {
         return;
       }
       let hasLatn = false;
-      for (let i = 0; i < layout.scripts.length; i++) {
-        const name = layout.scripts[i].tag;
+      const scripts0 = (
+        /** @type {ScriptRecord[]} */
+        layout.scripts
+      );
+      for (let i = 0; i < scripts0.length; i++) {
+        const name = scripts0[i].tag;
         if (name === "DFLT")
           return name;
         if (name === "latn")
@@ -15086,15 +15497,18 @@ var opentype = (() => {
      * Returns all LangSysRecords in the given script.
      * @instance
      * @param {string} [script='DFLT']
-     * @param {boolean} create - forces the creation of this script table if it doesn't exist.
-     * @return {Object} An object with tag and script properties.
+     * @param {boolean} [create] - forces the creation of this script table if it doesn't exist.
+     * @return {ScriptTable|undefined} The script table.
      */
     getScriptTable: function(script, create) {
       const layout = this.getTable(create);
       if (layout) {
         script = script || "DFLT";
-        const scripts = layout.scripts;
-        const pos = searchTag(layout.scripts, script);
+        const scripts = (
+          /** @type {ScriptRecord[]} */
+          layout.scripts
+        );
+        const pos = searchTag(scripts, script);
         if (pos >= 0) {
           return scripts[pos].script;
         } else if (create) {
@@ -15115,24 +15529,31 @@ var opentype = (() => {
      * @instance
      * @param {string} [script='DFLT']
      * @param {string} [language='dlft']
-     * @param {boolean} create - forces the creation of this langSysTable if it doesn't exist.
-     * @return {Object}
+     * @param {boolean} [create] - forces the creation of this langSysTable if it doesn't exist.
+     * @return {LangSysTable|undefined}
      */
     getLangSysTable: function(script, language, create) {
       const scriptTable = this.getScriptTable(script, create);
       if (scriptTable) {
         if (!language || language === "dflt" || language === "DFLT") {
-          return scriptTable.defaultLangSys;
+          return (
+            /** @type {LangSysTable} */
+            scriptTable.defaultLangSys
+          );
         }
-        const pos = searchTag(scriptTable.langSysRecords, language);
+        const langSysRecords = (
+          /** @type {Array<{tag: string, langSys: LangSysTable}>} */
+          scriptTable.langSysRecords
+        );
+        const pos = searchTag(langSysRecords, language);
         if (pos >= 0) {
-          return scriptTable.langSysRecords[pos].langSys;
+          return langSysRecords[pos].langSys;
         } else if (create) {
           const langSysRecord = {
             tag: language,
             langSys: { reserved: 0, reqFeatureIndex: 65535, featureIndexes: [] }
           };
-          scriptTable.langSysRecords.splice(-1 - pos, 0, langSysRecord);
+          langSysRecords.splice(-1 - pos, 0, langSysRecord);
           return langSysRecord.langSys;
         }
       }
@@ -15142,16 +15563,22 @@ var opentype = (() => {
      * @instance
      * @param {string} [script='DFLT']
      * @param {string} [language='dlft']
-     * @param {string} feature - One of the codes listed at https://www.microsoft.com/typography/OTSPEC/featurelist.htm
-     * @param {boolean} create - forces the creation of the feature table if it doesn't exist.
-     * @return {Object}
+     * @param {string} [feature] - One of the codes listed at https://www.microsoft.com/typography/OTSPEC/featurelist.htm
+     * @param {boolean} [create] - forces the creation of the feature table if it doesn't exist.
+     * @return {{featureParams: number, lookupListIndexes: number[]}|undefined}
      */
     getFeatureTable: function(script, language, feature, create) {
       const langSysTable2 = this.getLangSysTable(script, language, create);
       if (langSysTable2) {
         let featureRecord;
-        const featIndexes = langSysTable2.featureIndexes;
-        const allFeatures = this.font.tables[this.tableName].features;
+        const featIndexes = (
+          /** @type {number[]} */
+          langSysTable2.featureIndexes
+        );
+        const allFeatures = (
+          /** @type {FeatureRecord[]} */
+          this.font.tables[this.tableName].features
+        );
         for (let i = 0; i < featIndexes.length; i++) {
           featureRecord = allFeatures[featIndexes[i]];
           if (featureRecord.tag === feature) {
@@ -15163,7 +15590,7 @@ var opentype = (() => {
           check_default.assert(index === 0 || feature >= allFeatures[index - 1].tag, "Features must be added in alphabetical order.");
           featureRecord = {
             tag: feature,
-            feature: { params: 0, lookupListIndexes: [] }
+            feature: { featureParams: 0, lookupListIndexes: [] }
           };
           allFeatures.push(featureRecord);
           featIndexes.push(index);
@@ -15178,42 +15605,76 @@ var opentype = (() => {
      * @instance
      * @param {string} [script='DFLT']
      * @param {string} [language='dlft']
-     * @param {string} feature - 4-letter feature code
-     * @param {number} lookupType - 1 to 8 (not 7 - extension lookups are unwrapped)
-     * @param {boolean} create - forces the creation of the lookup table if it doesn't exist, with no subtables.
-     * @return {Object[]}
+     * @param {string} [feature] - 4-letter feature code
+     * @param {number} [lookupType] - 1 to 8 (not 7 - extension lookups are unwrapped)
+     * @param {boolean} [create] - forces the creation of the lookup table if it doesn't exist, with no subtables.
+     * @return {GsubLookupTable[]|GposLookupTable[]}
      */
     getLookupTables: function(script, language, feature, lookupType, create) {
       const featureTable = this.getFeatureTable(script, language, feature, create);
       const tables = [];
       if (featureTable) {
         let lookupTable;
-        const lookupListIndexes = featureTable.lookupListIndexes;
-        const allLookups = this.font.tables[this.tableName].lookups;
+        const lookupListIndexes = (
+          /** @type {number[]} */
+          featureTable.lookupListIndexes
+        );
+        const allLookups = (
+          /** @type {GsubLookupTable[]|GposLookupTable[]} */
+          this.font.tables[this.tableName].lookups
+        );
         for (let i = 0; i < lookupListIndexes.length; i++) {
           lookupTable = allLookups[lookupListIndexes[i]];
           if (lookupTable.lookupType === lookupType) {
             tables.push(lookupTable);
           } else if (lookupTable.lookupType === 7 && this.tableName === "gsub") {
-            for (const subtable of lookupTable.subtables) {
+            for (
+              const subtable of
+              /** @type {import('./tables/gsub.js').GsubSubtable[]} */
+              lookupTable.subtables
+            ) {
               if (subtable.lookupType === lookupType && subtable.extension) {
-                tables.push({
-                  lookupType,
-                  lookupFlag: lookupTable.lookupFlag,
+                const virtualLookup = {
+                  lookupType: (
+                    /** @type {number} */
+                    lookupType
+                  ),
+                  lookupFlag: (
+                    /** @type {number} */
+                    lookupTable.lookupFlag
+                  ),
                   subtables: [subtable.extension],
-                  markFilteringSet: lookupTable.markFilteringSet
-                });
+                  markFilteringSet: (
+                    /** @type {number|undefined} */
+                    lookupTable.markFilteringSet
+                  )
+                };
+                tables.push(virtualLookup);
               }
             }
           } else if (lookupTable.lookupType === 9 && this.tableName === "gpos") {
-            for (const subtable of lookupTable.subtables) {
+            for (
+              const subtable of
+              /** @type {import('./tables/gpos.js').GposSubtable[]} */
+              lookupTable.subtables
+            ) {
               if (subtable.lookupType === lookupType && subtable.extension) {
-                tables.push({
-                  lookupType,
-                  lookupFlag: lookupTable.lookupFlag,
+                const virtualLookup = {
+                  lookupType: (
+                    /** @type {number} */
+                    lookupType
+                  ),
+                  lookupFlag: (
+                    /** @type {number} */
+                    lookupTable.lookupFlag
+                  ),
                   subtables: [subtable.extension],
-                  markFilteringSet: lookupTable.markFilteringSet
-                });
+                  markFilteringSet: (
+                    /** @type {number|undefined} */
+                    lookupTable.markFilteringSet
+                  )
+                };
+                tables.push(virtualLookup);
               }
             }
           }
@@ -15231,12 +15692,15 @@ var opentype = (() => {
           return [lookupTable];
         }
       }
-      return tables;
+      return (
+        /** @type {GsubLookupTable[]|GposLookupTable[]} */
+        tables
+      );
     },
     /**
      * Find a glyph in a class definition table
      * https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#class-definition-table
-     * @param {object} classDefTable - an OpenType Layout class definition table
+     * @param {ClassDefTable} classDefTable - an OpenType Layout class definition table
      * @param {number} glyphIndex - the index of the glyph to find
      * @returns {number} -1 if not found
      */
@@ -15278,15 +15742,21 @@ var opentype = (() => {
      * Format 1: the list is stored raw
      * Format 2: compact list as range records.
      * @instance
-     * @param  {Object} coverageTable
-     * @return {Array}
+     * @param  {{format: number, glyphs?: number[], ranges?: Array<{start: number, end: number}>}} coverageTable
+     * @return {number[]}
      */
     expandCoverage: function(coverageTable) {
       if (coverageTable.format === 1) {
-        return coverageTable.glyphs;
+        return (
+          /** @type {number[]} */
+          coverageTable.glyphs
+        );
       } else {
         const glyphs = [];
-        const ranges = coverageTable.ranges;
+        const ranges = (
+          /** @type {Array<{start: number, end: number}>} */
+          coverageTable.ranges
+        );
         for (let i = 0; i < ranges.length; i++) {
           const range = ranges[i];
           const start = range.start;
@@ -15343,16 +15813,36 @@ var opentype = (() => {
     }
     const adjusted = Object.assign({}, valueRecord);
     if (valueRecord.xPlaDevice) {
-      adjusted.xPlacement = (valueRecord.xPlacement || 0) + this.getVariationDelta(valueRecord.xPlaDevice, coords);
+      adjusted.xPlacement = /** @type {number} */
+      (valueRecord.xPlacement || 0) + this.getVariationDelta(
+        /** @type {Record<string, unknown>} */
+        valueRecord.xPlaDevice,
+        coords
+      );
     }
     if (valueRecord.yPlaDevice) {
-      adjusted.yPlacement = (valueRecord.yPlacement || 0) + this.getVariationDelta(valueRecord.yPlaDevice, coords);
+      adjusted.yPlacement = /** @type {number} */
+      (valueRecord.yPlacement || 0) + this.getVariationDelta(
+        /** @type {Record<string, unknown>} */
+        valueRecord.yPlaDevice,
+        coords
+      );
     }
     if (valueRecord.xAdvDevice) {
-      adjusted.xAdvance = (valueRecord.xAdvance || 0) + this.getVariationDelta(valueRecord.xAdvDevice, coords);
+      adjusted.xAdvance = /** @type {number} */
+      (valueRecord.xAdvance || 0) + this.getVariationDelta(
+        /** @type {Record<string, unknown>} */
+        valueRecord.xAdvDevice,
+        coords
+      );
     }
     if (valueRecord.yAdvDevice) {
-      adjusted.yAdvance = (valueRecord.yAdvance || 0) + this.getVariationDelta(valueRecord.yAdvDevice, coords);
+      adjusted.yAdvance = /** @type {number} */
+      (valueRecord.yAdvance || 0) + this.getVariationDelta(
+        /** @type {Record<string, unknown>} */
+        valueRecord.yAdvDevice,
+        coords
+      );
     }
     return adjusted;
   };
@@ -15861,7 +16351,11 @@ var opentype = (() => {
         }
       }
     }
-    const lookupIndex = gsub.lookups.length;
+    const gsubLookups = (
+      /** @type {Array<unknown>} */
+      gsub.lookups
+    );
+    const lookupIndex = gsubLookups.length;
     const extLookup = {
       lookupType: 7,
       // Extension
@@ -15869,7 +16363,7 @@ var opentype = (() => {
       subtables: []
       // Subtables will be added by the caller
     };
-    gsub.lookups.push(extLookup);
+    gsubLookups.push(extLookup);
     featureTable.lookupListIndexes.push(lookupIndex);
     return extLookup;
   };
@@ -15957,13 +16451,13 @@ var opentype = (() => {
     // @TODO: refactor once we migrated to ES6 modules, see https://github.com/opentypejs/opentype.js/pull/579
     // #font = null;
     /**
-     * @type {integer} CPAL color used to (pre)fill unset colors in a palette.
+     * @type {number} CPAL color used to (pre)fill unset colors in a palette.
      * Format 0xBBGGRRAA
      */
     // defaultValue = 0x000000FF;
     /**
-     * 
-     * @param {opentype.Font} font 
+     *
+     * @param {object} font
      */
     constructor(font) {
       this.defaultValue = 255;
@@ -15971,17 +16465,20 @@ var opentype = (() => {
     }
     /**
      * Returns the font's cpal table object if present
-     * @returns {Object}
+     * @returns {{ numPaletteEntries: number, colorRecords: Array<number>, colorRecordIndices: Array<number> } | false}
      */
     cpal() {
       if (this.font.tables && this.font.tables.cpal) {
-        return this.font.tables.cpal;
+        return (
+          /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */
+          this.font.tables.cpal
+        );
       }
       return false;
     }
     /**
      * Returns an array of arrays of color values for each palette, optionally in a specified color format
-     * @param {string} colorFormat 
+     * @param {string} [colorFormat]
      * @returns {Array<Array>}
      */
     getAll(colorFormat) {
@@ -16001,8 +16498,8 @@ var opentype = (() => {
     }
     /**
      * Converts a color value string or array of color value strings to CPAL integer color value(s)
-     * @param {string|Array<string>} color
-     * @returns {integer}
+     * @param {string|Array<string|number>} color
+     * @returns {number|Array<number>}
      */
     toCPALcolor(color) {
       if (Array.isArray(color)) {
@@ -16012,33 +16509,56 @@ var opentype = (() => {
     }
     /**
      * Fills a set of palette colors (from palette index, or a provided array of CPAL color values) with a set of colors, falling back to the default color value, until a given count
-     * @param {Array<string>|integer} palette Palette index integer or Array of colors to be filled
-     * @param {Array<string|integer>} colors Colors to fill the palette with
-     * @param {integer} _colorCount Number of colors to fill the palette with, defaults to the value of the numPaletteEntries field. Used internally by extend() and shouldn't be set manually
+     * @param {Array<string>|number} palette Palette index integer or Array of colors to be filled
+     * @param {Array<string|number>} colors Colors to fill the palette with
+     * @param {number} _colorCount Number of colors to fill the palette with, defaults to the value of the numPaletteEntries field. Used internally by extend() and shouldn't be set manually
      * @returns 
      */
-    fillPalette(palette, colors = [], _colorCount = this.cpal().numPaletteEntries) {
-      palette = Number.isInteger(palette) ? this.get(palette, "raw") : palette;
-      return Object.assign(Array(_colorCount).fill(this.defaultValue), this.toCPALcolor(palette).concat(this.toCPALcolor(colors)));
+    fillPalette(palette, colors = [], _colorCount = (
+      /** @type {{numPaletteEntries: number}} */
+      /** @type {unknown} */
+      this.cpal().numPaletteEntries
+    )) {
+      palette = Number.isInteger(palette) ? this.get(
+        /** @type {number} */
+        palette,
+        "raw"
+      ) : palette;
+      return Object.assign(
+        Array(_colorCount).fill(this.defaultValue),
+        /** @type {Array<number>} */
+        this.toCPALcolor(
+          /** @type {string|Array<string|number>} */
+          palette
+        ).concat(this.toCPALcolor(
+          /** @type {string|Array<string|number>} */
+          colors
+        ))
+      );
     }
     /**
      * Extend existing palettes and numPaletteEntries by a number of color slots
-     * @param {integer} num number of additional color slots to add to all palettes
+     * @param {number} num number of additional color slots to add to all palettes
      */
     extend(num) {
       if (this.ensureCPAL(Array(num).fill(this.defaultValue))) {
         return;
       }
-      const cpal = this.cpal();
+      const cpal = (
+        /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */
+        /** @type {unknown} */
+        this.cpal()
+      );
       const newCount = cpal.numPaletteEntries + num;
       const palettes = this.getAll().map((palette) => this.fillPalette(palette, [], newCount));
       cpal.numPaletteEntries = newCount;
-      cpal.colorRecords = this.toCPALcolor(palettes.flat());
+      cpal.colorRecords = /** @type {number[]} */
+      this.toCPALcolor(palettes.flat());
       this.updateIndices();
     }
     /**
      * Get a specific palette by its zero-based index
-     * @param {integer} paletteIndex 
+     * @param {number} paletteIndex 
      * @param {string} [colorFormat='hexa']
      * @returns {Array}
      */
@@ -16047,8 +16567,8 @@ var opentype = (() => {
     }
     /**
      * Get a color from a specific palette by its zero-based index
-     * @param {integer} index 
-     * @param {integer} paletteIndex
+     * @param {number} index 
+     * @param {number} paletteIndex
      * @param {string} [colorFormat ='hexa']
      * @returns 
      */
@@ -16057,20 +16577,32 @@ var opentype = (() => {
     }
     /**
      * Set one or more colors on a specific palette by its zero-based index
-     * @param {integer} index zero-based color index to start filling from
-     * @param {string|integer|Array<string|integer>} colors color value or array of color values
-     * @param {integer} paletteIndex
+     * @param {number} index zero-based color index to start filling from
+     * @param {string|number|Array<string|number>} colors color value or array of color values
+     * @param {number} paletteIndex
      * @returns 
      */
     setColor(index, colors, paletteIndex = 0) {
-      index = parseInt(index);
-      paletteIndex = parseInt(paletteIndex);
+      index = parseInt(
+        /** @type {string} */
+        /** @type {unknown} */
+        index
+      );
+      paletteIndex = parseInt(
+        /** @type {string} */
+        /** @type {unknown} */
+        paletteIndex
+      );
       let palettes = this.getAll("raw");
       let palette = palettes[paletteIndex];
       if (!palette) {
         throw Error(`paletteIndex ${paletteIndex} out of range`);
       }
-      const cpal = this.cpal();
+      const cpal = (
+        /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */
+        /** @type {unknown} */
+        this.cpal()
+      );
       const colorCount = cpal.numPaletteEntries;
       if (!Array.isArray(colors)) {
         colors = [colors];
@@ -16081,7 +16613,10 @@ var opentype = (() => {
         palette = palettes[paletteIndex];
       }
       for (let i = 0; i < colors.length; i++) {
-        palette[i + index] = this.toCPALcolor(colors[i]);
+        palette[i + index] = this.toCPALcolor(
+          /** @type {string|Array<string|number>} */
+          colors[i]
+        );
       }
       cpal.colorRecords = palettes.flat();
       this.updateIndices();
@@ -16095,17 +16630,23 @@ var opentype = (() => {
       if (this.ensureCPAL(colors)) {
         return;
       }
-      const cpal = this.cpal();
+      const cpal = (
+        /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */
+        /** @type {unknown} */
+        this.cpal()
+      );
       const colorCount = cpal.numPaletteEntries;
       if (colors && colors.length) {
-        colors = this.toCPALcolor(colors);
+        colors = /** @type {number[]} */
+        this.toCPALcolor(colors);
         if (colors.length > colorCount) {
           this.extend(colors.length - colorCount);
         } else if (colors.length < colorCount) {
           colors = this.fillPalette(colors);
         }
         cpal.colorRecordIndices.push(cpal.colorRecords.length);
-        cpal.colorRecords.push(...colors);
+        cpal.colorRecords.push(.../** @type {number[]} */
+        colors);
       } else {
         cpal.colorRecordIndices.push(cpal.colorRecords.length);
         cpal.colorRecords.push(...Array(colorCount).fill(this.defaultValue));
@@ -16113,25 +16654,33 @@ var opentype = (() => {
     }
     /**
      * deletes a palette by its zero-based index
-     * @param {integer} paletteIndex 
+     * @param {number} paletteIndex 
      */
     delete(paletteIndex) {
       const palettes = this.getAll("raw");
       delete palettes[paletteIndex];
-      const cpal = this.cpal();
+      const cpal = (
+        /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */
+        /** @type {unknown} */
+        this.cpal()
+      );
       cpal.colorRecordIndices.pop();
       cpal.colorRecords = palettes.flat();
     }
     /**
      * Deletes a specific color index in all palettes and updates all layers using that color with the replacement index
-     * @param {integer} colorIndex index of the color that should be deleted
-     * @param {integer} replacementIndex index (according to the palette before deletion) of the color to replace in layers using the color to be to deleted
+     * @param {number} colorIndex index of the color that should be deleted
+     * @param {number} replacementIndex index (according to the palette before deletion) of the color to replace in layers using the color to be to deleted
      */
     deleteColor(colorIndex, replacementIndex) {
       if (colorIndex === replacementIndex) {
         throw Error("replacementIndex cannot be the same as colorIndex");
       }
-      const cpal = this.cpal();
+      const cpal = (
+        /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */
+        /** @type {unknown} */
+        this.cpal()
+      );
       const palettes = this.getAll("raw");
       const updatedPalettes = [];
       if (replacementIndex > cpal.numPaletteEntries - 1) {
@@ -16171,7 +16720,8 @@ var opentype = (() => {
         cpal.colorRecordIndices[i] -= i;
       }
       cpal.numPaletteEntries = Math.max(0, cpal.numPaletteEntries - 1);
-      cpal.colorRecords = this.toCPALcolor(flattenedPalettes);
+      cpal.colorRecords = /** @type {number[]} */
+      this.toCPALcolor(flattenedPalettes);
     }
     /**
      * Makes sure that the CPAL table exists and is populated with default values.
@@ -16183,7 +16733,8 @@ var opentype = (() => {
         if (!colors || !colors.length) {
           colors = [this.defaultValue];
         } else {
-          colors = this.toCPALcolor(colors);
+          colors = /** @type {number[]} */
+          this.toCPALcolor(colors);
         }
         this.font.tables.cpal = {
           version: 0,
@@ -16199,7 +16750,11 @@ var opentype = (() => {
      * Mainly used internally. Recalculates the colorRecordIndices array based on the numPaletteEntries and number of palettes
      */
     updateIndices() {
-      const cpal = this.cpal();
+      const cpal = (
+        /** @type {{ numPaletteEntries: number, colorRecords: number[], colorRecordIndices: number[] }} */
+        /** @type {unknown} */
+        this.cpal()
+      );
       const paletteCount = Math.ceil(cpal.colorRecords.length / cpal.numPaletteEntries);
       cpal.colorRecordIndices = [];
       for (let i = 0; i < paletteCount; i++) {
@@ -16254,8 +16809,8 @@ var opentype = (() => {
     }
     /**
      * Gets the layers for a specific glyph
-     * @param {integer} glyphIndex
-     * @returns {Array<Object>} array of layer objects {glyph, paletteIndex}
+     * @param {number} glyphIndex
+     * @returns {Array<{glyph: import('./glyph.js').default, paletteIndex: number}>} array of layer objects {glyph, paletteIndex}
      */
     get(glyphIndex) {
       const font = this.font;
@@ -16288,8 +16843,8 @@ var opentype = (() => {
     /**
      * Gets the COLRv1 paint tree for a specific glyph.
      * Returns the raw paint DAG or null if not found.
-     * @param {integer} glyphIndex
-     * @returns {Object|null} paint tree node
+     * @param {number} glyphIndex
+     * @returns {Record<string, unknown>|null} paint tree node
      */
     getPaintTree(glyphIndex) {
       const colr = this.font.tables.colr;
@@ -16303,7 +16858,7 @@ var opentype = (() => {
      * This recursively walks the paint tree and extracts PaintGlyph+PaintSolid
      * combinations as simple { glyph, paletteIndex } layers.
      * For gradient fills, it creates a layer with a paint subtree.
-     * @param {integer} glyphIndex
+     * @param {number} glyphIndex
      * @returns {Array} array of layer objects
      * @private
      */
@@ -16321,9 +16876,9 @@ var opentype = (() => {
     }
     /**
      * Recursively flatten a paint node into layers.
-     * @param {Object} paint - paint node
+     * @param {Record<string, unknown>} paint - paint node
      * @param {Array} layers - output array
-     * @param {Object|null} transform - accumulated transform matrix
+     * @param {Record<string, unknown>|null} transform - accumulated transform matrix
      * @private
      */
     _flattenPaint(paint, layers, transform) {
@@ -16332,16 +16887,26 @@ var opentype = (() => {
         return;
       switch (paint.format) {
         case 1: {
-          for (const child of paint.layers) {
+          for (
+            const child of
+            /** @type {Iterable<Record<string, unknown>>} */
+            paint.layers
+          ) {
             this._flattenPaint(child, layers, transform);
           }
           break;
         }
         case 10: {
-          const glyph = font.glyphs.get(paint.glyphID);
+          const glyph = font.glyphs.get(
+            /** @type {number} */
+            paint.glyphID
+          );
           if (!glyph)
             break;
-          const innerPaint = paint.paint;
+          const innerPaint = (
+            /** @type {Record<string, unknown>} */
+            paint.paint
+          );
           if (innerPaint.format === 2 || innerPaint.format === 3) {
             layers.push({
               glyph,
@@ -16359,118 +16924,232 @@ var opentype = (() => {
           break;
         }
         case 11: {
-          const colr = font.tables.colr;
+          const colr = (
+            /** @type {{baseGlyphPaintRecords?: Array<{glyphID: number, paint: Record<string, unknown>}>}} */
+            font.tables.colr
+          );
           if (colr.baseGlyphPaintRecords) {
-            const refRecord = binarySearch(colr.baseGlyphPaintRecords, "glyphID", paint.glyphID);
+            const refRecord = binarySearch(
+              colr.baseGlyphPaintRecords,
+              "glyphID",
+              /** @type {number} */
+              paint.glyphID
+            );
             if (refRecord) {
-              this._flattenPaint(refRecord.paint, layers, transform);
+              this._flattenPaint(
+                /** @type {Record<string, unknown>} */
+                refRecord.paint,
+                layers,
+                transform
+              );
             }
           }
           break;
         }
         case 12:
         case 13: {
-          const m = paint.transform;
+          const m = (
+            /** @type {Record<string, unknown>} */
+            paint.transform
+          );
           const newTransform = transform ? multiplyTransforms(transform, m) : m;
-          this._flattenPaint(paint.paint, layers, newTransform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.paint,
+            layers,
+            newTransform
+          );
           break;
         }
         case 14:
         case 15: {
           const m = { xx: 1, yx: 0, xy: 0, yy: 1, dx: paint.dx, dy: paint.dy };
           const newTransform = transform ? multiplyTransforms(transform, m) : m;
-          this._flattenPaint(paint.paint, layers, newTransform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.paint,
+            layers,
+            newTransform
+          );
           break;
         }
         case 16:
         case 17: {
           const m = { xx: paint.scaleX, yx: 0, xy: 0, yy: paint.scaleY, dx: 0, dy: 0 };
           const newTransform = transform ? multiplyTransforms(transform, m) : m;
-          this._flattenPaint(paint.paint, layers, newTransform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.paint,
+            layers,
+            newTransform
+          );
           break;
         }
         case 18:
         case 19: {
           const { scaleX, scaleY, centerX, centerY } = paint;
           const m = composeTransformAroundCenter(
-            { xx: scaleX, yx: 0, xy: 0, yy: scaleY, dx: 0, dy: 0 },
+            { xx: (
+              /** @type {number} */
+              scaleX
+            ), yx: 0, xy: 0, yy: (
+              /** @type {number} */
+              scaleY
+            ), dx: 0, dy: 0 },
+            /** @type {number} */
             centerX,
+            /** @type {number} */
             centerY
           );
           const newTransform = transform ? multiplyTransforms(transform, m) : m;
-          this._flattenPaint(paint.paint, layers, newTransform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.paint,
+            layers,
+            newTransform
+          );
           break;
         }
         case 20:
         case 21: {
-          const s = paint.scale;
+          const s = (
+            /** @type {number} */
+            paint.scale
+          );
           const m = { xx: s, yx: 0, xy: 0, yy: s, dx: 0, dy: 0 };
           const newTransform = transform ? multiplyTransforms(transform, m) : m;
-          this._flattenPaint(paint.paint, layers, newTransform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.paint,
+            layers,
+            newTransform
+          );
           break;
         }
         case 22:
         case 23: {
-          const s = paint.scale;
+          const s = (
+            /** @type {number} */
+            paint.scale
+          );
           const m = composeTransformAroundCenter(
             { xx: s, yx: 0, xy: 0, yy: s, dx: 0, dy: 0 },
+            /** @type {number} */
             paint.centerX,
+            /** @type {number} */
             paint.centerY
           );
           const newTransform = transform ? multiplyTransforms(transform, m) : m;
-          this._flattenPaint(paint.paint, layers, newTransform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.paint,
+            layers,
+            newTransform
+          );
           break;
         }
         case 24:
         case 25: {
-          const radians = colrAngleToRadians(paint.angle);
+          const radians = colrAngleToRadians(
+            /** @type {number} */
+            paint.angle
+          );
           const cos = Math.cos(radians);
           const sin = Math.sin(radians);
           const m = { xx: cos, yx: sin, xy: -sin, yy: cos, dx: 0, dy: 0 };
           const newTransform = transform ? multiplyTransforms(transform, m) : m;
-          this._flattenPaint(paint.paint, layers, newTransform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.paint,
+            layers,
+            newTransform
+          );
           break;
         }
         case 26:
         case 27: {
-          const radians = colrAngleToRadians(paint.angle);
+          const radians = colrAngleToRadians(
+            /** @type {number} */
+            paint.angle
+          );
           const cos = Math.cos(radians);
           const sin = Math.sin(radians);
           const m = composeTransformAroundCenter(
             { xx: cos, yx: sin, xy: -sin, yy: cos, dx: 0, dy: 0 },
+            /** @type {number} */
             paint.centerX,
+            /** @type {number} */
             paint.centerY
           );
           const newTransform = transform ? multiplyTransforms(transform, m) : m;
-          this._flattenPaint(paint.paint, layers, newTransform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.paint,
+            layers,
+            newTransform
+          );
           break;
         }
         case 28:
         case 29: {
-          const tanX = Math.tan(colrAngleToRadians(paint.xSkewAngle));
-          const tanY = Math.tan(colrAngleToRadians(paint.ySkewAngle));
+          const tanX = Math.tan(colrAngleToRadians(
+            /** @type {number} */
+            paint.xSkewAngle
+          ));
+          const tanY = Math.tan(colrAngleToRadians(
+            /** @type {number} */
+            paint.ySkewAngle
+          ));
           const m = { xx: 1, yx: tanY, xy: tanX, yy: 1, dx: 0, dy: 0 };
           const newTransform = transform ? multiplyTransforms(transform, m) : m;
-          this._flattenPaint(paint.paint, layers, newTransform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.paint,
+            layers,
+            newTransform
+          );
           break;
         }
         case 30:
         case 31: {
-          const tanX = Math.tan(colrAngleToRadians(paint.xSkewAngle));
-          const tanY = Math.tan(colrAngleToRadians(paint.ySkewAngle));
+          const tanX = Math.tan(colrAngleToRadians(
+            /** @type {number} */
+            paint.xSkewAngle
+          ));
+          const tanY = Math.tan(colrAngleToRadians(
+            /** @type {number} */
+            paint.ySkewAngle
+          ));
           const m = composeTransformAroundCenter(
             { xx: 1, yx: tanY, xy: tanX, yy: 1, dx: 0, dy: 0 },
+            /** @type {number} */
             paint.centerX,
+            /** @type {number} */
             paint.centerY
           );
           const newTransform = transform ? multiplyTransforms(transform, m) : m;
-          this._flattenPaint(paint.paint, layers, newTransform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.paint,
+            layers,
+            newTransform
+          );
           break;
         }
         case 32: {
-          this._flattenPaint(paint.backdrop, layers, transform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.backdrop,
+            layers,
+            transform
+          );
           const sourceStart = layers.length;
-          this._flattenPaint(paint.source, layers, transform);
+          this._flattenPaint(
+            /** @type {Record<string, unknown>} */
+            paint.source,
+            layers,
+            transform
+          );
           for (let i = sourceStart; i < layers.length; i++) {
             layers[i].compositeMode = paint.compositeMode;
           }
@@ -16490,9 +17169,9 @@ var opentype = (() => {
     }
     /**
      * Adds one or more layers to a glyph, at the end or at a specific position.
-     * @param {integer} glyphIndex glyph index to add the layer(s) to.
-     * @param {Array|Object} layers layer object {glyph, paletteIndex}/{glyphID, paletteIndex} or array of layer objects.
-     * @param {integer?} position position to insert the layers at (will default to adding at the end).
+     * @param {number} glyphIndex glyph index to add the layer(s) to.
+     * @param {Array|{glyph: import('./glyph.js').default|number, paletteIndex: number}} layers layer object {glyph, paletteIndex}/{glyphID, paletteIndex} or array of layer objects.
+     * @param {number=} position position to insert the layers at (will default to adding at the end).
      */
     add(glyphIndex, layers, position) {
       const currentLayers = this.get(glyphIndex);
@@ -16531,31 +17210,31 @@ var opentype = (() => {
     }
     /**
      * Sets a color glyph layer's paletteIndex property to a new index
-     * @param {integer} glyphIndex glyph in the font by zero-based glyph index
-     * @param {integer} layerIndex layer in the glyph by zero-based layer index
-     * @param {integer} paletteIndex new color to set for the layer by zero-based index in any palette
+     * @param {number} glyphIndex glyph in the font by zero-based glyph index
+     * @param {number} layerIndex layer in the glyph by zero-based layer index
+     * @param {number} paletteIndex new color to set for the layer by zero-based index in any palette
      */
     setPaletteIndex(glyphIndex, layerIndex, paletteIndex) {
-      let layers = this.get(glyphIndex);
+      const layers = this.get(glyphIndex);
       if (layers[layerIndex]) {
-        layers = layers.map((layer, index) => ({
+        const convertedLayers = layers.map((layer, index) => ({
           glyphID: layer.glyph.index,
           paletteIndex: index === layerIndex ? paletteIndex : layer.paletteIndex
         }));
-        this.updateColrTable(glyphIndex, layers);
+        this.updateColrTable(glyphIndex, convertedLayers);
       } else {
         console.error("Invalid layer index");
       }
     }
     /**
      * Removes one or more layers from a glyph.
-     * @param {integer} glyphIndex glyph index to remove the layer(s) from
-     * @param {integer} start index to remove the layer at
-     * @param {integer?} end (optional) if provided, removes all layers from start index to (and including) end index
+     * @param {number} glyphIndex glyph index to remove the layer(s) from
+     * @param {number} start index to remove the layer at
+     * @param {number=} end (optional) if provided, removes all layers from start index to (and including) end index
      */
     remove(glyphIndex, start, end = start) {
-      let currentLayers = this.get(glyphIndex);
-      currentLayers = currentLayers.map((layer) => ({
+      const currentLayersRaw = this.get(glyphIndex);
+      const currentLayers = currentLayersRaw.map((layer) => ({
         glyphID: layer.glyph.index,
         paletteIndex: layer.paletteIndex
       }));
@@ -16566,8 +17245,8 @@ var opentype = (() => {
      * Mainly used internally. Mainly used internally. Updates the colr table, adding a baseGlyphRecord if needed,
      * ensuring that it's inserted at the correct position, updating numLayers, and adjusting firstLayerIndex values
      * for all baseGlyphRecords according to any deletions or insertions.
-     * @param {integer} glyphIndex 
-     * @param {Array<Object>} layers array of layer objects {glyphID, paletteIndex}
+     * @param {number} glyphIndex 
+     * @param {Array<{glyphID: number, paletteIndex: number}>} layers array of layer objects {glyphID, paletteIndex}
      */
     updateColrTable(glyphIndex, layers) {
       this.ensureCOLR();
@@ -16613,7 +17292,7 @@ var opentype = (() => {
   // src/svgimages.js
   var SVGImageManager = class {
     /**
-     * @param {opentype.Font} font
+     * @param {import('./font.js').Font} font
      */
     constructor(font) {
       this.font = font;
@@ -16621,7 +17300,7 @@ var opentype = (() => {
     }
     /**
      * @param {number} glyphIndex
-     * @returns {SvgImage | undefined}
+     * @returns {SVGImage | undefined}
      */
     get(glyphIndex) {
       const svgImageCacheEntry = this.getOrCreateSvgImageCacheEntry(glyphIndex);
@@ -16629,7 +17308,7 @@ var opentype = (() => {
     }
     /**
      * @param {number} glyphIndex
-     * @returns {Promise<SvgImage> | undefined}
+     * @returns {Promise<SVGImage> | undefined}
      */
     getAsync(glyphIndex) {
       const svgImageCacheEntry = this.getOrCreateSvgImageCacheEntry(glyphIndex);
@@ -16640,7 +17319,10 @@ var opentype = (() => {
      * @returns {SVGImageCacheEntry | undefined}
      */
     getOrCreateSvgImageCacheEntry(glyphIndex) {
-      const svg = this.font.tables.svg;
+      const svg = (
+        /** @type {{get: Function}} */
+        this.font.tables.svg
+      );
       if (svg === void 0)
         return;
       const svgBuf = svg.get(glyphIndex);
@@ -16656,9 +17338,14 @@ var opentype = (() => {
         svgImageCacheEntry = createSvgImageCacheEntry(this.font, svgDocCacheEntry.template, glyphIndex);
         svgImageCacheEntry.promise.then((svgImage) => {
           svgImageCacheEntry.image = svgImage;
-          if (typeof this.font.onGlyphUpdated === "function") {
+          const fontWithCallback = (
+            /** @type {{onGlyphUpdated?: Function}} */
+            /** @type {unknown} */
+            this.font
+          );
+          if (typeof fontWithCallback.onGlyphUpdated === "function") {
             try {
-              this.font.onGlyphUpdated(glyphIndex);
+              fontWithCallback.onGlyphUpdated(glyphIndex);
             } catch (error) {
               console.error("font.onGlyphUpdated", glyphIndex, error);
             }
@@ -16682,7 +17369,8 @@ var opentype = (() => {
         if (typeof svgTemplate === "string") {
           svgText = svgTemplate;
         } else {
-          svgTemplate[4] = glyphIndex;
+          svgTemplate[4] = /** @type {string} */
+          String(glyphIndex);
           svgText = svgTemplate.join("");
         }
         const svgImage = makeSvgImage(svgText, font.unitsPerEm);
@@ -16701,7 +17389,10 @@ var opentype = (() => {
   }
   function decodeSvgDocumentWithDecompressionStream(buf) {
     if (isGzip(buf)) {
-      return new Response(new Response(buf).body.pipeThrough(new DecompressionStream("gzip"))).text();
+      return new Response(new Response(
+        /** @type {BodyInit} */
+        buf
+      ).body.pipeThrough(new DecompressionStream("gzip"))).text();
     }
     try {
       return Promise.resolve(new TextDecoder().decode(buf));
@@ -16728,7 +17419,11 @@ var opentype = (() => {
   }
   function makeSvgImage(text, unitsPerEm) {
     const svgDocument = new DOMParser().parseFromString(text, "image/svg+xml");
-    const svg = svgDocument.documentElement;
+    const svg = (
+      /** @type {SVGSVGElement} */
+      /** @type {unknown} */
+      svgDocument.documentElement
+    );
     const viewBoxVal = svg.viewBox.baseVal;
     const widthVal = svg.width.baseVal;
     const heightVal = svg.height.baseVal;
@@ -16759,9 +17454,9 @@ var opentype = (() => {
     const height = bbox.height * yScale;
     svg.setAttribute("viewBox", [bbox.x, bbox.y, bbox.width, bbox.height].join(" "));
     if (xScale !== 1)
-      svg.setAttribute("width", width);
+      svg.setAttribute("width", String(width));
     if (yScale !== 1)
-      svg.setAttribute("height", height);
+      svg.setAttribute("height", String(height));
     const image = new Image(width, height);
     image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg.outerHTML);
     return { leftSideBearing, baseline, image };
@@ -16774,7 +17469,7 @@ var opentype = (() => {
     }
     /**
      * Modifies a coords object to make sure that tags have a length of 4
-     * @param {Object} coords - variation coordinates
+     * @param {Record<string, number>} coords - variation coordinates
      */
     normalizeCoordTags(coords) {
       for (const tag in coords) {
@@ -16787,7 +17482,7 @@ var opentype = (() => {
     }
     /**
      * Normalizes the coordinates from the axis ranges to a range of -1 to 1.
-     * @param {Object} coords - The coordinates object to normalize.
+     * @param {Record<string, number>} coords - The coordinates object to normalize.
      * @returns {Array<number>} The normalized coordinates as an array
      */
     getNormalizedCoords(coords) {
@@ -16825,9 +17520,9 @@ var opentype = (() => {
     }
     /**
      * Interpolates points within a glyph if deltas are not provided for all points.
-     * @param {Array<Object>} points - The points to be interpolated.
-     * @param {Array<Object>} glyphPoints - Reference points from the glyph.
-     * @param {Object} deltaMap - A map indicating which points have deltas.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} points - The points to be interpolated.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} glyphPoints - Reference points from the glyph.
+     * @param {Array<boolean>} deltaMap - A map indicating which points have deltas.
      */
     interpolatePoints(points, glyphPoints, deltaMap) {
       if (points.length === 0) {
@@ -16874,8 +17569,8 @@ var opentype = (() => {
      * @param {number} p2 - End point index for interpolation.
      * @param {number} ref1 - Reference point index for the start delta.
      * @param {number} ref2 - Reference point index for the end delta.
-     * @param {Array<Object>} glyphPoints - Reference points from the glyph.
-     * @param {Array<Object>} points - The points to be adjusted.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} glyphPoints - Reference points from the glyph.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} points - The points to be adjusted.
      */
     deltaInterpolate(p1, p2, ref1, ref2, glyphPoints, points) {
       if (p1 > p2) {
@@ -16914,8 +17609,8 @@ var opentype = (() => {
      * @param {number} p1 - Start point index for shifting.
      * @param {number} p2 - End point index for shifting.
      * @param {number} ref - Reference point index.
-     * @param {Array<Object>} glyphPoints - Reference points from the glyph.
-     * @param {Array<Object>} points - The points to be shifted.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} glyphPoints - Reference points from the glyph.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} points - The points to be shifted.
      */
     deltaShift(p1, p2, ref, glyphPoints, points) {
       let deltaX = points[ref].x - glyphPoints[ref].x;
@@ -16933,16 +17628,22 @@ var opentype = (() => {
     /**
      * Transforms glyph components based on variation data.
      * @param {Glyph} glyph - The composite glyph to transform.
-     * @param {Array<Object>} transformedPoints - Points that are already transformed.
-     * @param {Object} coords - Variation coordinates.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} transformedPoints - Points that are already transformed.
+     * @param {Record<string, number>} coords - Variation coordinates.
      * @param {Array<number>} tuplePoints - Points that are part of the tuple.
-     * @param {Object} header - Header information from the variation data.
+     * @param {{deltas: number[], deltasY: number[], peakTuple?: number[], privatePoints: number[], sharedTupleRecordsIndex?: number, intermediateStartTuple?: number[], intermediateEndTuple?: number[]}} header - Header information from the variation data.
      * @param {number} factor - The scaling factor for the transformation.
      */
     transformComponents(glyph, transformedPoints, coords, tuplePoints, header, factor) {
       let pointsIndex = 0;
-      for (let c = 0; c < glyph.components.length; c++) {
-        const component = glyph.components[c];
+      for (let c = 0; c < /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */
+      /** @type {unknown} */
+      glyph.components.length; c++) {
+        const component = (
+          /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */
+          /** @type {unknown} */
+          glyph.components[c]
+        );
         const componentGlyph = this.font.glyphs.get(component.glyphIndex);
         const componentTransform = copyComponent(component);
         const deltaIndex = tuplePoints.length === 0 ? c : tuplePoints.indexOf(c);
@@ -16960,13 +17661,19 @@ var opentype = (() => {
      * Used for composite glyphs that are not explicitly targeted in gvar
      * but still need their components to get variation applied.
      * @param {Glyph} glyph - The composite glyph to transform.
-     * @param {Array<Object>} transformedPoints - Points to be transformed in place.
-     * @param {Object} coords - Variation coordinates.
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} transformedPoints - Points to be transformed in place.
+     * @param {Record<string, number>} coords - Variation coordinates.
      */
     transformComponentsSimple(glyph, transformedPoints, coords) {
       let pointsIndex = 0;
-      for (let c = 0; c < glyph.components.length; c++) {
-        const component = glyph.components[c];
+      for (let c = 0; c < /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */
+      /** @type {unknown} */
+      glyph.components.length; c++) {
+        const component = (
+          /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */
+          /** @type {unknown} */
+          glyph.components[c]
+        );
         const componentGlyph = this.font.glyphs.get(component.glyphIndex);
         const componentTransform = copyComponent(component);
         const transformedComponentPoints = transformPoints(this.getTransform(componentGlyph, coords).points, componentTransform);
@@ -17080,9 +17787,9 @@ var opentype = (() => {
     }
     /**
      * Retrieves a transformed copy of a glyph based on the provided variation coordinates, or the glyph itself if no variation was applied
-     * @param {opentype.Glyph|number} glyph - Glyph or index of glyph to transform.
-     * @param {Object} coords - Variation coords object (will fall back to variation coords in the defaultRenderOptions)
-     * @returns {opentype.Glyph} - The transformed glyph.
+     * @param {Glyph} glyph - Glyph or index of glyph to transform.
+     * @param {Record<string, number>} [coords] - Variation coords object (will fall back to variation coords in the defaultRenderOptions)
+     * @returns {Glyph} - The transformed glyph.
      */
     getTransform(glyph, coords) {
       if (Number.isInteger(glyph)) {
@@ -17101,14 +17808,22 @@ var opentype = (() => {
             const glyphPoints = glyph.points;
             let transformedPoints = this.applyTupleVariationStore(variationData, glyphPoints, coords, "gvar", { glyph });
             const transformedPath = getPath(transformedPoints);
-            transformedPath.unitsPerEm = glyph.path && glyph.path.unitsPerEm ? glyph.path.unitsPerEm : this.font.unitsPerEm;
+            transformedPath.unitsPerEm = glyph.path && /** @type {{ unitsPerEm?: number }} */
+            glyph.path.unitsPerEm ? (
+              /** @type {{ unitsPerEm?: number }} */
+              glyph.path.unitsPerEm
+            ) : this.font.unitsPerEm;
             transformedGlyph = new glyph_default(Object.assign({}, glyph, { points: transformedPoints, path: transformedPath }));
           }
           if (glyph.isComposite && (!variationData || !variationData.headers || !variationData.headers.length)) {
             const transformedPoints = glyph.points.map(copyPoint);
             this.transformComponentsSimple(glyph, transformedPoints, coords);
             const transformedPath = getPath(transformedPoints);
-            transformedPath.unitsPerEm = glyph.path && glyph.path.unitsPerEm ? glyph.path.unitsPerEm : this.font.unitsPerEm;
+            transformedPath.unitsPerEm = glyph.path && /** @type {{ unitsPerEm?: number }} */
+            glyph.path.unitsPerEm ? (
+              /** @type {{ unitsPerEm?: number }} */
+              glyph.path.unitsPerEm
+            ) : this.font.unitsPerEm;
             transformedGlyph = new glyph_default(Object.assign({}, glyph, { points: transformedPoints, path: transformedPath }));
           }
         } else if (hasBlend) {
@@ -17136,7 +17851,7 @@ var opentype = (() => {
      * @param {number} gid - Glyph ID.
      * @param {string} tableName - The name of the variation data table.
      * @param {string} parameter - The property to adjust.
-     * @param {Object} coords - Variation coordinates.
+     * @param {Record<string, number>} coords - Variation coordinates.
      * @returns {number} - The calculated adjustment.
      */
     getVariableAdjustment(gid, tableName, parameter, coords) {
@@ -17164,10 +17879,10 @@ var opentype = (() => {
     }
     /**
      * Retrieves the delta value from a variation store.
-     * @param {Object} itemStore - The item variation store.
+     * @param {{itemVariationSubtables: Array<{deltaSets: Array<number[]>, regionIndexes: number[]}>, variationRegions: Array<{regionAxes: Array<{startCoord: number, peakCoord: number, endCoord: number}>}>}} itemStore - The item variation store.
      * @param {number} outerIndex - The outer index in the variation subtables.
      * @param {number} innerIndex - The inner index in the delta sets.
-     * @param {Object} coords - Variation coordinates.
+     * @param {Record<string, number>} coords - Variation coordinates.
      * @returns {number} - The delta value.
      */
     getDelta(itemStore, outerIndex, innerIndex, coords) {
@@ -17188,9 +17903,9 @@ var opentype = (() => {
     }
     /**
      * Calculates the blend vector for a set of variation coordinates.
-     * @param {Object} itemStore - The item variation store.
+     * @param {{itemVariationSubtables: Array<{regionIndexes: number[]}>, variationRegions: Array<{regionAxes: Array<{startCoord: number, peakCoord: number, endCoord: number}>}>}} itemStore - The item variation store.
      * @param {number} itemIndex - Index of the current item in the variation subtables.
-     * @param {Object} coords - Variation coordinates.
+     * @param {Record<string, number>} coords - Variation coordinates.
      * @returns {Array<number>} - The blend vector for the given coordinates.
      */
     getBlendVector(itemStore, itemIndex, coords) {
@@ -17230,38 +17945,23 @@ var opentype = (() => {
       }
       return blendVector;
     }
-    /**
-     * Helper method that returns the font's avar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's avar table if present */
     avar() {
       return this.font.tables.avar;
     }
-    /**
-     * Helper method that returns the font's cvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's cvar table if present */
     cvar() {
       return this.font.tables.cvar;
     }
-    /**
-     * Helper method that returns the font's fvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's fvar table if present */
     fvar() {
       return this.font.tables.fvar;
     }
-    /**
-     * Helper method that returns the font's gvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's gvar table if present */
     gvar() {
       return this.font.tables.gvar;
     }
-    /**
-     * Helper method that returns the font's hvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's hvar table if present */
     hvar() {
       return this.font.tables.hvar;
     }
@@ -17296,7 +17996,7 @@ var opentype = (() => {
     }
     /**
      * Retrieves the default coordinates for the font's variation axes.
-     * @returns {Object} An object mapping axis tags to their default values.
+     * @returns {Record<string, number>} An object mapping axis tags to their default values.
      */
     getDefaultCoordinates() {
       const fvar = this.fvar();
@@ -17310,7 +18010,7 @@ var opentype = (() => {
     }
     /**
      * Gets the index of the default variation instance or -1 if not able to determine
-     * @returns {integer} default index or -1
+     * @returns {number} default index or -1
      */
     getDefaultInstanceIndex() {
       const fvar = this.fvar();
@@ -17326,8 +18026,8 @@ var opentype = (() => {
     }
     /**
      * Retrieves the index of the variation instance matching the coordinates object or -1 if not able to determine
-     * @param {integer|Object} coordinates An object where keys are axis tags and values are the corresponding variation values.
-     * @returns {integer} The index of the matching instance or -1 if no match is found.
+     * @param {number|Record<string, number>} coordinates An object where keys are axis tags and values are the corresponding variation values.
+     * @returns {number} The index of the matching instance or -1 if no match is found.
      */
     getInstanceIndex(coordinates) {
       const fvar = this.fvar();
@@ -17342,15 +18042,14 @@ var opentype = (() => {
     }
     /**
      * Retrieves a variation instance by its zero-based index
-     * @param {integer} index - zero-based index of the variation instance
-     * @returns {Object} - variation instance or null if the index is invalid.
+     * @param {number} index - zero-based index of the variation instance
      */
     getInstance(index) {
       return this.fvar().instances && this.fvar().instances[index];
     }
     /**
      * Set the variation coordinates to use by default for rendering in the font.defaultRenderOptions
-     * @param {integer|Object} instanceIdOrObject Either the zero-based index of a variation instance or an object with axis tags as keys and variation values as values
+     * @param {number|object} instanceIdOrObject Either the zero-based index of a variation instance or an object with axis tags as keys and variation values as values
      */
     set(instanceIdOrObject) {
       let variationData;
@@ -17377,50 +18076,35 @@ var opentype = (() => {
     }
     /**
      * Returns the variation coordinates currently set in the font.defaultRenderOptions
-     * @returns {Object}
+     * @returns {Record<string, number>}
      */
     get() {
       return Object.assign({}, this.font.defaultRenderOptions.variation);
     }
-    /**
-     * Helper method that returns the font's avar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's avar table if present */
     avar() {
       return this.font.tables.avar;
     }
-    /**
-     * Helper method that returns the font's cvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's cvar table if present */
     cvar() {
       return this.font.tables.cvar;
     }
-    /**
-     * Helper method that returns the font's fvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's fvar table if present */
     fvar() {
       return this.font.tables.fvar;
     }
-    /**
-     * Helper method that returns the font's gvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's gvar table if present */
     gvar() {
       return this.font.tables.gvar;
     }
-    /**
-     * Helper method that returns the font's hvar table if present
-     * @returns {Object|undefined}
-     */
+    /** Helper method that returns the font's hvar table if present */
     hvar() {
       return this.font.tables.hvar;
     }
     /**
      * Add a new variation axis to the font.
-     * 
-     * @param {Object} axisOptions - The axis configuration
+     *
+     * @param {object} axisOptions - The axis configuration
      * @param {string} axisOptions.tag - 4-character axis tag (e.g., 'wght', 'SNAP')
      * @param {string} axisOptions.name - Human-readable name for the axis
      * @param {number} axisOptions.minValue - Minimum value for the axis
@@ -17429,7 +18113,7 @@ var opentype = (() => {
      * @param {Function} [axisOptions.deltaGenerator] - Optional function(glyph, font) that returns 
      *        {deltas: number[], deltasY: number[]} for each glyph when axis is at max.
      *        If not provided, no gvar deltas are added for this axis.
-     * @returns {Object} The newly added axis
+     * @returns {Record<string, unknown>} The newly added axis
      */
     addAxis(axisOptions) {
       const { tag, name, minValue, defaultValue, maxValue, deltaGenerator } = axisOptions;
@@ -17496,11 +18180,11 @@ var opentype = (() => {
     }
     /**
      * Add a named instance to the font's fvar table.
-     * 
-     * @param {Object} instanceOptions - The instance configuration
+     *
+     * @param {object} instanceOptions - The instance configuration
      * @param {string} instanceOptions.name - Human-readable name (e.g., "Bold")
-     * @param {Object} instanceOptions.coordinates - Object mapping axis tags to values
-     * @returns {Object} The newly added instance
+     * @param {Record<string, number>} instanceOptions.coordinates - Object mapping axis tags to values
+     * @returns {Record<string, unknown>} The newly added instance
      */
     addInstance(instanceOptions) {
       const { name, coordinates } = instanceOptions;
@@ -17856,10 +18540,10 @@ var opentype = (() => {
     /**
      * Compute deltas by comparing two glyph paths.
      * This is a helper for creating deltaGenerator functions.
-     * 
-     * @param {Path} basePath - The base glyph path (at default axis value)
-     * @param {Path} targetPath - The target glyph path (at max axis value)
-     * @returns {Object} { deltas: number[], deltasY: number[] }
+     *
+     * @param {{commands: Array<{type: string, x?: number, y?: number, x1?: number, y1?: number, x2?: number, y2?: number}>}} basePath - The base glyph path (at default axis value)
+     * @param {{commands: Array<{type: string, x?: number, y?: number, x1?: number, y1?: number, x2?: number, y2?: number}>}} targetPath - The target glyph path (at max axis value)
+     * @returns {{deltas: number[], deltasY: number[]}} { deltas: number[], deltasY: number[] }
      */
     static computeDeltas(basePath, targetPath) {
       const baseCommands = basePath.commands;
@@ -18253,15 +18937,20 @@ var opentype = (() => {
       return;
     const font = this.font;
     let prepState = this._prepState;
-    if (!prepState || prepState.ppem !== ppem) {
+    if (!prepState || /** @type {Record<string, unknown>} */
+    /** @type {unknown} */
+    prepState.ppem !== ppem) {
       let fpgmState = this._fpgmState;
       if (!fpgmState) {
         State.prototype = defaultState;
         fpgmState = this._fpgmState = new State("fpgm", font.tables.fpgm);
+        /** @type {unknown} */
         fpgmState.funcs = [];
+        /** @type {unknown} */
         fpgmState.font = font;
         if (DEBUG) {
           console.log("---EXEC FPGM---");
+          /** @type {unknown} */
           fpgmState.step = -1;
         }
         try {
@@ -18274,19 +18963,26 @@ var opentype = (() => {
       }
       State.prototype = fpgmState;
       prepState = this._prepState = new State("prep", font.tables.prep);
+      /** @type {unknown} */
       prepState.ppem = ppem;
       const oCvt = font.variation && font.variation.process.getCvarTransform() || font.tables.cvt;
       if (oCvt) {
-        const cvt = prepState.cvt = new Array(oCvt.length);
+        const cvt = (
+          /** @type {Record<string, unknown>} */
+          /** @type {unknown} */
+          prepState.cvt = new Array(oCvt.length)
+        );
         const scale = ppem / font.unitsPerEm;
         for (let c = 0; c < oCvt.length; c++) {
           cvt[c] = oCvt[c] * scale;
         }
       } else {
+        /** @type {unknown} */
         prepState.cvt = [];
       }
       if (DEBUG) {
         console.log("---EXEC PREP---");
+        /** @type {unknown} */
         prepState.step = -1;
       }
       try {
@@ -18312,7 +19008,12 @@ var opentype = (() => {
     }
   };
   execGlyph = function(glyph, prepState) {
-    const xScale = prepState.ppem / prepState.font.unitsPerEm;
+    const xScale = (
+      /** @type {number} */
+      prepState.ppem / /** @type {number} */
+      /** @type {Record<string, unknown>} */
+      prepState.font.unitsPerEm
+    );
     const yScale = xScale;
     let components = glyph.components;
     let contours;
@@ -18320,7 +19021,9 @@ var opentype = (() => {
     let state;
     State.prototype = prepState;
     if (!components) {
-      state = new State("glyf", glyph.instructions);
+      state = /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      new State("glyf", glyph.instructions);
       if (DEBUG) {
         console.log("---EXEC GLYPH---");
         state.step = -1;
@@ -18328,13 +19031,22 @@ var opentype = (() => {
       execComponent(glyph, state, xScale, yScale);
       gZone = state.gZone;
     } else {
-      const font = prepState.font;
+      const font = (
+        /** @type {Record<string, unknown>} */
+        prepState.font
+      );
       gZone = [];
       contours = [];
       for (let i = 0; i < components.length; i++) {
         const c = components[i];
-        const cg = font.glyphs.get(c.glyphIndex);
-        state = new State("glyf", cg.instructions);
+        const cg = (
+          /** @type {Record<string, unknown>} */
+          /** @type {{ glyphs: { get: Function } }} */
+          font.glyphs.get(c.glyphIndex)
+        );
+        state = /** @type {Record<string, unknown>} */
+        /** @type {unknown} */
+        new State("glyf", cg.instructions);
         if (DEBUG) {
           console.log("---EXEC COMP " + i + "---");
           state.step = -1;
@@ -18342,8 +19054,14 @@ var opentype = (() => {
         execComponent(cg, state, xScale, yScale);
         const dx = Math.round(c.dx * xScale);
         const dy = Math.round(c.dy * yScale);
-        const gz = state.gZone;
-        const cc = state.contours;
+        const gz = (
+          /** @type {Array<{x: number, y: number, xo: number, yo: number, xTouched: boolean, yTouched: boolean}>} */
+          state.gZone
+        );
+        const cc = (
+          /** @type {number[]} */
+          state.contours
+        );
         for (let pi = 0; pi < gz.length; pi++) {
           const p = gz[pi];
           p.xTouched = p.yTouched = false;
@@ -18357,7 +19075,9 @@ var opentype = (() => {
         }
       }
       if (glyph.instructions && !state.inhibitGridFit) {
-        state = new State("glyf", glyph.instructions);
+        state = /** @type {Record<string, unknown>} */
+        /** @type {unknown} */
+        new State("glyf", glyph.instructions);
         state.gZone = state.z0 = state.z1 = state.z2 = gZone;
         state.contours = contours;
         gZone.push(
@@ -20403,6 +21123,7 @@ var opentype = (() => {
     if (!isNaN(startIndex) && this.inboundIndex(startIndex) && isTokenType) {
       const replaced = this.tokens.splice.apply(
         this.tokens,
+        /** @type {[number, number, ...Token[]]} */
         [startIndex, offset].concat(tokens)
       );
       if (!silent)
@@ -20446,6 +21167,7 @@ var opentype = (() => {
     if (tokenType) {
       this.tokens.splice.apply(
         this.tokens,
+        /** @type {[number, number, ...Token[]]} */
         [index, 0].concat(tokens)
       );
       if (!silent)
@@ -20662,9 +21384,15 @@ var opentype = (() => {
       return -1;
     switch (coverage.format) {
       case 1:
-        return coverage.glyphs.indexOf(glyphIndex);
+        return (
+          /** @type {number[]} */
+          coverage.glyphs.indexOf(glyphIndex)
+        );
       case 2: {
-        let ranges = coverage.ranges;
+        let ranges = (
+          /** @type {Array<{start: number, end: number, index: number}>} */
+          coverage.ranges
+        );
         for (let i = 0; i < ranges.length; i++) {
           const range = ranges[i];
           if (glyphIndex >= range.start && glyphIndex <= range.end) {
@@ -20680,13 +21408,22 @@ var opentype = (() => {
     return -1;
   }
   function singleSubstitutionFormat1(glyphIndex, subtable) {
-    let substituteIndex = lookupCoverage(glyphIndex, subtable.coverage);
+    let substituteIndex = lookupCoverage(
+      glyphIndex,
+      /** @type {Record<string, unknown>} */
+      subtable.coverage
+    );
     if (substituteIndex === -1)
       return null;
-    return glyphIndex + subtable.deltaGlyphId;
+    return glyphIndex + /** @type {number} */
+    subtable.deltaGlyphId;
   }
   function singleSubstitutionFormat2(glyphIndex, subtable) {
-    let substituteIndex = lookupCoverage(glyphIndex, subtable.coverage);
+    let substituteIndex = lookupCoverage(
+      glyphIndex,
+      /** @type {Record<string, unknown>} */
+      subtable.coverage
+    );
     if (substituteIndex === -1)
       return null;
     return subtable.substitute[substituteIndex];
@@ -20732,7 +21469,11 @@ var opentype = (() => {
   function chainingSubstitutionFormat2(contextParams, subtable) {
     let glyphIndex = contextParams.current;
     glyphIndex = Array.isArray(glyphIndex) ? glyphIndex[0] : glyphIndex;
-    const coverageIndex = lookupCoverage(glyphIndex, subtable.coverage);
+    const coverageIndex = lookupCoverage(
+      glyphIndex,
+      /** @type {Record<string, unknown>} */
+      subtable.coverage
+    );
     if (coverageIndex === -1)
       return [];
     const inputClass = getGlyphClass(subtable.inputClassDef, glyphIndex);
@@ -20839,12 +21580,16 @@ var opentype = (() => {
     const lookupsCount = subtable.inputCoverage.length + subtable.lookaheadCoverage.length + subtable.backtrackCoverage.length;
     if (contextParams.context.length < lookupsCount)
       return [];
-    let inputLookups = lookupCoverageList(
+    const inputLookupsRaw = lookupCoverageList(
       subtable.inputCoverage,
       contextParams
     );
-    if (inputLookups === -1)
+    if (inputLookupsRaw === -1)
       return [];
+    const inputLookups = (
+      /** @type {number[]} */
+      inputLookupsRaw
+    );
     const lookaheadOffset = subtable.inputCoverage.length - 1;
     if (contextParams.lookahead.length < subtable.lookaheadCoverage.length)
       return [];
@@ -20853,9 +21598,13 @@ var opentype = (() => {
       lookaheadContext.shift();
     }
     const lookaheadParams = new ContextParams(lookaheadContext, 0);
-    let lookaheadLookups = lookupCoverageList(
+    const lookaheadLookupsRaw = lookupCoverageList(
       subtable.lookaheadCoverage,
       lookaheadParams
+    );
+    const lookaheadLookups = (
+      /** @type {number[]} */
+      lookaheadLookupsRaw === -1 ? [] : lookaheadLookupsRaw
     );
     let backtrackContext = [].concat(contextParams.backtrack);
     backtrackContext.reverse();
@@ -20865,9 +21614,13 @@ var opentype = (() => {
     if (backtrackContext.length < subtable.backtrackCoverage.length)
       return [];
     const backtrackParams = new ContextParams(backtrackContext, 0);
-    let backtrackLookups = lookupCoverageList(
+    const backtrackLookupsRaw = lookupCoverageList(
       subtable.backtrackCoverage,
       backtrackParams
+    );
+    const backtrackLookups = (
+      /** @type {number[]} */
+      backtrackLookupsRaw === -1 ? [] : backtrackLookupsRaw
     );
     const contextRulesMatch = inputLookups.length === subtable.inputCoverage.length && lookaheadLookups.length === subtable.lookaheadCoverage.length && backtrackLookups.length === subtable.backtrackCoverage.length;
     let substitutions = [];
@@ -21000,38 +21753,70 @@ var opentype = (() => {
     return substitutions;
   }
   function decompositionSubstitutionFormat1(glyphIndex, subtable) {
-    let substituteIndex = lookupCoverage(glyphIndex, subtable.coverage);
+    let substituteIndex = lookupCoverage(
+      glyphIndex,
+      /** @type {Record<string, unknown>} */
+      subtable.coverage
+    );
     if (substituteIndex === -1)
       return null;
     return subtable.sequences[substituteIndex];
   }
   FeatureQuery.prototype.getDefaultScriptFeaturesIndexes = function() {
-    const scripts = this.font.tables.gsub.scripts;
+    const scripts = (
+      /** @type {{scripts: Array<Record<string, unknown>>}} */
+      /** @type {Record<string, unknown>} */
+      this.font.tables.gsub.scripts
+    );
     for (let s = 0; s < scripts.length; s++) {
       const script = scripts[s];
       if (script.tag === "DFLT")
-        return script.script.defaultLangSys.featureIndexes;
+        return (
+          /** @type {Record<string, unknown>} */
+          /** @type {Record<string, unknown>} */
+          script.script.defaultLangSys.featureIndexes
+        );
     }
     return [];
   };
   FeatureQuery.prototype.getScriptFeaturesIndexes = function(scriptTag) {
-    const tables = this.font.tables;
+    const tables = (
+      /** @type {Record<string, unknown>} */
+      this.font.tables
+    );
     if (!tables.gsub)
       return [];
     if (!scriptTag)
       return this.getDefaultScriptFeaturesIndexes();
-    const scripts = this.font.tables.gsub.scripts;
+    const scripts = (
+      /** @type {{scripts: Array<Record<string, unknown>>}} */
+      /** @type {Record<string, unknown>} */
+      this.font.tables.gsub.scripts
+    );
     for (let i = 0; i < scripts.length; i++) {
       const script = scripts[i];
-      if (script.tag === scriptTag && script.script.defaultLangSys) {
-        return script.script.defaultLangSys.featureIndexes;
+      const scriptRecord = (
+        /** @type {Record<string, unknown>} */
+        script.script
+      );
+      if (script.tag === scriptTag && scriptRecord.defaultLangSys) {
+        return (
+          /** @type {Record<string, unknown>} */
+          scriptRecord.defaultLangSys.featureIndexes
+        );
       } else {
-        let langSysRecords = script.langSysRecords;
+        let langSysRecords = (
+          /** @type {Array<Record<string, unknown>>|undefined} */
+          script.langSysRecords
+        );
         if (langSysRecords) {
           for (let j = 0; j < langSysRecords.length; j++) {
             const langSysRecord = langSysRecords[j];
             if (langSysRecord.tag === scriptTag) {
-              let langSys = langSysRecord.langSys;
+              const langSys = (
+                /** @type {Record<string, unknown>} */
+                langSysRecord.langSys
+              );
               return langSys.featureIndexes;
             }
           }
@@ -21053,10 +21838,17 @@ var opentype = (() => {
     let features = this.features[scriptTag];
     if (Object.prototype.hasOwnProperty.call(this.features, scriptTag))
       return features;
-    const featuresIndexes = this.getScriptFeaturesIndexes(scriptTag);
+    const featuresIndexes = (
+      /** @type {Array<number>} */
+      this.getScriptFeaturesIndexes(scriptTag)
+    );
     if (!featuresIndexes)
       return null;
-    const gsub = this.font.tables.gsub;
+    const gsub = (
+      /** @type {{features: Array<unknown>}} */
+      /** @type {Record<string, unknown>} */
+      this.font.tables.gsub
+    );
     features = featuresIndexes.map((index) => gsub.features[index]);
     this.features[scriptTag] = features;
     this.mapTagsToFeatures(features, scriptTag);
@@ -21123,10 +21915,17 @@ var opentype = (() => {
       tag: query.tag,
       script: query.script
     });
-    if (!feature)
-      return new Error(
-        `font '${(this.font.names.unicode || this.font.names.windows || this.font.names.macintosh).fullName.en}' doesn't support feature '${query.tag}' for script '${query.script}'.`
+    if (!feature) {
+      const names = (
+        /** @type {{unicode?: {fullName?: {en?: string}}, windows?: {fullName?: {en?: string}}, macintosh?: {fullName?: {en?: string}}}} */
+        this.font.names
       );
+      const nameObj = names.unicode || names.windows || names.macintosh;
+      const fontFullName = nameObj && nameObj.fullName && nameObj.fullName.en;
+      return new Error(
+        `font '${fontFullName}' doesn't support feature '${query.tag}' for script '${query.script}'.`
+      );
+    }
     const lookups = this.getFeatureLookups(feature);
     const substitutions = [].concat(contextParams.context);
     lookupLoop:
@@ -21138,9 +21937,23 @@ var opentype = (() => {
           let substType = this.getSubstitutionType(lookupTable, subtable);
           let lookup;
           if (substType === "71") {
-            substType = this.getSubstitutionType(subtable, subtable.extension);
-            lookup = this.getLookupMethod(subtable, subtable.extension);
-            subtable = subtable.extension;
+            const extension = (
+              /** @type {GsubSubtable} */
+              subtable.extension
+            );
+            substType = this.getSubstitutionType(
+              /** @type {GsubLookupTable} */
+              /** @type {unknown} */
+              subtable,
+              extension
+            );
+            lookup = this.getLookupMethod(
+              /** @type {GsubLookupTable} */
+              /** @type {unknown} */
+              subtable,
+              extension
+            );
+            subtable = extension;
           } else {
             lookup = this.getLookupMethod(lookupTable, subtable);
           }
@@ -21233,14 +22046,24 @@ var opentype = (() => {
     return supportedScript && supportedFeature;
   };
   FeatureQuery.prototype.getLookupSubtables = function(lookupTable) {
-    return lookupTable.subtables || null;
+    return (
+      /** @type {GsubSubtable[] | null} */
+      lookupTable.subtables || null
+    );
   };
   FeatureQuery.prototype.getLookupByIndex = function(index) {
-    const lookups = this.font.tables.gsub.lookups;
+    const lookups = (
+      /** @type {{lookups: Array<unknown>}} */
+      /** @type {Record<string, unknown>} */
+      this.font.tables.gsub.lookups
+    );
     return lookups[index] || null;
   };
   FeatureQuery.prototype.getFeatureLookups = function(feature) {
-    return feature.lookupListIndexes.map(this.getLookupByIndex.bind(this));
+    return (
+      /** @type {number[]} */
+      feature.lookupListIndexes.map(this.getLookupByIndex.bind(this))
+    );
   };
   FeatureQuery.prototype.getFeature = function getFeature(query) {
     if (!this.font)
@@ -21325,8 +22148,12 @@ var opentype = (() => {
     tokens[index].setState(action.tag, action.substitution);
   }
   function chainingSubstitutionFormat32(action, tokens, index) {
-    for (let i = 0; i < action.substitution.length; i++) {
-      const subst = action.substitution[i];
+    const substitution = (
+      /** @type {Array<unknown>} */
+      action.substitution
+    );
+    for (let i = 0; i < substitution.length; i++) {
+      const subst = substitution[i];
       const token = tokens[index + i];
       if (Array.isArray(subst)) {
         if (subst.length) {
@@ -21341,8 +22168,12 @@ var opentype = (() => {
   }
   function ligatureSubstitutionFormat12(action, tokens, index) {
     let token = tokens[index];
-    token.setState(action.tag, action.substitution.ligGlyph);
-    const compsCount = action.substitution.components.length;
+    const ligSubst = (
+      /** @type {{ligGlyph: unknown, components: Array<unknown>}} */
+      action.substitution
+    );
+    token.setState(action.tag, ligSubst.ligGlyph);
+    const compsCount = ligSubst.components.length;
     for (let i = 0; i < compsCount; i++) {
       token = tokens[index + i + 1];
       token.setState("deleted", true);
@@ -21451,15 +22282,17 @@ var opentype = (() => {
   }
   var arabicPresentationForms_default = arabicPresentationForms;
 
-  // src/features/arab/arabicRequiredLigatures.js
+  // src/features/commonFeatureUtils.js
   function getContextParams(tokens, index) {
-    const context = tokens.map((token) => token.activeState.value);
+    const context = tokens.map((t) => t.activeState.value);
     return new ContextParams(context, index || 0);
   }
+
+  // src/features/arab/arabicRequiredLigatures.js
   function arabicRequiredLigatures(range) {
     const script = "arab";
     let tokens = this.tokenizer.getRangeTokens(range);
-    let contextParams = getContextParams(tokens);
+    let contextParams = getContextParams(tokens, 0);
     for (let index = 0; index < contextParams.context.length; index++) {
       contextParams.setCurrentIndex(index);
       let substitutions = this.query.lookupFeature({
@@ -21472,7 +22305,7 @@ var opentype = (() => {
           const action = substitutions[i];
           applySubstitution_default(action, tokens, index);
         }
-        contextParams = getContextParams(tokens);
+        contextParams = getContextParams(tokens, 0);
       }
     }
   }
@@ -21491,15 +22324,11 @@ var opentype = (() => {
   };
 
   // src/features/ccmp/ccmpReplacementLigatures.js
-  function getContextParams2(tokens, index) {
-    const context = tokens.map((token) => token.activeState.value);
-    return new ContextParams(context, index || 0);
-  }
   function ccmpReplacementLigatures(range) {
     const script = "delf";
     const tag = "ccmp";
     let tokens = this.tokenizer.getRangeTokens(range);
-    let contextParams = getContextParams2(tokens);
+    let contextParams = getContextParams(tokens, 0);
     for (let index = 0; index < contextParams.context.length; index++) {
       if (!this.query.getFeature({ tag, script, contextParams })) {
         continue;
@@ -21515,7 +22344,7 @@ var opentype = (() => {
           const action = substitutions[i];
           applySubstitution_default(action, tokens, index);
         }
-        contextParams = getContextParams2(tokens);
+        contextParams = getContextParams(tokens, 0);
       }
     }
   }
@@ -21545,14 +22374,10 @@ var opentype = (() => {
   };
 
   // src/features/latn/latinLigatures.js
-  function getContextParams3(tokens, index) {
-    const context = tokens.map((token) => token.activeState.value);
-    return new ContextParams(context, index || 0);
-  }
   function latinLigature(range, tag = "liga") {
     const script = "latn";
     let tokens = this.tokenizer.getRangeTokens(range);
-    let contextParams = getContextParams3(tokens);
+    let contextParams = getContextParams(tokens, 0);
     for (let index = 0; index < contextParams.context.length; index++) {
       contextParams.setCurrentIndex(index);
       let substitutions = this.query.lookupFeature({
@@ -21565,7 +22390,7 @@ var opentype = (() => {
           const action = substitutions[i];
           applySubstitution_default(action, tokens, index);
         }
-        contextParams = getContextParams3(tokens);
+        contextParams = getContextParams(tokens, 0);
       }
     }
   }
@@ -21595,14 +22420,10 @@ var opentype = (() => {
   };
 
   // src/features/thai/thaiGlyphComposition.js
-  function getContextParams4(tokens, index) {
-    const context = tokens.map((token) => token.activeState.value);
-    return new ContextParams(context, index || 0);
-  }
   function thaiGlyphComposition(range) {
     const script = "thai";
     let tokens = this.tokenizer.getRangeTokens(range);
-    let contextParams = getContextParams4(tokens, 0);
+    let contextParams = getContextParams(tokens, 0);
     for (let index = 0; index < contextParams.context.length; index++) {
       contextParams.setCurrentIndex(index);
       let substitutions = this.query.lookupFeature({
@@ -21615,21 +22436,17 @@ var opentype = (() => {
           const action = substitutions[i];
           applySubstitution_default(action, tokens, index);
         }
-        contextParams = getContextParams4(tokens, index);
+        contextParams = getContextParams(tokens, index);
       }
     }
   }
   var thaiGlyphComposition_default = thaiGlyphComposition;
 
   // src/features/thai/thaiLigatures.js
-  function getContextParams5(tokens, index) {
-    const context = tokens.map((token) => token.activeState.value);
-    return new ContextParams(context, index || 0);
-  }
   function thaiLigatures(range) {
     const script = "thai";
     let tokens = this.tokenizer.getRangeTokens(range);
-    let contextParams = getContextParams5(tokens, 0);
+    let contextParams = getContextParams(tokens, 0);
     for (let index = 0; index < contextParams.context.length; index++) {
       contextParams.setCurrentIndex(index);
       let substitutions = this.query.lookupFeature({
@@ -21642,21 +22459,17 @@ var opentype = (() => {
           const action = substitutions[i];
           applySubstitution_default(action, tokens, index);
         }
-        contextParams = getContextParams5(tokens, index);
+        contextParams = getContextParams(tokens, index);
       }
     }
   }
   var thaiLigatures_default = thaiLigatures;
 
   // src/features/thai/thaiRequiredLigatures.js
-  function getContextParams6(tokens, index) {
-    const context = tokens.map((token) => token.activeState.value);
-    return new ContextParams(context, index || 0);
-  }
   function thaiRequiredLigatures(range) {
     const script = "thai";
     let tokens = this.tokenizer.getRangeTokens(range);
-    let contextParams = getContextParams6(tokens, 0);
+    let contextParams = getContextParams(tokens, 0);
     for (let index = 0; index < contextParams.context.length; index++) {
       contextParams.setCurrentIndex(index);
       let substitutions = this.query.lookupFeature({
@@ -21669,7 +22482,7 @@ var opentype = (() => {
           const action = substitutions[i];
           applySubstitution_default(action, tokens, index);
         }
-        contextParams = getContextParams6(tokens, index);
+        contextParams = getContextParams(tokens, index);
       }
     }
   }
@@ -21787,7 +22600,10 @@ var opentype = (() => {
         "No valid font was provided to apply features"
       );
     if (!this.query)
-      this.query = new featureQuery_default(font);
+      this.query = new featureQuery_default(
+        /** @type {Record<string, unknown>} */
+        font
+      );
     for (let f = 0; f < features.length; f++) {
       const feature = features[f];
       if (!this.query.supports({ script: feature.script }))
@@ -22573,18 +23389,19 @@ var opentype = (() => {
       this.weightClass = options.weightClass || 0;
       let selection = 0;
       if (options.fsSelection) {
-        selection = options.fsSelection;
+        selection = /** @type {number} */
+        options.fsSelection;
       } else {
         if (this.italicAngle < 0) {
-          selection |= this.fsSelectionValues.ITALIC;
+          selection |= Font.prototype.fsSelectionValues.ITALIC;
         } else if (this.italicAngle > 0) {
-          selection |= this.fsSelectionValues.OBLIQUE;
+          selection |= Font.prototype.fsSelectionValues.OBLIQUE;
         }
         if (this.weightClass >= 600) {
-          selection |= this.fsSelectionValues.BOLD;
+          selection |= Font.prototype.fsSelectionValues.BOLD;
         }
         if (selection == 0) {
-          selection = this.fsSelectionValues.REGULAR;
+          selection = Font.prototype.fsSelectionValues.REGULAR;
         }
       }
       if (!options.panose || !Array.isArray(options.panose)) {
@@ -22592,8 +23409,8 @@ var opentype = (() => {
       }
       this.tables = Object.assign(options.tables, {
         os2: Object.assign({
-          usWeightClass: options.weightClass || this.usWeightClasses.MEDIUM,
-          usWidthClass: options.widthClass || this.usWidthClasses.MEDIUM,
+          usWeightClass: options.weightClass || Font.prototype.usWeightClasses.MEDIUM,
+          usWidthClass: options.widthClass || Font.prototype.usWidthClasses.MEDIUM,
           bFamilyType: options.panose[0] || 0,
           bSerifStyle: options.panose[1] || 0,
           bWeight: options.panose[2] || 0,
@@ -22616,14 +23433,24 @@ var opentype = (() => {
         this.descender = options.descender;
     }
     this.supported = true;
-    this.glyphs = new glyphset_default.GlyphSet(this, options.glyphs || []);
+    const _thisAsRecord = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      this
+    );
+    this.glyphs = new glyphset_default.GlyphSet(_thisAsRecord, options.glyphs || []);
     this.encoding = new DefaultEncoding(this);
-    this.position = new position_default(this);
-    this.substitution = new substitution_default(this);
-    this.tables = this.tables || {};
+    this.position = new position_default(_thisAsRecord);
+    this.substitution = new substitution_default(_thisAsRecord);
+    if (!Object.prototype.hasOwnProperty.call(this, "tables")) {
+      this.tables = {};
+    }
     this.tables = new Proxy(this.tables, {
       set: (tables, tableName, tableData) => {
-        tables[tableName] = tableData;
+        tables[
+          /** @type {string} */
+          tableName
+        ] = tableData;
         if (tables.fvar && (tables.gvar || tables.cff2) && !this.variation) {
           this.variation = new VariationManager(this);
         }
@@ -22647,6 +23474,14 @@ var opentype = (() => {
     });
     this.options = options || {};
   }
+  Font.prototype.tables = {};
+  Font.prototype.outlinesFormat = void 0;
+  Font.prototype.glyphNames = void 0;
+  Font.prototype.kerningPairs = void 0;
+  Font.prototype.collection = void 0;
+  Font.prototype.numberOfHMetrics = void 0;
+  Font.prototype.numGlyphs = void 0;
+  Font.prototype.metas = void 0;
   Font.prototype.hasChar = function(c) {
     return this.encoding.charToGlyphIndex(c) > 0;
   };
@@ -22672,7 +23507,11 @@ var opentype = (() => {
       version: this.getEnglishName("version") || "Version 0.1",
       tables: {}
     });
-    const coords = typeof coordsOrName === "string" ? this.variation && this.variation.process.getInstanceCoordsByName && this.variation.process.getInstanceCoordsByName(coordsOrName) : coordsOrName;
+    const coords = typeof coordsOrName === "string" ? this.variation && /** @type {{getInstanceCoordsByName?: Function}} */
+    /** @type {unknown} */
+    this.variation.process.getInstanceCoordsByName && /** @type {{getInstanceCoordsByName: Function}} */
+    /** @type {unknown} */
+    this.variation.process.getInstanceCoordsByName(coordsOrName) : coordsOrName;
     for (let i = 0; i < this.glyphs.length; i++) {
       const g = this.glyphs.get(i);
       let ng;
@@ -22704,14 +23543,19 @@ var opentype = (() => {
       f.glyphs.push(i, ng);
     }
     f.tables = JSON.parse(JSON.stringify(this.tables || {}));
-    delete f.tables.fvar;
-    delete f.tables.gvar;
-    delete f.tables.avar;
-    delete f.tables.cvar;
-    delete f.tables.hvar;
-    delete f.tables.STAT;
-    if (f.tables.cff2) {
-      delete f.tables.cff2;
+    const fTables = (
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      f.tables
+    );
+    delete fTables.fvar;
+    delete fTables.gvar;
+    delete fTables.avar;
+    delete fTables.cvar;
+    delete fTables.hvar;
+    delete fTables.STAT;
+    if (fTables.cff2) {
+      delete fTables.cff2;
       f.options = Object.assign({}, this.options, { forceCFF1: true });
     }
     if (this.names) {
@@ -22742,7 +23586,11 @@ var opentype = (() => {
     const bidi = new bidi_default();
     const charToGlyphIndexMod = (token) => this.charToGlyphIndex(token.char);
     bidi.registerModifier("glyphIndex", null, charToGlyphIndexMod);
-    let features = options ? this.updateFeatures(options.features) : this.defaultRenderOptions.features;
+    let features = options ? this.updateFeatures(
+      /** @type {Record<string, boolean>} */
+      /** @type {unknown} */
+      options.features
+    ) : this.defaultRenderOptions.features;
     bidi.applyFeatures(this, features);
     return bidi.getTextGlyphs(s);
   };
@@ -22774,11 +23622,19 @@ var opentype = (() => {
     return this.glyphNames.glyphIndexToName(gid);
   };
   Font.prototype.getKerningValue = function(leftGlyph, rightGlyph) {
-    leftGlyph = leftGlyph.index || leftGlyph;
-    rightGlyph = rightGlyph.index || rightGlyph;
+    leftGlyph = /** @type {{index?: number}} */
+    leftGlyph.index || leftGlyph;
+    rightGlyph = /** @type {{index?: number}} */
+    rightGlyph.index || rightGlyph;
     const gposKerning = this.position.defaultKerningTables;
     if (gposKerning) {
-      return this.position.getKerningValue(gposKerning, leftGlyph, rightGlyph);
+      return this.position.getKerningValue(
+        gposKerning,
+        /** @type {number} */
+        leftGlyph,
+        /** @type {number} */
+        rightGlyph
+      );
     }
     return this.kerningPairs[leftGlyph + "," + rightGlyph] || 0;
   };
@@ -22809,7 +23665,9 @@ var opentype = (() => {
     const glyphs = this.stringToGlyphs(text, options);
     let kerningLookups;
     if (options.kerning) {
-      const script = options.script || this.position.getDefaultScriptName();
+      const script = options.script || /** @type {{getDefaultScriptName: Function}} */
+      /** @type {unknown} */
+      this.position.getDefaultScriptName();
       kerningLookups = this.position.getKerningTables(script, options.language);
     }
     for (let i = 0; i < glyphs.length; i += 1) {
@@ -22824,7 +23682,13 @@ var opentype = (() => {
             "advanceWidth",
             explicitVariation
           );
-          advanceWidth = Math.round((glyph._advanceWidth !== void 0 ? glyph._advanceWidth : glyph.advanceWidth) + delta);
+          advanceWidth = Math.round(
+            /** @type {{_advanceWidth?: number}} */
+            (glyph._advanceWidth !== void 0 ? (
+              /** @type {{_advanceWidth: number}} */
+              glyph._advanceWidth
+            ) : glyph.advanceWidth) + delta
+          );
         } catch (e) {
         }
       }
@@ -22847,7 +23711,12 @@ var opentype = (() => {
     options = Object.assign({}, this.defaultRenderOptions, options);
     const fullPath = new path_default();
     fullPath._layers = [];
-    applyPaintType(this, fullPath, fontSize);
+    applyPaintType(
+      /** @type {Record<string, unknown>} */
+      /** @type {unknown} */
+      this,
+      fullPath
+    );
     if (fullPath.stroke) {
       const scale = 1 / (fullPath.unitsPerEm || 1e3) * fontSize;
       fullPath.strokeWidth *= scale;
@@ -22934,7 +23803,11 @@ var opentype = (() => {
     assertNamePresent("version");
     assert(this.unitsPerEm > 0, "No unitsPerEm specified.");
     if (this.tables.colr) {
-      const baseGlyphs = this.tables.colr.baseGlyphRecords;
+      const colr = (
+        /** @type {{baseGlyphRecords: {glyphID: number}[]}} */
+        this.tables.colr
+      );
+      const baseGlyphs = colr.baseGlyphRecords;
       let previousID = -1;
       for (let b = 0; b < baseGlyphs.length; b++) {
         const currentGlyphID = baseGlyphs[b].glyphID;
@@ -22948,7 +23821,11 @@ var opentype = (() => {
     return warnings;
   };
   Font.prototype.toTables = function(options) {
-    return sfnt_default.fontToTable(this, options);
+    return (
+      /** @type {Record<string, unknown> & {encode: Function}} */
+      /** @type {unknown} */
+      sfnt_default.fontToTable(this, options)
+    );
   };
   Font.prototype.toBuffer = function() {
     console.warn("Font.toBuffer is deprecated. Use Font.toArrayBuffer instead.");
@@ -22984,12 +23861,19 @@ var opentype = (() => {
         console.warn("Font file could not be downloaded. Try using a different browser.");
       }
     } else {
-      const buffer = Buffer.alloc(arrayBuffer.byteLength);
+      const buffer = (
+        /** @type {{Buffer: {alloc: Function}}} */
+        /** @type {unknown} */
+        globalThis.Buffer.alloc(arrayBuffer.byteLength)
+      );
       const view = new Uint8Array(arrayBuffer);
       for (let i = 0; i < buffer.length; ++i) {
         buffer[i] = view[i];
       }
-      import("fs").then((fs) => fs.writeFileSync(fileName, buffer)).catch(() => {
+      import(
+        /** @type {string} */
+        "fs"
+      ).then((fs) => fs.writeFileSync(fileName, buffer)).catch(() => {
         console.warn("Font file could not be written (fs unavailable).");
       });
     }
@@ -23127,7 +24011,10 @@ var opentype = (() => {
   function removeMacNameEntries(names) {
     if (!names)
       return names;
-    const result = {};
+    const result = (
+      /** @type {Record<string, unknown>} */
+      {}
+    );
     for (const platform of Object.keys(names)) {
       if (platform !== "macintosh") {
         result[platform] = names[platform];
@@ -23143,8 +24030,14 @@ var opentype = (() => {
   function matchOS2HheaMetrics(font) {
     if (!font.tables || !font.tables.os2 || !font.tables.hhea)
       return;
-    const hhea = font.tables.hhea;
-    const os2 = font.tables.os2;
+    const hhea = (
+      /** @type {{ascender: number, descender: number, lineGap: number}} */
+      font.tables.hhea
+    );
+    const os2 = (
+      /** @type {{sTypoAscender: number, sTypoDescender: number, sTypoLineGap: number}} */
+      font.tables.os2
+    );
     os2.sTypoAscender = hhea.ascender;
     os2.sTypoDescender = hhea.descender;
     os2.sTypoLineGap = hhea.lineGap || 0;
@@ -23166,10 +24059,16 @@ var opentype = (() => {
   function fixDefaultInstanceNameID(font) {
     if (!font.tables || !font.tables.fvar)
       return;
-    const fvar = font.tables.fvar;
+    const fvar = (
+      /** @type {{instances: Array<{coordinates: Record<string, number>, subfamilyNameID: number, name: Record<string, string>}>, axes: Array<{tag: string, defaultValue: number}>}} */
+      font.tables.fvar
+    );
     if (!fvar.instances || !fvar.axes)
       return;
-    const defaultCoords = {};
+    const defaultCoords = (
+      /** @type {Record<string, number>} */
+      {}
+    );
     for (const axis of fvar.axes) {
       defaultCoords[axis.tag] = axis.defaultValue;
     }
@@ -23216,7 +24115,10 @@ var opentype = (() => {
   function removeDuplicateInstances(font) {
     if (!font.tables || !font.tables.fvar)
       return 0;
-    const fvar = font.tables.fvar;
+    const fvar = (
+      /** @type {{instances: Array<{coordinates: Record<string, number>}>, axes: Array<{tag: string}>}} */
+      font.tables.fvar
+    );
     if (!fvar.instances || !fvar.axes)
       return 0;
     const seen = /* @__PURE__ */ new Set();
@@ -23234,19 +24136,24 @@ var opentype = (() => {
         removed++;
       }
     }
-    fvar.instances = uniqueInstances;
+    font.tables.fvar.instances = uniqueInstances;
     return removed;
   }
   function ensureAvarTable(font) {
     if (!font.tables)
       return false;
-    if (!font.tables.fvar || !font.tables.fvar.axes) {
+    const fvarRaw = font.tables.fvar;
+    if (!fvarRaw || !/** @type {{axes?: unknown[]}} */
+    fvarRaw.axes) {
       return false;
     }
     if (font.tables.avar) {
       return true;
     }
-    const axes = font.tables.fvar.axes;
+    const axes = (
+      /** @type {{axes: unknown[]}} */
+      fvarRaw.axes
+    );
     const axisSegmentMaps = [];
     for (let i = 0; i < axes.length; i++) {
       axisSegmentMaps.push({
@@ -23307,7 +24214,10 @@ var opentype = (() => {
     if (!font.tables || !font.tables.hhea) {
       return { valid: false, ratio: 0, message: "Missing hhea table" };
     }
-    const hhea = font.tables.hhea;
+    const hhea = (
+      /** @type {{ascender: number, descender: number, lineGap: number}} */
+      font.tables.hhea
+    );
     const upm = font.unitsPerEm || 1e3;
     const sum = hhea.ascender + Math.abs(hhea.descender) + (hhea.lineGap || 0);
     const ratio = sum / upm;
@@ -23339,15 +24249,22 @@ var opentype = (() => {
   function ensureHvarTable(font) {
     if (!font.tables)
       return false;
-    const hasGvar = font.tables.gvar && font.tables.gvar.glyphVariations;
-    const hasFvar = font.tables.fvar && font.tables.fvar.axes;
+    const hasGvar = font.tables.gvar && /** @type {{glyphVariations?: unknown}} */
+    font.tables.gvar.glyphVariations;
+    const hasFvar = font.tables.fvar && /** @type {{axes?: unknown[]}} */
+    font.tables.fvar.axes;
     if (!hasGvar || !hasFvar) {
       return false;
     }
-    if (font.tables.hvar && font.tables.hvar.itemVariationStore) {
+    if (font.tables.hvar && /** @type {{itemVariationStore?: unknown}} */
+    font.tables.hvar.itemVariationStore) {
       return true;
     }
-    const axes = font.tables.fvar.axes;
+    const axes = (
+      /** @type {Array<{minValue: number, defaultValue: number, maxValue: number}>} */
+      /** @type {{axes: unknown[]}} */
+      font.tables.fvar.axes
+    );
     const numGlyphs = font.glyphs ? font.glyphs.length : font.numGlyphs || 1;
     font.tables.hvar = {
       version: [1, 0],
@@ -23446,7 +24363,10 @@ var opentype = (() => {
 
   // src/opentype.js
   function loadFromFile(path, callback) {
-    import("fs").then((fs) => {
+    import(
+      /** @type {string} */
+      "fs"
+    ).then((fs) => {
       fs.readFile(path, function(err, buffer) {
         if (err) {
           return callback(err.message);
@@ -23484,7 +24404,13 @@ var opentype = (() => {
         }).catch((err) => callback(err, void 0));
       } else {
         const isHttps = url.startsWith("https:");
-        (isHttps ? import("https") : import("http")).then((mod) => {
+        (isHttps ? import(
+          /** @type {string} */
+          "https"
+        ) : import(
+          /** @type {string} */
+          "http"
+        )).then((mod) => {
           const lib = mod.default || mod;
           const request = lib.request(url, (res) => {
             if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
@@ -23492,9 +24418,17 @@ var opentype = (() => {
             }
             res.setEncoding("binary");
             const chunks = [];
-            res.on("data", (chunk) => chunks.push(Buffer.from(chunk, "binary")));
+            res.on("data", (chunk) => chunks.push(
+              /** @type {{Buffer: {from: Function}}} */
+              /** @type {unknown} */
+              globalThis.Buffer.from(chunk, "binary")
+            ));
             res.on("end", () => {
-              const b = Buffer.concat(chunks);
+              const b = (
+                /** @type {{Buffer: {concat: Function}}} */
+                /** @type {unknown} */
+                globalThis.Buffer.concat(chunks)
+              );
               const ab = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
               callback(null, ab);
             });
@@ -23526,7 +24460,7 @@ var opentype = (() => {
       throw new Error("Invalid TTC: no fonts in collection");
     }
     const requestedIndex = (_c = (_b = (_a = opt.collectionIndex) != null ? _a : opt.ttcIndex) != null ? _b : opt.fontIndex) != null ? _c : 0;
-    const index = Number.parseInt(requestedIndex, 10);
+    const index = Number.parseInt(String(requestedIndex), 10);
     if (!Number.isInteger(index) || index < 0 || index >= numFonts) {
       throw new Error(`TTC font index out of range (${index}); collection has ${numFonts} font(s)`);
     }
@@ -23704,7 +24638,12 @@ var opentype = (() => {
         case "cmap":
           table = uncompressTable(data, tableEntry);
           font.tables.cmap = cmap_default.parse(table.data, table.offset);
-          font.encoding = new CmapEncoding(font.tables.cmap);
+          font.encoding = /** @type {import('./encoding.js').DefaultEncoding} */
+          /** @type {unknown} */
+          new CmapEncoding(
+            /** @type {{glyphIndexMap: Record<string, number>}} */
+            font.tables.cmap
+          );
           break;
         case "cvt ":
           table = uncompressTable(data, tableEntry);
@@ -23728,19 +24667,29 @@ var opentype = (() => {
           p = new parse_default.Parser(table.data, table.offset);
           font.tables.fpgm = p.parseByteList(tableEntry.length);
           break;
-        case "head":
+        case "head": {
           table = uncompressTable(data, tableEntry);
           font.tables.head = head_default.parse(table.data, table.offset);
-          font.unitsPerEm = font.tables.head.unitsPerEm;
-          indexToLocFormat = font.tables.head.indexToLocFormat;
+          const headTable = (
+            /** @type {{unitsPerEm: number, indexToLocFormat: number}} */
+            font.tables.head
+          );
+          font.unitsPerEm = headTable.unitsPerEm;
+          indexToLocFormat = headTable.indexToLocFormat;
           break;
-        case "hhea":
+        }
+        case "hhea": {
           table = uncompressTable(data, tableEntry);
           font.tables.hhea = hhea_default.parse(table.data, table.offset);
-          font.ascender = font.tables.hhea.ascender;
-          font.descender = font.tables.hhea.descender;
-          font.numberOfHMetrics = font.tables.hhea.numberOfHMetrics;
+          const hheaTable = (
+            /** @type {{ascender: number, descender: number, numberOfHMetrics: number}} */
+            font.tables.hhea
+          );
+          font.ascender = hheaTable.ascender;
+          font.descender = hheaTable.descender;
+          font.numberOfHMetrics = hheaTable.numberOfHMetrics;
           break;
+        }
         case "HVAR":
           hvarTableEntry = tableEntry;
           break;
@@ -23759,11 +24708,13 @@ var opentype = (() => {
           table = uncompressTable(data, tableEntry);
           font.tables.cpal = cpal_default.parse(table.data, table.offset);
           break;
-        case "maxp":
+        case "maxp": {
           table = uncompressTable(data, tableEntry);
           font.tables.maxp = maxp_default.parse(table.data, table.offset);
-          font.numGlyphs = font.tables.maxp.numGlyphs;
+          font.numGlyphs = /** @type {{numGlyphs: number}} */
+          font.tables.maxp.numGlyphs;
           break;
+        }
         case "name":
           nameTableEntry = tableEntry;
           break;
@@ -23774,7 +24725,10 @@ var opentype = (() => {
         case "post":
           table = uncompressTable(data, tableEntry);
           font.tables.post = post_default.parse(table.data, table.offset);
-          font.glyphNames = new GlyphNames(font.tables.post);
+          font.glyphNames = new GlyphNames(
+            /** @type {{version: number, numberOfGlyphs: number, glyphNameIndex: number[], names: string[]}} */
+            font.tables.post
+          );
           break;
         case "prep":
           table = uncompressTable(data, tableEntry);
@@ -23843,9 +24797,11 @@ var opentype = (() => {
     addGlyphNames(font, opt);
     if (kernTableEntry) {
       const kernTable = uncompressTable(data, kernTableEntry);
-      font.kerningPairs = kern_default.parse(kernTable.data, kernTable.offset);
+      font.kerningPairs = /** @type {Record<string, number>} */
+      kern_default.parse(kernTable.data, kernTable.offset);
     } else {
-      font.kerningPairs = {};
+      font.kerningPairs = /** @type {Record<string, number>} */
+      {};
     }
     if (gdefTableEntry) {
       const gdefTable = uncompressTable(data, gdefTableEntry);
@@ -23911,7 +24867,8 @@ var opentype = (() => {
     if (metaTableEntry) {
       const metaTable = uncompressTable(data, metaTableEntry);
       font.tables.meta = meta_default.parse(metaTable.data, metaTable.offset);
-      font.metas = font.tables.meta;
+      font.metas = /** @type {Record<string, unknown>} */
+      font.tables.meta;
     }
     font.palettes = new PaletteManager(font);
     return font;
