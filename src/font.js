@@ -153,7 +153,7 @@ function Font(options) {
     this.encoding = new DefaultEncoding(this);
     this.position = new Position(_thisAsRecord);
     this.substitution = new Substitution(_thisAsRecord);
-    this.tables = this.tables || {};
+    if (!Object.prototype.hasOwnProperty.call(this, 'tables')) { this.tables = {}; }
 
     this.tables = new Proxy(this.tables, {
         set: (tables, tableName, tableData) => {
