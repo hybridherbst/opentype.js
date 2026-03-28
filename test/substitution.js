@@ -65,7 +65,7 @@ describe('substitution.js', function() {
             assert.deepEqual(font.tables.gsub.scripts, defaultScriptList);
             assert.deepEqual(font.tables.gsub.features, [{
                 tag: 'salt',
-                feature: { params: 0, lookupListIndexes: [0] }
+                feature: { featureParams: 0, lookupListIndexes: [0] }
             }]);
             assert.deepEqual(font.tables.gsub.lookups, [{
                 lookupFlag: 0,
@@ -85,7 +85,7 @@ describe('substitution.js', function() {
             assert.deepEqual(font.tables.gsub.scripts, defaultScriptList);
             assert.deepEqual(font.tables.gsub.features, [{
                 tag: 'ccmp',
-                feature: { params: 0, lookupListIndexes: [0] }
+                feature: { featureParams: 0, lookupListIndexes: [0] }
             }]);
             assert.deepEqual(font.tables.gsub.lookups, [{
                 lookupFlag: 0,
@@ -105,7 +105,7 @@ describe('substitution.js', function() {
             assert.deepEqual(font.tables.gsub.scripts, defaultScriptList);
             assert.deepEqual(font.tables.gsub.features, [{
                 tag: 'aalt',
-                feature: { params: 0, lookupListIndexes: [0] }
+                feature: { featureParams: 0, lookupListIndexes: [0] }
             }]);
             assert.deepEqual(font.tables.gsub.lookups, [{
                 lookupFlag: 0,
@@ -126,7 +126,7 @@ describe('substitution.js', function() {
             assert.deepEqual(font.tables.gsub.scripts, defaultScriptList);
             assert.deepEqual(font.tables.gsub.features, [{
                 tag: 'liga',
-                feature: { params: 0, lookupListIndexes: [0] }
+                feature: { featureParams: 0, lookupListIndexes: [0] }
             }]);
             assert.deepEqual(font.tables.gsub.lookups, [{
                 lookupFlag: 0,
@@ -155,7 +155,7 @@ describe('substitution.js', function() {
             assert.deepEqual(font.tables.gsub.scripts, defaultScriptList);
             assert.deepEqual(font.tables.gsub.features, [{
                 tag: 'calt',
-                feature: { params: 0, lookupListIndexes: [1] }
+                feature: { featureParams: 0, lookupListIndexes: [1] }
             }]);
             
             // Should have 2 lookups: single sub (type 1) and chaining (type 6)
