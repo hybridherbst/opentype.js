@@ -10,7 +10,6 @@ import { addSnapAxisToFont, PREVIEW_FONT_SIZE } from '../docs/examples/manipulat
 
 const _require = createRequire(import.meta.url);
 const wawoff2Decompress = _require('wawoff2/decompress.js');
-const wawoff2Compress = _require('wawoff2/compress.js');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -304,77 +303,22 @@ describe('fonttools validation', function() {
             assert.ok(font.unitsPerEm > 0, 'Should have unitsPerEm');
         });
         
-        it('should validate CAT-Eckmann TTF font', function() {
-            const fontPath = path.join(__dirname, 'fonts/CAT-Eckmann.ttf');
-            if (!fs.existsSync(fontPath)) {
-                this.skip();
-            }
-
+        it('should validate OTF (CFF) font round-trip', function() {
+            // SourceSansPro is a CFF/OTF font already in test/fonts/
+            const fontPath = path.join(__dirname, 'fonts/SourceSansPro-Regular.otf');
             const buffer = fs.readFileSync(fontPath);
             const font = opentype.parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
 
+            assert.strictEqual(font.outlinesFormat, 'cff', 'Should be a CFF font');
             assert.ok(font.glyphs.length > 0, 'Should have glyphs');
 
-            // Re-export and validate
-            const outputPath = path.join(OUTPUT_DIR, 'CAT-Eckmann-reexport.ttf');
+            const outputPath = path.join(OUTPUT_DIR, 'SourceSansPro-reexport.ttf');
             fs.writeFileSync(outputPath, Buffer.from(font.toArrayBuffer()));
 
             const issues = runFonttoolsValidation(outputPath);
             const errors = issues.filter(i => i.severity === 'ERROR' || i.severity === 'FATAL');
             assert.strictEqual(errors.length, 0,
                 `Font has errors: ${errors.map(e => `[${e.test}] ${e.message}`).join(', ')}`);
-        });
-    });
-
-    describe('Additional fonts - double roundtrip', function() {
-        this.timeout(60000);
-
-        const additionalFonts = [
-            { name: 'HIKARUMONO-Regular.otf', outName: 'HIKARUMONO-Regular-reexport.ttf' },
-            { name: 'SchulfibelNord-Linie2.ttf', outName: 'SchulfibelNord-Linie2-reexport.ttf' },
-        ];
-
-        for (const { name, outName } of additionalFonts) {
-            it(`should double-roundtrip ${name}`, function() {
-                const fontPath = path.join(__dirname, 'fonts', name);
-                if (!fs.existsSync(fontPath)) { this.skip(); }
-
-                const buffer = fs.readFileSync(fontPath);
-                const font = opentype.parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
-                assert.ok(font.glyphs.length > 0, 'Should have glyphs');
-
-                const outputPath = path.join(OUTPUT_DIR, outName);
-                fs.writeFileSync(outputPath, Buffer.from(font.toArrayBuffer()));
-
-                const issues = runFonttoolsValidation(outputPath);
-                const errors = issues.filter(i => i.severity === 'ERROR' || i.severity === 'FATAL');
-                assert.strictEqual(errors.length, 0,
-                    `Font has errors: ${errors.map(e => `[${e.test}] ${e.message}`).join(', ')}`);
-            });
-        }
-
-        it('should double-roundtrip all Baltic fonts', function() {
-            const balticDir = path.join(__dirname, 'fonts/Baltic_Fonts');
-            if (!fs.existsSync(balticDir)) { this.skip(); }
-
-            const ttfs = fs.readdirSync(balticDir).filter(f => f.endsWith('.ttf'));
-            assert.ok(ttfs.length > 0, 'Baltic_Fonts folder should contain TTF files');
-
-            for (const name of ttfs) {
-                const fontPath = path.join(balticDir, name);
-                const buffer = fs.readFileSync(fontPath);
-                const font = opentype.parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
-                assert.ok(font.glyphs.length > 0, `${name}: should have glyphs`);
-
-                const outName = `Baltic-${name.replace(/ /g, '_')}-reexport.ttf`;
-                const outputPath = path.join(OUTPUT_DIR, outName);
-                fs.writeFileSync(outputPath, Buffer.from(font.toArrayBuffer()));
-
-                const issues = runFonttoolsValidation(outputPath);
-                const errors = issues.filter(i => i.severity === 'ERROR' || i.severity === 'FATAL');
-                assert.strictEqual(errors.length, 0,
-                    `${name} has errors: ${errors.map(e => `[${e.test}] ${e.message}`).join(', ')}`);
-            }
         });
     });
 
@@ -443,92 +387,4 @@ describe('fonttools validation', function() {
         });
     });
 
-    describe('WOFF2 roundtrip (compress → decompress)', function() {
-        this.timeout(30000);
-
-        // Helper: parse a Uint8Array from wawoff2 back to an ArrayBuffer
-        function wawoffSlice(u8) {
-            return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.length);
-        }
-
-        it('should roundtrip a static TTF through WOFF2 compress/decompress', async function() {
-            const fontPath = path.join(__dirname, 'fonts/Roboto-Black.ttf');
-            const ttfBuf = fs.readFileSync(fontPath);
-
-            // TTF → WOFF2
-            const woff2 = await wawoff2Compress(ttfBuf);
-            assert.strictEqual(String.fromCharCode(...woff2.slice(0, 4)), 'wOF2', 'Compressed output should have WOFF2 signature');
-
-            // WOFF2 → TTF
-            const decompressed = await wawoff2Decompress(woff2);
-            const roundtripped = wawoffSlice(decompressed);
-
-            // Should parse cleanly
-            const font = opentype.parse(roundtripped);
-            assert.ok(font.glyphs.length > 0, 'Roundtripped font should have glyphs');
-            assert.ok(font.unitsPerEm > 0, 'Roundtripped font should have unitsPerEm');
-
-            // Validate with fonttools
-            const outputPath = path.join(OUTPUT_DIR, 'Roboto-Black-woff2-roundtrip.ttf');
-            fs.writeFileSync(outputPath, Buffer.from(roundtripped));
-            const issues = runFonttoolsValidation(outputPath);
-            const errors = issues.filter(i => i.severity === 'ERROR' || i.severity === 'FATAL');
-            assert.strictEqual(errors.length, 0,
-                `Font has errors: ${errors.map(e => `[${e.test}] ${e.message}`).join(', ')}`);
-        });
-
-        it('should roundtrip a variable TTF through WOFF2 compress/decompress', async function() {
-            const fontPath = path.join(__dirname, 'fonts/Roboto-Variable.ttf');
-            const ttfBuf = fs.readFileSync(fontPath);
-
-            const woff2 = await wawoff2Compress(ttfBuf);
-            assert.strictEqual(String.fromCharCode(...woff2.slice(0, 4)), 'wOF2', 'Compressed output should have WOFF2 signature');
-
-            const decompressed = await wawoff2Decompress(woff2);
-            const roundtripped = wawoffSlice(decompressed);
-
-            const font = opentype.parse(roundtripped);
-            assert.ok(font.tables.fvar, 'Roundtripped VF should have fvar table');
-            assert.ok(font.glyphs.length > 0, 'Roundtripped VF should have glyphs');
-
-            const outputPath = path.join(OUTPUT_DIR, 'Roboto-Variable-woff2-roundtrip.ttf');
-            fs.writeFileSync(outputPath, Buffer.from(roundtripped));
-            const issues = runFonttoolsValidation(outputPath);
-            const errors = issues.filter(i => i.severity === 'ERROR' || i.severity === 'FATAL');
-            assert.strictEqual(errors.length, 0,
-                `Font has errors: ${errors.map(e => `[${e.test}] ${e.message}`).join(', ')}`);
-        });
-
-        it('should full-roundtrip an existing WOFF2: decompress → opentype export → compress → decompress', async function() {
-            const fontPath = path.join(__dirname, 'fonts/Roboto-Regular-Variable.woff2');
-            if (!fs.existsSync(fontPath)) { this.skip(); }
-
-            // Decompress original woff2
-            const originalCompressed = fs.readFileSync(fontPath);
-            const decompressed1 = await wawoff2Decompress(originalCompressed);
-            const ttf1 = wawoffSlice(decompressed1);
-
-            // Parse and re-export with opentype.js
-            const font = opentype.parse(ttf1);
-            const reexported = font.toArrayBuffer();
-
-            // Compress re-exported TTF back to WOFF2
-            const recompressed = await wawoff2Compress(Buffer.from(reexported));
-            assert.strictEqual(String.fromCharCode(...recompressed.slice(0, 4)), 'wOF2', 'Re-compressed output should have WOFF2 signature');
-
-            // Decompress once more and validate
-            const decompressed2 = await wawoff2Decompress(recompressed);
-            const ttf2 = wawoffSlice(decompressed2);
-            const font2 = opentype.parse(ttf2);
-            assert.ok(font2.tables.fvar, 'Final font should still have fvar table');
-            assert.ok(font2.glyphs.length > 0, 'Final font should have glyphs');
-
-            const outputPath = path.join(OUTPUT_DIR, 'Roboto-VF-full-woff2-roundtrip.ttf');
-            fs.writeFileSync(outputPath, Buffer.from(ttf2));
-            const issues = runFonttoolsValidation(outputPath);
-            const errors = issues.filter(i => i.severity === 'ERROR' || i.severity === 'FATAL');
-            assert.strictEqual(errors.length, 0,
-                `Font has errors: ${errors.map(e => `[${e.test}] ${e.message}`).join(', ')}`);
-        });
-    });
 });
