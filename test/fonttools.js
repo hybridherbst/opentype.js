@@ -4,8 +4,12 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import * as opentype from '../src/opentype.js';
 import { addSnapAxisToFont, PREVIEW_FONT_SIZE } from '../docs/examples/manipulation-api.js';
+
+const _require = createRequire(import.meta.url);
+const wawoff2Decompress = _require('wawoff2/decompress.js');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -261,16 +265,15 @@ describe('fonttools validation', function() {
             assert.strictEqual(parsed.tables.fvar.axes[0].tag, 'SNAP', 'Should have SNAP axis');
         });
         
-        it('should validate existing variable font (Roboto)', function() {
-            // Use the TTF variant — opentype.js cannot parse WOFF2 in Node without
-            // an external Brotli decompressor, so we use the TTF version instead.
-            const fontPath = path.join(__dirname, 'fonts/Roboto-Variable.ttf');
+        it('should validate existing variable font (Roboto)', async function() {
+            const fontPath = path.join(__dirname, 'fonts/Roboto-Regular-Variable.woff2');
             if (!fs.existsSync(fontPath)) {
-                this.skip(); // Skip if font not available
+                this.skip();
             }
 
-            const buffer = fs.readFileSync(fontPath);
-            const font = opentype.parse(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+            const compressed = fs.readFileSync(fontPath);
+            const decompressed = await wawoff2Decompress(compressed);
+            const font = opentype.parse(decompressed.buffer.slice(decompressed.byteOffset, decompressed.byteOffset + decompressed.length));
 
             // Re-export
             const outputPath = path.join(OUTPUT_DIR, 'Roboto-VF-reexport.ttf');
