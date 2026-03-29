@@ -37,6 +37,13 @@ export class VariationProcessor {
         if(!coords) {
             coords = this.font.variation.get();
         }
+        // 1-entry cache keyed by coords reference.  Within a single import pass
+        // every glyph of the same axis extreme shares the same coords object, so
+        // this eliminates 2 of the 3 getNormalizedCoords calls that getTransform
+        // triggers (applyTupleVariationStore + 2× getBlendVector for HVAR).
+        if (this._normCacheCoords === coords) {
+            return this._normCacheResult;
+        }
         let normalized = [];
         this.normalizeCoordTags(coords);
         for (let i = 0; i < this.fvar().axes.length; i++) {
@@ -71,6 +78,8 @@ export class VariationProcessor {
             }
         }
 
+        this._normCacheCoords = coords;
+        this._normCacheResult = normalized;
         return normalized;
     }
 
@@ -275,38 +284,32 @@ export class VariationProcessor {
             transformedPoints = [...points];
         }
 
+        const gvarSharedTuples = flavor === 'gvar' ? this.gvar().sharedTuples : null;
+
         for(let h = 0; h < headers.length; h++) {
             const header = headers[h];
+            // Resolve tupleCoords once per header (not once per axis as before).
+            const tupleCoords = flavor === 'gvar'
+                ? (header.peakTuple || gvarSharedTuples[header.sharedTupleRecordsIndex])
+                : header.peakTuple;
             let factor = 1;
             for (let a = 0; a < axisCount; a++) {
-
-                let tupleCoords = [0];
-                switch(flavor) {
-                    case 'gvar':
-                        tupleCoords = header.peakTuple ? header.peakTuple : this.gvar().sharedTuples[header.sharedTupleRecordsIndex];
-                        break;
-                    case 'cvar':
-                        tupleCoords = header.peakTuple;
-                        break;
-                }
-
-                
                 if (tupleCoords[a] === 0) {
                     continue;
                 }
-                
+
                 if (normalizedCoords[a] === 0) {
                     factor = 0;
                     break;
                 }
-            
+
                 if (!header.intermediateStartTuple) {
                     if ((normalizedCoords[a] < Math.min(0, tupleCoords[a])) ||
                         (normalizedCoords[a] > Math.max(0, tupleCoords[a]))) {
                         factor = 0;
                         break;
                     }
-            
+
                     factor = (factor * normalizedCoords[a] + Number.EPSILON) / (tupleCoords[a] + Number.EPSILON);
                 } else {
                     if ((normalizedCoords[a] < header.intermediateStartTuple[a]) || (normalizedCoords[a] > header.intermediateEndTuple[a])) {
@@ -336,12 +339,11 @@ export class VariationProcessor {
                 for (let i = 0; i < transformedPoints.length; i++) {
                     const point = transformedPoints[i];
                     if(flavor === 'gvar') {
-                        transformedPoints[i] = {
-                            x: Math.round(point.x + header.deltas[i] * factor),
-                            y: Math.round(point.y + header.deltasY[i] * factor),
-                            onCurve: point.onCurve,
-                            lastPointOfContour: point.lastPointOfContour
-                        };
+                        // Mutate in place — no new object allocation needed.
+                        // transformedPoints is already a fresh copy from points.map(copyPoint)
+                        // so mutating is safe and avoids N object allocations per active header.
+                        point.x = Math.round(point.x + header.deltas[i] * factor);
+                        point.y = Math.round(point.y + header.deltasY[i] * factor);
                     } else if (flavor === 'cvar') {
                         transformedPoints[i] = Math.round(point + header.deltas[i] * factor);
                     }
