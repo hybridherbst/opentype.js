@@ -17422,6 +17422,9 @@ var VariationProcessor = class {
     if (!coords) {
       coords = this.font.variation.get();
     }
+    if (this._normCacheCoords === coords) {
+      return this._normCacheResult;
+    }
     let normalized = [];
     this.normalizeCoordTags(coords);
     for (let i = 0; i < this.fvar().axes.length; i++) {
@@ -17449,6 +17452,8 @@ var VariationProcessor = class {
         }
       }
     }
+    this._normCacheCoords = coords;
+    this._normCacheResult = normalized;
     return normalized;
   }
   /**
@@ -17627,19 +17632,12 @@ var VariationProcessor = class {
     } else if (flavor === "cvar") {
       transformedPoints = [...points];
     }
+    const gvarSharedTuples = flavor === "gvar" ? this.gvar().sharedTuples : null;
     for (let h = 0; h < headers.length; h++) {
       const header = headers[h];
+      const tupleCoords = flavor === "gvar" ? header.peakTuple || gvarSharedTuples[header.sharedTupleRecordsIndex] : header.peakTuple;
       let factor = 1;
       for (let a = 0; a < axisCount; a++) {
-        let tupleCoords = [0];
-        switch (flavor) {
-          case "gvar":
-            tupleCoords = header.peakTuple ? header.peakTuple : this.gvar().sharedTuples[header.sharedTupleRecordsIndex];
-            break;
-          case "cvar":
-            tupleCoords = header.peakTuple;
-            break;
-        }
         if (tupleCoords[a] === 0) {
           continue;
         }
@@ -17674,12 +17672,8 @@ var VariationProcessor = class {
         for (let i = 0; i < transformedPoints.length; i++) {
           const point = transformedPoints[i];
           if (flavor === "gvar") {
-            transformedPoints[i] = {
-              x: Math.round(point.x + header.deltas[i] * factor),
-              y: Math.round(point.y + header.deltasY[i] * factor),
-              onCurve: point.onCurve,
-              lastPointOfContour: point.lastPointOfContour
-            };
+            point.x = Math.round(point.x + header.deltas[i] * factor);
+            point.y = Math.round(point.y + header.deltasY[i] * factor);
           } else if (flavor === "cvar") {
             transformedPoints[i] = Math.round(point + header.deltas[i] * factor);
           }

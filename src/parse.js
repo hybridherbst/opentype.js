@@ -1262,13 +1262,13 @@ Parser.prototype.parsePackedPointNumbers = function() {
 
 Parser.prototype.parsePackedDeltas = function(expectedCount) {
     const deltas = [];
-    
+
     while (deltas.length < expectedCount) {
         const controlByte = this.parseByte();
         const zeroData = !!(controlByte & masks.DELTAS_ARE_ZERO);
         const deltaWords = !!(controlByte & masks.DELTAS_ARE_WORDS);
         const runCount = (controlByte & masks.DELTA_RUN_COUNT_MASK) + 1;
-        
+
         for (let i = 0; i < runCount && deltas.length < expectedCount; i++) {
             if(zeroData) {
                 deltas.push(0);
