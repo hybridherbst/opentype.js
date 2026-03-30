@@ -6,3 +6,4 @@
 npm-debug.log
 /.reify-cache
 /experiments
+.type-coverage
