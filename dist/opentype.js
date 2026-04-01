@@ -11905,9 +11905,12 @@ var opentype = (() => {
         const y1 = p.parseShort();
         const x2 = p.parseShort();
         const y2 = p.parseShort();
+        const result = { format, x0, y0, x1, y1, x2, y2 };
+        if (isVar)
+          result.varIndexBase = p.parseULong();
         const clParser = new Parser(data, offset + colorLineOffset);
-        const colorLine = parseColorLine(clParser, isVar);
-        return { format, colorLine, x0, y0, x1, y1, x2, y2 };
+        result.colorLine = parseColorLine(clParser, isVar);
+        return result;
       }
       case PaintFormat.RadialGradient:
       case PaintFormat.VarRadialGradient: {
@@ -11919,9 +11922,12 @@ var opentype = (() => {
         const x1 = p.parseShort();
         const y1 = p.parseShort();
         const radius1 = p.parseUShort();
+        const result = { format, x0, y0, radius0, x1, y1, radius1 };
+        if (isVar)
+          result.varIndexBase = p.parseULong();
         const clParser = new Parser(data, offset + colorLineOffset);
-        const colorLine = parseColorLine(clParser, isVar);
-        return { format, colorLine, x0, y0, radius0, x1, y1, radius1 };
+        result.colorLine = parseColorLine(clParser, isVar);
+        return result;
       }
       case PaintFormat.SweepGradient:
       case PaintFormat.VarSweepGradient: {
@@ -11931,9 +11937,12 @@ var opentype = (() => {
         const centerY = p.parseShort();
         const startAngle = p.parseF2Dot14();
         const endAngle = p.parseF2Dot14();
+        const result = { format, centerX, centerY, startAngle, endAngle };
+        if (isVar)
+          result.varIndexBase = p.parseULong();
         const clParser = new Parser(data, offset + colorLineOffset);
-        const colorLine = parseColorLine(clParser, isVar);
-        return { format, colorLine, centerX, centerY, startAngle, endAngle };
+        result.colorLine = parseColorLine(clParser, isVar);
+        return result;
       }
       case PaintFormat.Glyph: {
         const paintOffset = p.parseUInt24();
@@ -12184,7 +12193,7 @@ var opentype = (() => {
     }
     return result;
   }
-  function encodeColorLine(colorLine) {
+  function encodeColorLine(colorLine, isVariable) {
     const bytes = [];
     bytes.push(colorLine.extend & 255);
     const numStops = colorLine.colorStops.length;
@@ -12195,14 +12204,20 @@ var opentype = (() => {
       bytes.push(stop.paletteIndex >> 8 & 255, stop.paletteIndex & 255);
       const alphaVal = Math.round(stop.alpha * 16384);
       bytes.push(alphaVal >> 8 & 255, alphaVal & 255);
+      if (isVariable) {
+        writeUint32(bytes, stop.varIndexBase || 0);
+      }
     }
     return bytes;
   }
-  function encodeAffine2x3(m) {
+  function encodeAffine2x3(m, isVariable) {
     const bytes = [];
     for (const key of ["xx", "yx", "xy", "yy", "dx", "dy"]) {
       const fixed = Math.round(m[key] * 65536);
       bytes.push(fixed >> 24 & 255, fixed >> 16 & 255, fixed >> 8 & 255, fixed & 255);
+    }
+    if (isVariable) {
+      writeUint32(bytes, m.varIndexBase || 0);
     }
     return bytes;
   }
@@ -12246,7 +12261,8 @@ var opentype = (() => {
       }
       case PaintFormat.LinearGradient:
       case PaintFormat.VarLinearGradient: {
-        const colorLineBytes = encodeColorLine(node.colorLine);
+        const isVar = node.format === PaintFormat.VarLinearGradient;
+        const colorLineBytes = encodeColorLine(node.colorLine, isVar);
         const colorLineOffsetPos = bytes.length;
         writeUint24(bytes, 0);
         writeInt16(bytes, node.x0);
@@ -12255,6 +12271,8 @@ var opentype = (() => {
         writeInt16(bytes, node.y1);
         writeInt16(bytes, node.x2);
         writeInt16(bytes, node.y2);
+        if (isVar)
+          writeUint32(bytes, node.varIndexBase || 0);
         const colorLineOffset = bytes.length;
         bytes[colorLineOffsetPos] = colorLineOffset >> 16 & 255;
         bytes[colorLineOffsetPos + 1] = colorLineOffset >> 8 & 255;
@@ -12264,7 +12282,8 @@ var opentype = (() => {
       }
       case PaintFormat.RadialGradient:
       case PaintFormat.VarRadialGradient: {
-        const colorLineBytes = encodeColorLine(node.colorLine);
+        const isVar = node.format === PaintFormat.VarRadialGradient;
+        const colorLineBytes = encodeColorLine(node.colorLine, isVar);
         const colorLineOffsetPos = bytes.length;
         writeUint24(bytes, 0);
         writeInt16(bytes, node.x0);
@@ -12273,6 +12292,8 @@ var opentype = (() => {
         writeInt16(bytes, node.x1);
         writeInt16(bytes, node.y1);
         writeUint16(bytes, node.radius1);
+        if (isVar)
+          writeUint32(bytes, node.varIndexBase || 0);
         const colorLineOffset = bytes.length;
         bytes[colorLineOffsetPos] = colorLineOffset >> 16 & 255;
         bytes[colorLineOffsetPos + 1] = colorLineOffset >> 8 & 255;
@@ -12282,13 +12303,16 @@ var opentype = (() => {
       }
       case PaintFormat.SweepGradient:
       case PaintFormat.VarSweepGradient: {
-        const colorLineBytes = encodeColorLine(node.colorLine);
+        const isVar = node.format === PaintFormat.VarSweepGradient;
+        const colorLineBytes = encodeColorLine(node.colorLine, isVar);
         const colorLineOffsetPos = bytes.length;
         writeUint24(bytes, 0);
         writeInt16(bytes, node.centerX);
         writeInt16(bytes, node.centerY);
         writeF2Dot14(bytes, node.startAngle);
         writeF2Dot14(bytes, node.endAngle);
+        if (isVar)
+          writeUint32(bytes, node.varIndexBase || 0);
         const colorLineOffset = bytes.length;
         bytes[colorLineOffsetPos] = colorLineOffset >> 16 & 255;
         bytes[colorLineOffsetPos + 1] = colorLineOffset >> 8 & 255;
@@ -12314,8 +12338,9 @@ var opentype = (() => {
       }
       case PaintFormat.Transform:
       case PaintFormat.VarTransform: {
+        const isVar = node.format === PaintFormat.VarTransform;
         const childBytes = serializePaintNode(node.paint);
-        const transformBytes = encodeAffine2x3(node.transform);
+        const transformBytes = encodeAffine2x3(node.transform, isVar);
         const paintOffsetPos = bytes.length;
         writeUint24(bytes, 0);
         const transformOffsetPos = bytes.length;
@@ -12339,6 +12364,8 @@ var opentype = (() => {
         writeUint24(bytes, 0);
         writeInt16(bytes, node.dx);
         writeInt16(bytes, node.dy);
+        if (node.format === PaintFormat.VarTranslate)
+          writeUint32(bytes, node.varIndexBase || 0);
         const paintOffset = bytes.length;
         bytes[paintOffsetPos] = paintOffset >> 16 & 255;
         bytes[paintOffsetPos + 1] = paintOffset >> 8 & 255;
@@ -12353,6 +12380,8 @@ var opentype = (() => {
         writeUint24(bytes, 0);
         writeF2Dot14(bytes, node.scaleX);
         writeF2Dot14(bytes, node.scaleY);
+        if (node.format === PaintFormat.VarScale)
+          writeUint32(bytes, node.varIndexBase || 0);
         const paintOffset = bytes.length;
         bytes[paintOffsetPos] = paintOffset >> 16 & 255;
         bytes[paintOffsetPos + 1] = paintOffset >> 8 & 255;
@@ -12369,6 +12398,8 @@ var opentype = (() => {
         writeF2Dot14(bytes, node.scaleY);
         writeInt16(bytes, node.centerX);
         writeInt16(bytes, node.centerY);
+        if (node.format === PaintFormat.VarScaleAroundCenter)
+          writeUint32(bytes, node.varIndexBase || 0);
         const paintOffset = bytes.length;
         bytes[paintOffsetPos] = paintOffset >> 16 & 255;
         bytes[paintOffsetPos + 1] = paintOffset >> 8 & 255;
@@ -12382,6 +12413,8 @@ var opentype = (() => {
         const paintOffsetPos = bytes.length;
         writeUint24(bytes, 0);
         writeF2Dot14(bytes, node.scale);
+        if (node.format === PaintFormat.VarScaleUniform)
+          writeUint32(bytes, node.varIndexBase || 0);
         const paintOffset = bytes.length;
         bytes[paintOffsetPos] = paintOffset >> 16 & 255;
         bytes[paintOffsetPos + 1] = paintOffset >> 8 & 255;
@@ -12397,6 +12430,8 @@ var opentype = (() => {
         writeF2Dot14(bytes, node.scale);
         writeInt16(bytes, node.centerX);
         writeInt16(bytes, node.centerY);
+        if (node.format === PaintFormat.VarScaleUniformAroundCenter)
+          writeUint32(bytes, node.varIndexBase || 0);
         const paintOffset = bytes.length;
         bytes[paintOffsetPos] = paintOffset >> 16 & 255;
         bytes[paintOffsetPos + 1] = paintOffset >> 8 & 255;
@@ -12410,6 +12445,8 @@ var opentype = (() => {
         const paintOffsetPos = bytes.length;
         writeUint24(bytes, 0);
         writeF2Dot14(bytes, node.angle);
+        if (node.format === PaintFormat.VarRotate)
+          writeUint32(bytes, node.varIndexBase || 0);
         const paintOffset = bytes.length;
         bytes[paintOffsetPos] = paintOffset >> 16 & 255;
         bytes[paintOffsetPos + 1] = paintOffset >> 8 & 255;
@@ -12425,6 +12462,8 @@ var opentype = (() => {
         writeF2Dot14(bytes, node.angle);
         writeInt16(bytes, node.centerX);
         writeInt16(bytes, node.centerY);
+        if (node.format === PaintFormat.VarRotateAroundCenter)
+          writeUint32(bytes, node.varIndexBase || 0);
         const paintOffset = bytes.length;
         bytes[paintOffsetPos] = paintOffset >> 16 & 255;
         bytes[paintOffsetPos + 1] = paintOffset >> 8 & 255;
@@ -12439,6 +12478,8 @@ var opentype = (() => {
         writeUint24(bytes, 0);
         writeF2Dot14(bytes, node.xSkewAngle);
         writeF2Dot14(bytes, node.ySkewAngle);
+        if (node.format === PaintFormat.VarSkew)
+          writeUint32(bytes, node.varIndexBase || 0);
         const paintOffset = bytes.length;
         bytes[paintOffsetPos] = paintOffset >> 16 & 255;
         bytes[paintOffsetPos + 1] = paintOffset >> 8 & 255;
@@ -12455,6 +12496,8 @@ var opentype = (() => {
         writeF2Dot14(bytes, node.ySkewAngle);
         writeInt16(bytes, node.centerX);
         writeInt16(bytes, node.centerY);
+        if (node.format === PaintFormat.VarSkewAroundCenter)
+          writeUint32(bytes, node.varIndexBase || 0);
         const paintOffset = bytes.length;
         bytes[paintOffsetPos] = paintOffset >> 16 & 255;
         bytes[paintOffsetPos + 1] = paintOffset >> 8 & 255;
@@ -12522,6 +12565,171 @@ var opentype = (() => {
       });
     }
     return { baseGlyphEntries, layerPaintBytes };
+  }
+  function encodeVariationRegionList(regions) {
+    const bytes = [];
+    if (!regions || regions.length === 0) {
+      writeUint16(bytes, 0);
+      writeUint16(bytes, 0);
+      return bytes;
+    }
+    const axisCount = regions[0].regionAxes ? regions[0].regionAxes.length : 0;
+    writeUint16(bytes, axisCount);
+    writeUint16(bytes, regions.length);
+    for (const region of regions) {
+      for (const axis of region.regionAxes) {
+        writeF2Dot14(bytes, axis.startCoord);
+        writeF2Dot14(bytes, axis.peakCoord);
+        writeF2Dot14(bytes, axis.endCoord);
+      }
+    }
+    return bytes;
+  }
+  function encodeItemVariationSubtable(subtable) {
+    const bytes = [];
+    const itemCount = subtable.deltaSets ? subtable.deltaSets.length : 0;
+    const regionIndexCount = subtable.regionIndexes ? subtable.regionIndexes.length : 0;
+    let maxAbsDelta = 0;
+    if (subtable.deltaSets) {
+      for (const deltaSet of subtable.deltaSets) {
+        for (const delta of deltaSet) {
+          const a = Math.abs(delta);
+          if (a > maxAbsDelta)
+            maxAbsDelta = a;
+        }
+      }
+    }
+    let wordDeltaCount = 0;
+    let needsLongWords = false;
+    if (maxAbsDelta > 127) {
+      wordDeltaCount = regionIndexCount;
+    }
+    if (maxAbsDelta > 32767) {
+      needsLongWords = true;
+      wordDeltaCount |= 32768;
+    }
+    writeUint16(bytes, itemCount);
+    writeUint16(bytes, wordDeltaCount);
+    writeUint16(bytes, regionIndexCount);
+    for (const idx of subtable.regionIndexes || []) {
+      writeUint16(bytes, idx);
+    }
+    if (subtable.deltaSets) {
+      const wordCount = wordDeltaCount & 32767;
+      for (const deltaSet of subtable.deltaSets) {
+        for (let j = 0; j < regionIndexCount; j++) {
+          const delta = deltaSet[j] || 0;
+          if (j < wordCount) {
+            if (needsLongWords) {
+              const v = delta < 0 ? delta + 4294967296 : delta;
+              writeUint32(bytes, v);
+            } else {
+              writeInt16(bytes, delta);
+            }
+          } else {
+            if (needsLongWords) {
+              writeInt16(bytes, delta);
+            } else {
+              bytes.push(delta & 255);
+            }
+          }
+        }
+      }
+    }
+    return bytes;
+  }
+  function encodeItemVariationStore(store) {
+    if (!store)
+      return [];
+    const bytes = [];
+    writeUint16(bytes, store.format || 1);
+    const headerSize = 8;
+    const subtableCount = (store.itemVariationSubtables || []).length;
+    const subtableOffsetArraySize = subtableCount * 4;
+    const regionListBytes = encodeVariationRegionList(store.variationRegions);
+    const subtableBytesArr = [];
+    for (const subtable of store.itemVariationSubtables || []) {
+      subtableBytesArr.push(encodeItemVariationSubtable(subtable));
+    }
+    const regionListOffset = headerSize + subtableOffsetArraySize;
+    let currentOffset = regionListOffset + regionListBytes.length;
+    const subtableOffsets = [];
+    for (const sb of subtableBytesArr) {
+      subtableOffsets.push(currentOffset);
+      currentOffset += sb.length;
+    }
+    writeUint32(bytes, regionListOffset);
+    writeUint16(bytes, subtableCount);
+    for (const off of subtableOffsets) {
+      writeUint32(bytes, off);
+    }
+    bytes.push(...regionListBytes);
+    for (const sb of subtableBytesArr) {
+      bytes.push(...sb);
+    }
+    return bytes;
+  }
+  function encodeDeltaSetIndexMap(indexMap) {
+    if (!indexMap || !indexMap.map || indexMap.map.length === 0)
+      return [];
+    const bytes = [];
+    const map = indexMap.map;
+    const mapCount = map.length;
+    let maxOuterIndex = 0;
+    let maxInnerIndex = 0;
+    for (const entry of map) {
+      if (entry.outerIndex > maxOuterIndex)
+        maxOuterIndex = entry.outerIndex;
+      if (entry.innerIndex > maxInnerIndex)
+        maxInnerIndex = entry.innerIndex;
+    }
+    let innerBitCount = 0;
+    let temp = maxInnerIndex;
+    while (temp > 0) {
+      innerBitCount++;
+      temp >>= 1;
+    }
+    if (innerBitCount === 0)
+      innerBitCount = 1;
+    let outerBitCount = 0;
+    temp = maxOuterIndex;
+    while (temp > 0) {
+      outerBitCount++;
+      temp >>= 1;
+    }
+    const totalBits = innerBitCount + outerBitCount;
+    let entrySize;
+    if (totalBits <= 8)
+      entrySize = 1;
+    else if (totalBits <= 16)
+      entrySize = 2;
+    else if (totalBits <= 24)
+      entrySize = 3;
+    else
+      entrySize = 4;
+    const format = mapCount > 65535 ? 1 : 0;
+    bytes.push(format);
+    bytes.push(entrySize - 1 << 4 | innerBitCount - 1);
+    if (format === 0) {
+      writeUint16(bytes, mapCount);
+    } else {
+      writeUint32(bytes, mapCount);
+    }
+    const innerMask = (1 << innerBitCount) - 1;
+    for (const entry of map) {
+      const value = entry.outerIndex << innerBitCount | entry.innerIndex & innerMask;
+      if (entrySize === 1) {
+        bytes.push(value & 255);
+      } else if (entrySize === 2) {
+        writeUint16(bytes, value);
+      } else if (entrySize === 3) {
+        bytes.push(value >> 16 & 255);
+        writeUint16(bytes, value & 65535);
+      } else {
+        writeUint32(bytes, value);
+      }
+    }
+    return bytes;
   }
   function makeColrTable(colr) {
     const { version = 0, baseGlyphRecords = [], layerRecords = [] } = colr;
@@ -12637,7 +12845,11 @@ var opentype = (() => {
       clipListBytes = clipBuf;
     }
     const clipListSize = clipListBytes ? clipListBytes.length : 0;
-    const totalSize = headerSize + v0BaseGlyphsSize + v0LayerRecordsSize + layerListSize + baseGlyphListSize + clipListSize;
+    const varStoreBytes = colr.varStore ? encodeItemVariationStore(colr.varStore) : [];
+    const varIndexMapBytes = colr.varIndexMap ? encodeDeltaSetIndexMap(colr.varIndexMap) : [];
+    const varIndexMapStart = clipListStart + clipListSize;
+    const varStoreStart = varIndexMapStart + varIndexMapBytes.length;
+    const totalSize = headerSize + v0BaseGlyphsSize + v0LayerRecordsSize + layerListSize + baseGlyphListSize + clipListSize + varIndexMapBytes.length + varStoreBytes.length;
     const buf = new ArrayBuffer(totalSize);
     const view = new DataView(buf);
     let pos = 0;
@@ -12657,9 +12869,9 @@ var opentype = (() => {
     pos += 4;
     view.setUint32(pos, clipListBytes ? clipListStart : 0);
     pos += 4;
-    view.setUint32(pos, 0);
+    view.setUint32(pos, varIndexMapBytes.length > 0 ? varIndexMapStart : 0);
     pos += 4;
-    view.setUint32(pos, 0);
+    view.setUint32(pos, varStoreBytes.length > 0 ? varStoreStart : 0);
     pos += 4;
     for (const rec of baseGlyphRecords) {
       view.setUint16(pos, rec.glyphID);
@@ -12710,6 +12922,14 @@ var opentype = (() => {
         view.setUint8(pos, b);
         pos++;
       }
+    }
+    for (const b of varIndexMapBytes) {
+      view.setUint8(pos, b);
+      pos++;
+    }
+    for (const b of varStoreBytes) {
+      view.setUint8(pos, b);
+      pos++;
     }
     return new table_default.Table("COLR", [
       { name: "colrV1Data", type: "LITERAL", value: new Uint8Array(buf) }
@@ -13703,7 +13923,7 @@ var opentype = (() => {
       rsb
     };
   }
-  function encodeVariationRegionList(regions) {
+  function encodeVariationRegionList2(regions) {
     if (!regions || regions.length === 0) {
       return [0, 0, 0, 0];
     }
@@ -13721,7 +13941,7 @@ var opentype = (() => {
     }
     return result;
   }
-  function encodeItemVariationSubtable(subtable) {
+  function encodeItemVariationSubtable2(subtable) {
     const result = [];
     const itemCount = subtable.deltaSets ? subtable.deltaSets.length : 0;
     const regionIndexCount = subtable.regionIndexes ? subtable.regionIndexes.length : 0;
@@ -13774,7 +13994,7 @@ var opentype = (() => {
     }
     return result;
   }
-  function encodeItemVariationStore(store) {
+  function encodeItemVariationStore2(store) {
     if (!store) {
       return [];
     }
@@ -13782,10 +14002,10 @@ var opentype = (() => {
     result.push(...encode.USHORT(store.format || 1));
     const headerSize = 2 + 4 + 2;
     const subtableOffsetArraySize = (store.itemVariationSubtables || []).length * 4;
-    const regionListBytes = encodeVariationRegionList(store.variationRegions);
+    const regionListBytes = encodeVariationRegionList2(store.variationRegions);
     const subtableBytes = [];
     for (const subtable of store.itemVariationSubtables || []) {
-      subtableBytes.push(encodeItemVariationSubtable(subtable));
+      subtableBytes.push(encodeItemVariationSubtable2(subtable));
     }
     const regionListOffset = headerSize + subtableOffsetArraySize;
     let currentOffset = regionListOffset + regionListBytes.length;
@@ -13805,7 +14025,7 @@ var opentype = (() => {
     }
     return result;
   }
-  function encodeDeltaSetIndexMap(indexMap) {
+  function encodeDeltaSetIndexMap2(indexMap) {
     if (!indexMap || !indexMap.map || indexMap.map.length === 0) {
       return [];
     }
@@ -13874,10 +14094,10 @@ var opentype = (() => {
     if (!hvar || !hvar.itemVariationStore) {
       return void 0;
     }
-    const itemVariationStoreBytes = encodeItemVariationStore(hvar.itemVariationStore);
-    const advanceWidthBytes = encodeDeltaSetIndexMap(hvar.advanceWidth);
-    const lsbBytes = encodeDeltaSetIndexMap(hvar.lsb);
-    const rsbBytes = encodeDeltaSetIndexMap(hvar.rsb);
+    const itemVariationStoreBytes = encodeItemVariationStore2(hvar.itemVariationStore);
+    const advanceWidthBytes = encodeDeltaSetIndexMap2(hvar.advanceWidth);
+    const lsbBytes = encodeDeltaSetIndexMap2(hvar.lsb);
+    const rsbBytes = encodeDeltaSetIndexMap2(hvar.rsb);
     const headerSize = 20;
     let currentOffset = headerSize;
     const itemVariationStoreOffset = itemVariationStoreBytes.length > 0 ? currentOffset : 0;
