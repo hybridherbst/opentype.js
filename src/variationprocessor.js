@@ -2,6 +2,10 @@ import { getPath, transformPoints } from './tables/glyf.js';
 import { copyPoint, copyComponent } from './util.js';
 import Glyph from './glyph.js';
 
+function otRound(value) {
+    return Math.floor(value + 0.5);
+}
+
 /**
  * Part of the code of this class was based on
  * https://github.com/foliojs/fontkit/blob/a5fe0a1834241dbc6eb02beea3b7414c118c5ac9/src/glyph/GlyphVariationProcessor.js
@@ -52,10 +56,14 @@ export class VariationProcessor {
             if(tagValue === undefined) {
                 tagValue = axis.defaultValue;
             }
-            if (tagValue < axis.defaultValue) {
-                normalized.push((tagValue - axis.defaultValue + Number.EPSILON) / (axis.defaultValue - axis.minValue + Number.EPSILON));
+            if (tagValue === axis.defaultValue) {
+                normalized.push(0);
+            } else if (tagValue < axis.defaultValue) {
+                const denom = axis.defaultValue - axis.minValue;
+                normalized.push(denom === 0 ? 0 : (tagValue - axis.defaultValue) / denom);
             } else {
-                normalized.push((tagValue - axis.defaultValue + Number.EPSILON) / (axis.maxValue - axis.defaultValue + Number.EPSILON));
+                const denom = axis.maxValue - axis.defaultValue;
+                normalized.push(denom === 0 ? 0 : (tagValue - axis.defaultValue) / denom);
             }
         }
 
@@ -68,8 +76,9 @@ export class VariationProcessor {
                     let pair = segment.axisValueMaps[j];
                     if (j >= 1 && normalized[i] < pair.fromCoordinate) {
                         let prev = segment.axisValueMaps[j - 1];
-                        normalized[i] = ((normalized[i] - prev.fromCoordinate) * (pair.toCoordinate - prev.toCoordinate) + Number.EPSILON) /
-                            (pair.fromCoordinate - prev.fromCoordinate + Number.EPSILON) +
+                        const denom = pair.fromCoordinate - prev.fromCoordinate;
+                        normalized[i] = ((normalized[i] - prev.fromCoordinate) * (pair.toCoordinate - prev.toCoordinate)) /
+                            (denom === 0 ? 1 : denom) +
                             prev.toCoordinate;
             
                         break;
@@ -237,10 +246,44 @@ export class VariationProcessor {
             // When tuplePoints lists specific points, look up component index c in that list.
             const deltaIndex = tuplePoints.length === 0 ? c : tuplePoints.indexOf(c);
             if(deltaIndex > -1 && deltaIndex < header.deltas.length) {
-                componentTransform.dx += Math.round(header.deltas[deltaIndex] * factor);
-                componentTransform.dy += Math.round(header.deltasY[deltaIndex] * factor);
+                componentTransform.dx += otRound(header.deltas[deltaIndex] * factor);
+                componentTransform.dy += otRound(header.deltasY[deltaIndex] * factor);
             }
             const transformedComponentPoints = transformPoints(this.getTransform(componentGlyph, coords).points, componentTransform);
+            transformedPoints.splice(pointsIndex, transformedComponentPoints.length, ...transformedComponentPoints);
+            pointsIndex += componentGlyph.points.length;
+        }
+    }
+
+    /**
+     * Accumulate composite-component deltas across all active tuples.
+     * @param {Array<{glyphIndex: number, dx: number, dy: number, xScale?: number, yScale?: number, scale01?: number, scale10?: number}>} componentTransforms
+     * @param {Array<number>} tuplePoints
+     * @param {{deltas: number[], deltasY: number[]}} header
+     * @param {number} factor
+     */
+    accumulateComponentDeltas(componentTransforms, tuplePoints, header, factor) {
+        for (let c = 0; c < componentTransforms.length; c++) {
+            const deltaIndex = tuplePoints.length === 0 ? c : tuplePoints.indexOf(c);
+            if (deltaIndex > -1 && deltaIndex < header.deltas.length) {
+                componentTransforms[c].dx += header.deltas[deltaIndex] * factor;
+                componentTransforms[c].dy += header.deltasY[deltaIndex] * factor;
+            }
+        }
+    }
+
+    /**
+     * Render a composite glyph from already-accumulated component transforms.
+     * @param {Glyph} glyph
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} transformedPoints
+     * @param {Record<string, number>} coords
+     * @param {Array<{glyphIndex: number, dx: number, dy: number, xScale?: number, yScale?: number, scale01?: number, scale10?: number}>} componentTransforms
+     */
+    renderCompositeComponents(glyph, transformedPoints, coords, componentTransforms) {
+        let pointsIndex = 0;
+        for (let c = 0; c < /** @type {{ components: Array<{glyphIndex: number}> }} */ (/** @type {unknown} */ (glyph)).components.length; c++) {
+            const componentGlyph = this.font.glyphs.get(componentTransforms[c].glyphIndex);
+            const transformedComponentPoints = transformPoints(this.getTransform(componentGlyph, coords).points, componentTransforms[c]);
             transformedPoints.splice(pointsIndex, transformedComponentPoints.length, ...transformedComponentPoints);
             pointsIndex += componentGlyph.points.length;
         }
@@ -283,6 +326,9 @@ export class VariationProcessor {
         } else if (flavor === 'cvar') {
             transformedPoints = [...points];
         }
+        const compositeComponentTransforms = flavor === 'gvar' && args.glyph && args.glyph.isComposite
+            ? /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number, xScale?: number, yScale?: number, scale01?: number, scale10?: number}> }} */ (/** @type {unknown} */ (args.glyph)).components.map(copyComponent)
+            : null;
 
         const gvarSharedTuples = flavor === 'gvar' ? this.gvar().sharedTuples : null;
 
@@ -310,15 +356,19 @@ export class VariationProcessor {
                         break;
                     }
 
-                    factor = (factor * normalizedCoords[a] + Number.EPSILON) / (tupleCoords[a] + Number.EPSILON);
+                    factor = factor * (normalizedCoords[a] / tupleCoords[a]);
                 } else {
                     if ((normalizedCoords[a] < header.intermediateStartTuple[a]) || (normalizedCoords[a] > header.intermediateEndTuple[a])) {
                         factor = 0;
                         break;
+                    } else if (normalizedCoords[a] === tupleCoords[a]) {
+                        continue;
                     } else if (normalizedCoords[a] < tupleCoords[a]) {
-                        factor = factor * (normalizedCoords[a] - header.intermediateStartTuple[a] + Number.EPSILON) / (tupleCoords[a] - header.intermediateStartTuple[a] + Number.EPSILON);
+                        const denom = tupleCoords[a] - header.intermediateStartTuple[a];
+                        factor = factor * ((normalizedCoords[a] - header.intermediateStartTuple[a]) / (denom === 0 ? 1 : denom));
                     } else {
-                        factor = factor * (header.intermediateEndTuple[a] - normalizedCoords[a] + Number.EPSILON) / (header.intermediateEndTuple[a] - tupleCoords[a] + Number.EPSILON);
+                        const denom = header.intermediateEndTuple[a] - tupleCoords[a];
+                        factor = factor * ((header.intermediateEndTuple[a] - normalizedCoords[a]) / (denom === 0 ? 1 : denom));
                     }
                 }
             }
@@ -327,14 +377,11 @@ export class VariationProcessor {
                 continue;
             }
 
-            const tuplePoints = header.privatePoints.length ? header.privatePoints: sharedPoints;
+            const usesPrivatePoints = !!header.privatePointNumbers;
+            const tuplePoints = usesPrivatePoints ? header.privatePoints : sharedPoints;
 
-            if(flavor === 'gvar' && args.glyph && args.glyph.isComposite) {
-                /** @TODO: composite glyphs that are not explicitly targeted in the gvar table
-                 ** will not be transformed. It's unclear whether this is the desired behaviour or not,
-                ** @see https://github.com/unicode-org/text-rendering-tests/issues/96
-                */
-                this.transformComponents(args.glyph, transformedPoints, coords, tuplePoints, header, factor);
+            if(compositeComponentTransforms) {
+                this.accumulateComponentDeltas(compositeComponentTransforms, tuplePoints, header, factor);
             } else if (tuplePoints.length === 0) {
                 for (let i = 0; i < transformedPoints.length; i++) {
                     const point = transformedPoints[i];
@@ -342,16 +389,16 @@ export class VariationProcessor {
                         // Mutate in place — no new object allocation needed.
                         // transformedPoints is already a fresh copy from points.map(copyPoint)
                         // so mutating is safe and avoids N object allocations per active header.
-                        point.x = Math.round(point.x + header.deltas[i] * factor);
-                        point.y = Math.round(point.y + header.deltasY[i] * factor);
+                        point.x = point.x + header.deltas[i] * factor;
+                        point.y = point.y + header.deltasY[i] * factor;
                     } else if (flavor === 'cvar') {
-                        transformedPoints[i] = Math.round(point + header.deltas[i] * factor);
+                        transformedPoints[i] = point + header.deltas[i] * factor;
                     }
                 }
             } else {
                 let interpolatedPoints;
                 if(flavor === 'gvar') {
-                    interpolatedPoints = transformedPoints.map(copyPoint);
+                    interpolatedPoints = points.map(copyPoint);
                 } else if (flavor === 'cvar') {
                     interpolatedPoints = transformedPoints;
                 }
@@ -365,25 +412,40 @@ export class VariationProcessor {
                             point.x += header.deltas[i] * factor;
                             point.y += header.deltasY[i] * factor;
                         } else if (flavor === 'cvar') {
-                            transformedPoints[pointIndex] = Math.round(point + header.deltas[i] * factor);
+                            transformedPoints[pointIndex] = otRound(point + header.deltas[i] * factor);
                         }
                     }
                 }
 
                 if(flavor === 'gvar') {
-                    this.interpolatePoints(interpolatedPoints, transformedPoints, deltaMap);
+                    this.interpolatePoints(interpolatedPoints, points, deltaMap);
     
                     for (let i = 0; i < points.length; i++) {
-                        let deltaX = interpolatedPoints[i].x - transformedPoints[i].x;
-                        let deltaY = interpolatedPoints[i].y - transformedPoints[i].y;
+                        let deltaX = interpolatedPoints[i].x - points[i].x;
+                        let deltaY = interpolatedPoints[i].y - points[i].y;
     
-                        transformedPoints[i].x = Math.round(transformedPoints[i].x + deltaX);
-                        transformedPoints[i].y = Math.round(transformedPoints[i].y + deltaY);
+                        transformedPoints[i].x = transformedPoints[i].x + deltaX;
+                        transformedPoints[i].y = transformedPoints[i].y + deltaY;
                     }
                 }
             }
         }
-        
+
+        if (compositeComponentTransforms && args.glyph) {
+            this.renderCompositeComponents(args.glyph, transformedPoints, coords, compositeComponentTransforms);
+        }
+
+        if (flavor === 'gvar') {
+            for (let i = 0; i < transformedPoints.length; i++) {
+                transformedPoints[i].x = otRound(transformedPoints[i].x);
+                transformedPoints[i].y = otRound(transformedPoints[i].y);
+            }
+        } else if (flavor === 'cvar') {
+            for (let i = 0; i < transformedPoints.length; i++) {
+                transformedPoints[i] = otRound(transformedPoints[i]);
+            }
+        }
+
         return transformedPoints;
     }
 
@@ -406,6 +468,13 @@ export class VariationProcessor {
                 coords = this.font.variation.get();
             }
             if(hasPoints) {
+                // Some glyphs lazily expose composite metadata only after path
+                // realization. gvar tuples for those glyphs use component-style
+                // deltas, so we must realize that metadata before deciding how
+                // to apply variation data.
+                if (glyph.isComposite === undefined && this.gvar()) {
+                    glyph.path;
+                }
                 const variationData = this.gvar() && this.gvar().glyphVariations[glyph.index];
 
                 if(variationData) {
@@ -434,10 +503,10 @@ export class VariationProcessor {
 
         if(this.font.tables.hvar) {
             glyph._advanceWidth = typeof glyph._advanceWidth !== 'undefined' ? glyph._advanceWidth: glyph.advanceWidth;
-            glyph.advanceWidth = transformedGlyph.advanceWidth = Math.round(glyph._advanceWidth + this.getVariableAdjustment(transformedGlyph.index, 'hvar', 'advanceWidth', coords));
+            glyph.advanceWidth = transformedGlyph.advanceWidth = otRound(glyph._advanceWidth + this.getVariableAdjustment(transformedGlyph.index, 'hvar', 'advanceWidth', coords));
             
             glyph._leftSideBearing = typeof glyph._leftSideBearing !== 'undefined' ? glyph._leftSideBearing: glyph.leftSideBearing;
-            glyph.leftSideBearing = transformedGlyph.leftSideBearing = Math.round(glyph._leftSideBearing + this.getVariableAdjustment(transformedGlyph.index, 'hvar', 'lsb', coords));
+            glyph.leftSideBearing = transformedGlyph.leftSideBearing = otRound(glyph._leftSideBearing + this.getVariableAdjustment(transformedGlyph.index, 'hvar', 'lsb', coords));
         }
 
         return transformedGlyph;
@@ -564,11 +633,11 @@ export class VariationProcessor {
                     if (normalizedCoords[j] === axis.peakCoord) {
                         axisScalar = 1;
                     } else if (normalizedCoords[j] < axis.peakCoord) {
-                        axisScalar = (normalizedCoords[j] - axis.startCoord + Number.EPSILON) /
-                  (axis.peakCoord - axis.startCoord + Number.EPSILON);
+                        const denom = axis.peakCoord - axis.startCoord;
+                        axisScalar = (normalizedCoords[j] - axis.startCoord) / (denom === 0 ? 1 : denom);
                     } else {
-                        axisScalar = (axis.endCoord - normalizedCoords[j] + Number.EPSILON) /
-                  (axis.endCoord - axis.peakCoord + Number.EPSILON);
+                        const denom = axis.endCoord - axis.peakCoord;
+                        axisScalar = (axis.endCoord - normalizedCoords[j]) / (denom === 0 ? 1 : denom);
                     }
                 }
     

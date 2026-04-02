@@ -100,6 +100,46 @@ export class VariationProcessor {
         intermediateEndTuple?: number[];
     }, factor: number): void;
     /**
+     * Accumulate composite-component deltas across all active tuples.
+     * @param {Array<{glyphIndex: number, dx: number, dy: number, xScale?: number, yScale?: number, scale01?: number, scale10?: number}>} componentTransforms
+     * @param {Array<number>} tuplePoints
+     * @param {{deltas: number[], deltasY: number[]}} header
+     * @param {number} factor
+     */
+    accumulateComponentDeltas(componentTransforms: Array<{
+        glyphIndex: number;
+        dx: number;
+        dy: number;
+        xScale?: number;
+        yScale?: number;
+        scale01?: number;
+        scale10?: number;
+    }>, tuplePoints: Array<number>, header: {
+        deltas: number[];
+        deltasY: number[];
+    }, factor: number): void;
+    /**
+     * Render a composite glyph from already-accumulated component transforms.
+     * @param {Glyph} glyph
+     * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} transformedPoints
+     * @param {Record<string, number>} coords
+     * @param {Array<{glyphIndex: number, dx: number, dy: number, xScale?: number, yScale?: number, scale01?: number, scale10?: number}>} componentTransforms
+     */
+    renderCompositeComponents(glyph: Glyph, transformedPoints: Array<{
+        x: number;
+        y: number;
+        onCurve?: boolean;
+        lastPointOfContour?: boolean;
+    }>, coords: Record<string, number>, componentTransforms: Array<{
+        glyphIndex: number;
+        dx: number;
+        dy: number;
+        xScale?: number;
+        yScale?: number;
+        scale01?: number;
+        scale10?: number;
+    }>): void;
+    /**
      * Transforms composite glyph components without gvar deltas.
      * Used for composite glyphs that are not explicitly targeted in gvar
      * but still need their components to get variation applied.

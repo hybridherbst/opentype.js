@@ -1109,6 +1109,7 @@ Parser.prototype.parseTupleVariationStore = function(tableOffset, axisCount, fla
         if(header.flags.privatePointNumbers) {
             header.privatePoints = this.parsePackedPointNumbers();
         }
+        header.privatePointNumbers = header.flags.privatePointNumbers;
         delete header.flags; // we don't need to expose this
         
         const deltasOffset = this.offset;
@@ -1121,7 +1122,8 @@ Parser.prototype.parseTupleVariationStore = function(tableOffset, axisCount, fla
             const parseDeltas = () => {
                 let pointsCount = 0;
                 if(flavor === 'gvar') {
-                    pointsCount = header.privatePoints.length || sharedPoints.length;
+                    const usesPrivatePoints = !!header.privatePointNumbers;
+                    pointsCount = usesPrivatePoints ? header.privatePoints.length : sharedPoints.length;
                     if(!pointsCount) {
                         const glyph = glyphs.get(glyphIndex);
                         // make sure the path is available
@@ -1219,6 +1221,7 @@ Parser.prototype.parseTupleVariationHeader = function(axisCount, flavor) {
 
     if(flavor === 'gvar') {
         result.sharedTupleRecordsIndex = sharedTupleRecordsIndex;
+        result.privatePointNumbers = privatePointNumbers;
     }
 
     return result;

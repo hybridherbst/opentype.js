@@ -200,7 +200,7 @@ function encodeGlyphVariationData(variation, axisCount, sharedTupleMap, original
     const serializedDataParts = [];
     const usePrivatePointsArray = [];
     for (const header of headers) {
-        const usePrivatePoints = !hasSharedPoints || (header.privatePoints && header.privatePoints.length > 0);
+        const usePrivatePoints = !!header.privatePointNumbers || (header.privatePoints && header.privatePoints.length > 0);
         const data = encodeTupleSerializedData(header, usePrivatePoints);
         usePrivatePointsArray.push(usePrivatePoints);
         serializedDataParts.push(data);
