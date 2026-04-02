@@ -17,6 +17,7 @@ import maxp from './maxp.js';
 import _name from './name.js';
 import os2 from './os2.js';
 import post from './post.js';
+import gdef from './gdef.js';
 import gsub from './gsub.js';
 import gpos from './gpos.js';
 import meta from './meta.js';
@@ -634,6 +635,7 @@ function fontToSfntTable(font, options = {}) {
 
     // Optional tables
     const optionalTables = {
+        gdef,
         gsub,
         gpos,
         kern,
@@ -655,6 +657,7 @@ function fontToSfntTable(font, options = {}) {
     const optionalTableArgs = {
         avar: [font.tables.fvar],
         fvar: [font.names],
+        gdef: [font.tables.fvar],
         gvar: [font.tables.fvar],
     };
 

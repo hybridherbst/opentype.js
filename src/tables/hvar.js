@@ -146,7 +146,7 @@ function encodeItemVariationSubtable(subtable) {
  * @param {object} store - The item variation store
  * @returns {Array} Encoded bytes
  */
-function encodeItemVariationStore(store) {
+export function encodeItemVariationStore(store) {
     if (!store) {
         return [];
     }

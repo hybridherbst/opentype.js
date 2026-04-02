@@ -9844,6 +9844,373 @@ function makePostTable(font, options = {}) {
 }
 var post_default = { parse: parsePostTable, make: makePostTable };
 
+// src/tables/hvar.js
+function parseHvarTable(data, start, _fvar) {
+  const p = new parse_default.Parser(data, start);
+  const tableVersionMajor = p.parseUShort();
+  const tableVersionMinor = p.parseUShort();
+  if (tableVersionMajor !== 1) {
+    console.warn(`Unsupported hvar table version ${tableVersionMajor}.${tableVersionMinor}`);
+  }
+  const version = [
+    tableVersionMajor,
+    tableVersionMinor
+  ];
+  const itemVariationStore = p.parsePointer32(function() {
+    return this.parseItemVariationStore();
+  });
+  const advanceWidth = p.parsePointer32(function() {
+    return this.parseDeltaSetIndexMap();
+  });
+  const lsb = p.parsePointer32(function() {
+    return this.parseDeltaSetIndexMap();
+  });
+  const rsb = p.parsePointer32(function() {
+    return this.parseDeltaSetIndexMap();
+  });
+  return {
+    version,
+    itemVariationStore,
+    advanceWidth,
+    lsb,
+    rsb
+  };
+}
+function encodeVariationRegionList(regions) {
+  if (!regions || regions.length === 0) {
+    return [0, 0, 0, 0];
+  }
+  const axisCount = regions[0].regionAxes ? regions[0].regionAxes.length : 0;
+  const regionCount = regions.length;
+  const result = [];
+  result.push(...encode.USHORT(axisCount));
+  result.push(...encode.USHORT(regionCount));
+  for (const region of regions) {
+    for (const axis of region.regionAxes) {
+      result.push(...encode.F2DOT14(axis.startCoord));
+      result.push(...encode.F2DOT14(axis.peakCoord));
+      result.push(...encode.F2DOT14(axis.endCoord));
+    }
+  }
+  return result;
+}
+function encodeItemVariationSubtable(subtable) {
+  const result = [];
+  const itemCount = subtable.deltaSets ? subtable.deltaSets.length : 0;
+  const regionIndexCount = subtable.regionIndexes ? subtable.regionIndexes.length : 0;
+  let maxAbsDelta = 0;
+  let needsLongWords = false;
+  if (subtable.deltaSets) {
+    for (const deltaSet of subtable.deltaSets) {
+      for (const delta of deltaSet) {
+        const absDelta = Math.abs(delta);
+        if (absDelta > maxAbsDelta) {
+          maxAbsDelta = absDelta;
+        }
+      }
+    }
+  }
+  let wordDeltaCount = 0;
+  if (maxAbsDelta > 127) {
+    wordDeltaCount = regionIndexCount;
+  }
+  if (maxAbsDelta > 32767) {
+    needsLongWords = true;
+    wordDeltaCount |= 32768;
+  }
+  result.push(...encode.USHORT(itemCount));
+  result.push(...encode.USHORT(wordDeltaCount));
+  result.push(...encode.USHORT(regionIndexCount));
+  for (const idx of subtable.regionIndexes || []) {
+    result.push(...encode.USHORT(idx));
+  }
+  if (subtable.deltaSets) {
+    const wordCount = wordDeltaCount & 32767;
+    for (const deltaSet of subtable.deltaSets) {
+      for (let j = 0; j < regionIndexCount; j++) {
+        const delta = deltaSet[j] || 0;
+        if (j < wordCount) {
+          if (needsLongWords) {
+            result.push(...encode.LONG(delta));
+          } else {
+            result.push(...encode.SHORT(delta));
+          }
+        } else {
+          if (needsLongWords) {
+            result.push(...encode.SHORT(delta));
+          } else {
+            result.push(delta & 255);
+          }
+        }
+      }
+    }
+  }
+  return result;
+}
+function encodeItemVariationStore(store) {
+  if (!store) {
+    return [];
+  }
+  const result = [];
+  result.push(...encode.USHORT(store.format || 1));
+  const headerSize = 2 + 4 + 2;
+  const subtableOffsetArraySize = (store.itemVariationSubtables || []).length * 4;
+  const regionListBytes = encodeVariationRegionList(store.variationRegions);
+  const subtableBytes = [];
+  for (const subtable of store.itemVariationSubtables || []) {
+    subtableBytes.push(encodeItemVariationSubtable(subtable));
+  }
+  const regionListOffset = headerSize + subtableOffsetArraySize;
+  let currentOffset = regionListOffset + regionListBytes.length;
+  const subtableOffsets = [];
+  for (const bytes of subtableBytes) {
+    subtableOffsets.push(currentOffset);
+    currentOffset += bytes.length;
+  }
+  result.push(...encode.ULONG(regionListOffset));
+  result.push(...encode.USHORT(subtableBytes.length));
+  for (const offset of subtableOffsets) {
+    result.push(...encode.ULONG(offset));
+  }
+  result.push(...regionListBytes);
+  for (const bytes of subtableBytes) {
+    result.push(...bytes);
+  }
+  return result;
+}
+function encodeDeltaSetIndexMap(indexMap) {
+  if (!indexMap || !indexMap.map || indexMap.map.length === 0) {
+    return [];
+  }
+  const result = [];
+  const map = indexMap.map;
+  const mapCount = map.length;
+  let maxOuterIndex = 0;
+  let maxInnerIndex = 0;
+  for (const entry of map) {
+    if (entry.outerIndex > maxOuterIndex)
+      maxOuterIndex = entry.outerIndex;
+    if (entry.innerIndex > maxInnerIndex)
+      maxInnerIndex = entry.innerIndex;
+  }
+  let innerBitCount = 0;
+  let temp = maxInnerIndex;
+  while (temp > 0) {
+    innerBitCount++;
+    temp >>= 1;
+  }
+  if (innerBitCount === 0)
+    innerBitCount = 1;
+  let outerBitCount = 0;
+  temp = maxOuterIndex;
+  while (temp > 0) {
+    outerBitCount++;
+    temp >>= 1;
+  }
+  const totalBits = innerBitCount + outerBitCount;
+  let entrySize;
+  if (totalBits <= 8) {
+    entrySize = 1;
+  } else if (totalBits <= 16) {
+    entrySize = 2;
+  } else if (totalBits <= 24) {
+    entrySize = 3;
+  } else {
+    entrySize = 4;
+  }
+  const format = mapCount > 65535 ? 1 : 0;
+  result.push(format);
+  const entryFormat = entrySize - 1 << 4 | innerBitCount - 1;
+  result.push(entryFormat);
+  if (format === 0) {
+    result.push(...encode.USHORT(mapCount));
+  } else {
+    result.push(...encode.ULONG(mapCount));
+  }
+  const innerMask = (1 << innerBitCount) - 1;
+  for (const entry of map) {
+    const value = entry.outerIndex << innerBitCount | entry.innerIndex & innerMask;
+    if (entrySize === 1) {
+      result.push(value & 255);
+    } else if (entrySize === 2) {
+      result.push(...encode.USHORT(value));
+    } else if (entrySize === 3) {
+      result.push(value >> 16 & 255);
+      result.push(...encode.USHORT(value & 65535));
+    } else {
+      result.push(...encode.ULONG(value));
+    }
+  }
+  return result;
+}
+function makeHvarTable(hvar) {
+  if (!hvar || !hvar.itemVariationStore) {
+    return void 0;
+  }
+  const itemVariationStoreBytes = encodeItemVariationStore(hvar.itemVariationStore);
+  const advanceWidthBytes = encodeDeltaSetIndexMap(hvar.advanceWidth);
+  const lsbBytes = encodeDeltaSetIndexMap(hvar.lsb);
+  const rsbBytes = encodeDeltaSetIndexMap(hvar.rsb);
+  const headerSize = 20;
+  let currentOffset = headerSize;
+  const itemVariationStoreOffset = itemVariationStoreBytes.length > 0 ? currentOffset : 0;
+  currentOffset += itemVariationStoreBytes.length;
+  const advanceWidthOffset = advanceWidthBytes.length > 0 ? currentOffset : 0;
+  currentOffset += advanceWidthBytes.length;
+  const lsbOffset = lsbBytes.length > 0 ? currentOffset : 0;
+  currentOffset += lsbBytes.length;
+  const rsbOffset = rsbBytes.length > 0 ? currentOffset : 0;
+  const result = new table_default.Table("HVAR", [
+    { name: "majorVersion", type: "USHORT", value: 1 },
+    { name: "minorVersion", type: "USHORT", value: 0 },
+    { name: "itemVariationStoreOffset", type: "ULONG", value: itemVariationStoreOffset },
+    { name: "advanceWidthMappingOffset", type: "ULONG", value: advanceWidthOffset },
+    { name: "lsbMappingOffset", type: "ULONG", value: lsbOffset },
+    { name: "rsbMappingOffset", type: "ULONG", value: rsbOffset }
+  ]);
+  if (itemVariationStoreBytes.length > 0) {
+    result.fields.push({
+      name: "itemVariationStore",
+      type: "LITERAL",
+      value: itemVariationStoreBytes
+    });
+  }
+  if (advanceWidthBytes.length > 0) {
+    result.fields.push({
+      name: "advanceWidthMapping",
+      type: "LITERAL",
+      value: advanceWidthBytes
+    });
+  }
+  if (lsbBytes.length > 0) {
+    result.fields.push({
+      name: "lsbMapping",
+      type: "LITERAL",
+      value: lsbBytes
+    });
+  }
+  if (rsbBytes.length > 0) {
+    result.fields.push({
+      name: "rsbMapping",
+      type: "LITERAL",
+      value: rsbBytes
+    });
+  }
+  return result;
+}
+var hvar_default = { make: makeHvarTable, parse: parseHvarTable };
+
+// src/tables/gdef.js
+var attachList = function() {
+  return {
+    coverage: this.parsePointer(Parser.coverage),
+    attachPoints: this.parseList(Parser.pointer(Parser.uShortList))
+  };
+};
+var caretValue = function() {
+  var format = this.parseUShort();
+  check_default.argument(
+    format === 1 || format === 2 || format === 3,
+    "Unsupported CaretValue table version."
+  );
+  if (format === 1) {
+    return { coordinate: this.parseShort() };
+  } else if (format === 2) {
+    return { pointindex: this.parseShort() };
+  } else if (format === 3) {
+    return { coordinate: this.parseShort() };
+  }
+};
+var ligGlyph = function() {
+  return this.parseList(Parser.pointer(caretValue));
+};
+var ligCaretList = function() {
+  return {
+    coverage: this.parsePointer(Parser.coverage),
+    ligGlyphs: this.parseList(Parser.pointer(ligGlyph))
+  };
+};
+var markGlyphSets = function() {
+  this.parseUShort();
+  return this.parseList(Parser.pointer(Parser.coverage));
+};
+function parseGDEFTable(data, start) {
+  start = start || 0;
+  const p = new Parser(data, start);
+  const tableVersion = p.parseVersion(1);
+  check_default.argument(
+    tableVersion === 1 || tableVersion === 1.2 || tableVersion === 1.3,
+    "Unsupported GDEF table version."
+  );
+  var gdef = {
+    version: tableVersion,
+    classDef: p.parsePointer(Parser.classDef),
+    attachList: p.parsePointer(attachList),
+    ligCaretList: p.parsePointer(ligCaretList),
+    markAttachClassDef: p.parsePointer(Parser.classDef)
+  };
+  if (tableVersion >= 1.2) {
+    gdef.markGlyphSets = p.parsePointer(markGlyphSets);
+  }
+  if (tableVersion >= 1.3) {
+    gdef.itemVariationStore = p.parsePointer32(function() {
+      return this.parseItemVariationStore();
+    });
+  }
+  return gdef;
+}
+function makeGDEFTable(gdef, fvar) {
+  if (!gdef)
+    return void 0;
+  const hasClassDef = !!gdef.classDef;
+  const hasAttachList = !!gdef.attachList;
+  const hasLigCaretList = !!gdef.ligCaretList;
+  const hasMarkAttachClassDef = !!gdef.markAttachClassDef;
+  const hasMarkGlyphSets = !!gdef.markGlyphSets;
+  const hasItemVariationStore = !!gdef.itemVariationStore;
+  if (!hasClassDef && !hasAttachList && !hasLigCaretList && !hasMarkAttachClassDef && !hasMarkGlyphSets && !hasItemVariationStore) {
+    return void 0;
+  }
+  const version = hasItemVariationStore ? 1.3 : hasMarkGlyphSets ? 1.2 : 1;
+  const encodedVersion = version >= 1.3 ? 65539 : version >= 1.2 ? 65538 : 65536;
+  const fields = [
+    { name: "version", type: "FIXED", value: encodedVersion },
+    { name: "glyphClassDefOffset", type: "USHORT", value: 0 },
+    { name: "attachListOffset", type: "USHORT", value: 0 },
+    { name: "ligCaretListOffset", type: "USHORT", value: 0 },
+    { name: "markAttachClassDefOffset", type: "USHORT", value: 0 }
+  ];
+  if (version >= 1.2) {
+    fields.push({ name: "markGlyphSetsDefOffset", type: "USHORT", value: 0 });
+  }
+  if (version >= 1.3) {
+    fields.push({ name: "itemVariationStoreOffset", type: "ULONG", value: 0 });
+  }
+  const result = new table_default.Table("GDEF", fields);
+  if (version >= 1.3 && hasItemVariationStore) {
+    if (!fvar) {
+      throw new Error("GDEF ItemVariationStore requires fvar axes when writing variable positioning data.");
+    }
+    const itemVariationStoreBytes = encodeItemVariationStore(gdef.itemVariationStore);
+    if (itemVariationStoreBytes.length > 0) {
+      const headerSize = result.sizeOf();
+      const rec = (
+        /** @type {Record<string, unknown>} */
+        /** @type {unknown} */
+        result
+      );
+      rec.itemVariationStoreOffset = headerSize;
+      result.fields.push({
+        name: "itemVariationStore",
+        type: "LITERAL",
+        value: itemVariationStoreBytes
+      });
+    }
+  }
+  return result;
+}
+var gdef_default = { parse: parseGDEFTable, make: makeGDEFTable };
+
 // src/tables/gsub.js
 var subtableParsers = new Array(9);
 subtableParsers[1] = function parseLookup1() {
@@ -12499,7 +12866,7 @@ function buildV1Tables(baseGlyphPaintRecords) {
   }
   return { baseGlyphEntries, layerPaintBytes };
 }
-function encodeVariationRegionList(regions) {
+function encodeVariationRegionList2(regions) {
   const bytes = [];
   if (!regions || regions.length === 0) {
     writeUint16(bytes, 0);
@@ -12518,7 +12885,7 @@ function encodeVariationRegionList(regions) {
   }
   return bytes;
 }
-function encodeItemVariationSubtable(subtable) {
+function encodeItemVariationSubtable2(subtable) {
   const bytes = [];
   const itemCount = subtable.deltaSets ? subtable.deltaSets.length : 0;
   const regionIndexCount = subtable.regionIndexes ? subtable.regionIndexes.length : 0;
@@ -12571,7 +12938,7 @@ function encodeItemVariationSubtable(subtable) {
   }
   return bytes;
 }
-function encodeItemVariationStore(store) {
+function encodeItemVariationStore2(store) {
   if (!store)
     return [];
   const bytes = [];
@@ -12579,10 +12946,10 @@ function encodeItemVariationStore(store) {
   const headerSize = 8;
   const subtableCount = (store.itemVariationSubtables || []).length;
   const subtableOffsetArraySize = subtableCount * 4;
-  const regionListBytes = encodeVariationRegionList(store.variationRegions);
+  const regionListBytes = encodeVariationRegionList2(store.variationRegions);
   const subtableBytesArr = [];
   for (const subtable of store.itemVariationSubtables || []) {
-    subtableBytesArr.push(encodeItemVariationSubtable(subtable));
+    subtableBytesArr.push(encodeItemVariationSubtable2(subtable));
   }
   const regionListOffset = headerSize + subtableOffsetArraySize;
   let currentOffset = regionListOffset + regionListBytes.length;
@@ -12602,7 +12969,7 @@ function encodeItemVariationStore(store) {
   }
   return bytes;
 }
-function encodeDeltaSetIndexMap(indexMap) {
+function encodeDeltaSetIndexMap2(indexMap) {
   if (!indexMap || !indexMap.map || indexMap.map.length === 0)
     return [];
   const bytes = [];
@@ -12778,8 +13145,8 @@ function makeColrTable(colr) {
     clipListBytes = clipBuf;
   }
   const clipListSize = clipListBytes ? clipListBytes.length : 0;
-  const varStoreBytes = colr.varStore ? encodeItemVariationStore(colr.varStore) : [];
-  const varIndexMapBytes = colr.varIndexMap ? encodeDeltaSetIndexMap(colr.varIndexMap) : [];
+  const varStoreBytes = colr.varStore ? encodeItemVariationStore2(colr.varStore) : [];
+  const varIndexMapBytes = colr.varIndexMap ? encodeDeltaSetIndexMap2(colr.varIndexMap) : [];
   const varIndexMapStart = clipListStart + clipListSize;
   const varStoreStart = varIndexMapStart + varIndexMapBytes.length;
   const totalSize = headerSize + v0BaseGlyphsSize + v0LayerRecordsSize + layerListSize + baseGlyphListSize + clipListSize + varIndexMapBytes.length + varStoreBytes.length;
@@ -13823,262 +14190,6 @@ function makeGvarTable(gvar, fvar) {
   return result;
 }
 var gvar_default = { make: makeGvarTable, parse: parseGvarTable };
-
-// src/tables/hvar.js
-function parseHvarTable(data, start, _fvar) {
-  const p = new parse_default.Parser(data, start);
-  const tableVersionMajor = p.parseUShort();
-  const tableVersionMinor = p.parseUShort();
-  if (tableVersionMajor !== 1) {
-    console.warn(`Unsupported hvar table version ${tableVersionMajor}.${tableVersionMinor}`);
-  }
-  const version = [
-    tableVersionMajor,
-    tableVersionMinor
-  ];
-  const itemVariationStore = p.parsePointer32(function() {
-    return this.parseItemVariationStore();
-  });
-  const advanceWidth = p.parsePointer32(function() {
-    return this.parseDeltaSetIndexMap();
-  });
-  const lsb = p.parsePointer32(function() {
-    return this.parseDeltaSetIndexMap();
-  });
-  const rsb = p.parsePointer32(function() {
-    return this.parseDeltaSetIndexMap();
-  });
-  return {
-    version,
-    itemVariationStore,
-    advanceWidth,
-    lsb,
-    rsb
-  };
-}
-function encodeVariationRegionList2(regions) {
-  if (!regions || regions.length === 0) {
-    return [0, 0, 0, 0];
-  }
-  const axisCount = regions[0].regionAxes ? regions[0].regionAxes.length : 0;
-  const regionCount = regions.length;
-  const result = [];
-  result.push(...encode.USHORT(axisCount));
-  result.push(...encode.USHORT(regionCount));
-  for (const region of regions) {
-    for (const axis of region.regionAxes) {
-      result.push(...encode.F2DOT14(axis.startCoord));
-      result.push(...encode.F2DOT14(axis.peakCoord));
-      result.push(...encode.F2DOT14(axis.endCoord));
-    }
-  }
-  return result;
-}
-function encodeItemVariationSubtable2(subtable) {
-  const result = [];
-  const itemCount = subtable.deltaSets ? subtable.deltaSets.length : 0;
-  const regionIndexCount = subtable.regionIndexes ? subtable.regionIndexes.length : 0;
-  let maxAbsDelta = 0;
-  let needsLongWords = false;
-  if (subtable.deltaSets) {
-    for (const deltaSet of subtable.deltaSets) {
-      for (const delta of deltaSet) {
-        const absDelta = Math.abs(delta);
-        if (absDelta > maxAbsDelta) {
-          maxAbsDelta = absDelta;
-        }
-      }
-    }
-  }
-  let wordDeltaCount = 0;
-  if (maxAbsDelta > 127) {
-    wordDeltaCount = regionIndexCount;
-  }
-  if (maxAbsDelta > 32767) {
-    needsLongWords = true;
-    wordDeltaCount |= 32768;
-  }
-  result.push(...encode.USHORT(itemCount));
-  result.push(...encode.USHORT(wordDeltaCount));
-  result.push(...encode.USHORT(regionIndexCount));
-  for (const idx of subtable.regionIndexes || []) {
-    result.push(...encode.USHORT(idx));
-  }
-  if (subtable.deltaSets) {
-    const wordCount = wordDeltaCount & 32767;
-    for (const deltaSet of subtable.deltaSets) {
-      for (let j = 0; j < regionIndexCount; j++) {
-        const delta = deltaSet[j] || 0;
-        if (j < wordCount) {
-          if (needsLongWords) {
-            result.push(...encode.LONG(delta));
-          } else {
-            result.push(...encode.SHORT(delta));
-          }
-        } else {
-          if (needsLongWords) {
-            result.push(...encode.SHORT(delta));
-          } else {
-            result.push(delta & 255);
-          }
-        }
-      }
-    }
-  }
-  return result;
-}
-function encodeItemVariationStore2(store) {
-  if (!store) {
-    return [];
-  }
-  const result = [];
-  result.push(...encode.USHORT(store.format || 1));
-  const headerSize = 2 + 4 + 2;
-  const subtableOffsetArraySize = (store.itemVariationSubtables || []).length * 4;
-  const regionListBytes = encodeVariationRegionList2(store.variationRegions);
-  const subtableBytes = [];
-  for (const subtable of store.itemVariationSubtables || []) {
-    subtableBytes.push(encodeItemVariationSubtable2(subtable));
-  }
-  const regionListOffset = headerSize + subtableOffsetArraySize;
-  let currentOffset = regionListOffset + regionListBytes.length;
-  const subtableOffsets = [];
-  for (const bytes of subtableBytes) {
-    subtableOffsets.push(currentOffset);
-    currentOffset += bytes.length;
-  }
-  result.push(...encode.ULONG(regionListOffset));
-  result.push(...encode.USHORT(subtableBytes.length));
-  for (const offset of subtableOffsets) {
-    result.push(...encode.ULONG(offset));
-  }
-  result.push(...regionListBytes);
-  for (const bytes of subtableBytes) {
-    result.push(...bytes);
-  }
-  return result;
-}
-function encodeDeltaSetIndexMap2(indexMap) {
-  if (!indexMap || !indexMap.map || indexMap.map.length === 0) {
-    return [];
-  }
-  const result = [];
-  const map = indexMap.map;
-  const mapCount = map.length;
-  let maxOuterIndex = 0;
-  let maxInnerIndex = 0;
-  for (const entry of map) {
-    if (entry.outerIndex > maxOuterIndex)
-      maxOuterIndex = entry.outerIndex;
-    if (entry.innerIndex > maxInnerIndex)
-      maxInnerIndex = entry.innerIndex;
-  }
-  let innerBitCount = 0;
-  let temp = maxInnerIndex;
-  while (temp > 0) {
-    innerBitCount++;
-    temp >>= 1;
-  }
-  if (innerBitCount === 0)
-    innerBitCount = 1;
-  let outerBitCount = 0;
-  temp = maxOuterIndex;
-  while (temp > 0) {
-    outerBitCount++;
-    temp >>= 1;
-  }
-  const totalBits = innerBitCount + outerBitCount;
-  let entrySize;
-  if (totalBits <= 8) {
-    entrySize = 1;
-  } else if (totalBits <= 16) {
-    entrySize = 2;
-  } else if (totalBits <= 24) {
-    entrySize = 3;
-  } else {
-    entrySize = 4;
-  }
-  const format = mapCount > 65535 ? 1 : 0;
-  result.push(format);
-  const entryFormat = entrySize - 1 << 4 | innerBitCount - 1;
-  result.push(entryFormat);
-  if (format === 0) {
-    result.push(...encode.USHORT(mapCount));
-  } else {
-    result.push(...encode.ULONG(mapCount));
-  }
-  const innerMask = (1 << innerBitCount) - 1;
-  for (const entry of map) {
-    const value = entry.outerIndex << innerBitCount | entry.innerIndex & innerMask;
-    if (entrySize === 1) {
-      result.push(value & 255);
-    } else if (entrySize === 2) {
-      result.push(...encode.USHORT(value));
-    } else if (entrySize === 3) {
-      result.push(value >> 16 & 255);
-      result.push(...encode.USHORT(value & 65535));
-    } else {
-      result.push(...encode.ULONG(value));
-    }
-  }
-  return result;
-}
-function makeHvarTable(hvar) {
-  if (!hvar || !hvar.itemVariationStore) {
-    return void 0;
-  }
-  const itemVariationStoreBytes = encodeItemVariationStore2(hvar.itemVariationStore);
-  const advanceWidthBytes = encodeDeltaSetIndexMap2(hvar.advanceWidth);
-  const lsbBytes = encodeDeltaSetIndexMap2(hvar.lsb);
-  const rsbBytes = encodeDeltaSetIndexMap2(hvar.rsb);
-  const headerSize = 20;
-  let currentOffset = headerSize;
-  const itemVariationStoreOffset = itemVariationStoreBytes.length > 0 ? currentOffset : 0;
-  currentOffset += itemVariationStoreBytes.length;
-  const advanceWidthOffset = advanceWidthBytes.length > 0 ? currentOffset : 0;
-  currentOffset += advanceWidthBytes.length;
-  const lsbOffset = lsbBytes.length > 0 ? currentOffset : 0;
-  currentOffset += lsbBytes.length;
-  const rsbOffset = rsbBytes.length > 0 ? currentOffset : 0;
-  const result = new table_default.Table("HVAR", [
-    { name: "majorVersion", type: "USHORT", value: 1 },
-    { name: "minorVersion", type: "USHORT", value: 0 },
-    { name: "itemVariationStoreOffset", type: "ULONG", value: itemVariationStoreOffset },
-    { name: "advanceWidthMappingOffset", type: "ULONG", value: advanceWidthOffset },
-    { name: "lsbMappingOffset", type: "ULONG", value: lsbOffset },
-    { name: "rsbMappingOffset", type: "ULONG", value: rsbOffset }
-  ]);
-  if (itemVariationStoreBytes.length > 0) {
-    result.fields.push({
-      name: "itemVariationStore",
-      type: "LITERAL",
-      value: itemVariationStoreBytes
-    });
-  }
-  if (advanceWidthBytes.length > 0) {
-    result.fields.push({
-      name: "advanceWidthMapping",
-      type: "LITERAL",
-      value: advanceWidthBytes
-    });
-  }
-  if (lsbBytes.length > 0) {
-    result.fields.push({
-      name: "lsbMapping",
-      type: "LITERAL",
-      value: lsbBytes
-    });
-  }
-  if (rsbBytes.length > 0) {
-    result.fields.push({
-      name: "rsbMapping",
-      type: "LITERAL",
-      value: rsbBytes
-    });
-  }
-  return result;
-}
-var hvar_default = { make: makeHvarTable, parse: parseHvarTable };
 
 // src/tables/gasp.js
 function parseGaspTable(data, start) {
@@ -15455,6 +15566,7 @@ function fontToSfntTable(font, options = {}) {
     };
   }
   const optionalTables = {
+    gdef: gdef_default,
     gsub: gsub_default,
     gpos: gpos_default,
     kern: kern_default,
@@ -15475,6 +15587,7 @@ function fontToSfntTable(font, options = {}) {
   const optionalTableArgs = {
     avar: [font.tables.fvar],
     fvar: [font.names],
+    gdef: [font.tables.fvar],
     gvar: [font.tables.fvar]
   };
   for (let tableName in optionalTables) {
@@ -24092,67 +24205,6 @@ Font.prototype.convertToCFF2 = function() {
   return convertTTFToCFF2(this);
 };
 var font_default = Font;
-
-// src/tables/gdef.js
-var attachList = function() {
-  return {
-    coverage: this.parsePointer(Parser.coverage),
-    attachPoints: this.parseList(Parser.pointer(Parser.uShortList))
-  };
-};
-var caretValue = function() {
-  var format = this.parseUShort();
-  check_default.argument(
-    format === 1 || format === 2 || format === 3,
-    "Unsupported CaretValue table version."
-  );
-  if (format === 1) {
-    return { coordinate: this.parseShort() };
-  } else if (format === 2) {
-    return { pointindex: this.parseShort() };
-  } else if (format === 3) {
-    return { coordinate: this.parseShort() };
-  }
-};
-var ligGlyph = function() {
-  return this.parseList(Parser.pointer(caretValue));
-};
-var ligCaretList = function() {
-  return {
-    coverage: this.parsePointer(Parser.coverage),
-    ligGlyphs: this.parseList(Parser.pointer(ligGlyph))
-  };
-};
-var markGlyphSets = function() {
-  this.parseUShort();
-  return this.parseList(Parser.pointer(Parser.coverage));
-};
-function parseGDEFTable(data, start) {
-  start = start || 0;
-  const p = new Parser(data, start);
-  const tableVersion = p.parseVersion(1);
-  check_default.argument(
-    tableVersion === 1 || tableVersion === 1.2 || tableVersion === 1.3,
-    "Unsupported GDEF table version."
-  );
-  var gdef = {
-    version: tableVersion,
-    classDef: p.parsePointer(Parser.classDef),
-    attachList: p.parsePointer(attachList),
-    ligCaretList: p.parsePointer(ligCaretList),
-    markAttachClassDef: p.parsePointer(Parser.classDef)
-  };
-  if (tableVersion >= 1.2) {
-    gdef.markGlyphSets = p.parsePointer(markGlyphSets);
-  }
-  if (tableVersion >= 1.3) {
-    gdef.itemVariationStore = p.parsePointer32(function() {
-      return this.parseItemVariationStore();
-    });
-  }
-  return gdef;
-}
-var gdef_default = { parse: parseGDEFTable };
 
 // src/sanitize.js
 function removeMacNameEntries(names) {

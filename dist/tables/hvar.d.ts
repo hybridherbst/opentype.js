@@ -1,3 +1,9 @@
+/**
+ * Encode an ItemVariationStore
+ * @param {object} store - The item variation store
+ * @returns {Array} Encoded bytes
+ */
+export function encodeItemVariationStore(store: object): any[];
 declare namespace _default {
     export { makeHvarTable as make };
     export { parseHvarTable as parse };
