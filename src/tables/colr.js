@@ -1127,15 +1127,13 @@ function encodeItemVariationStore(store) {
         writeUint32(bytes, off);
     }
 
-    // Region list
-    bytes.push(...regionListBytes);
-
-    // Subtables
+    // Region list + subtables — use concat to avoid stack overflow from
+    // spread operator on large byte arrays (IVS data can exceed 100k bytes).
+    let result = bytes.concat(regionListBytes);
     for (const sb of subtableBytesArr) {
-        bytes.push(...sb);
+        result = result.concat(sb);
     }
-
-    return bytes;
+    return result;
 }
 
 /**
