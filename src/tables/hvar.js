@@ -5,6 +5,13 @@ import parse from '../parse.js';
 import table from '../table.js';
 import { encode } from '../types.js';
 
+function appendBytes(target, bytes) {
+    if (!bytes || bytes.length === 0) return;
+    for (let i = 0; i < bytes.length; i++) {
+        target.push(bytes[i]);
+    }
+}
+
 // eslint-disable-next-line no-unused-vars
 function parseHvarTable(data, start, _fvar) {
     const p = new parse.Parser(data, start);
@@ -154,7 +161,7 @@ export function encodeItemVariationStore(store) {
     const result = [];
     
     // Format (USHORT)
-    result.push(...encode.USHORT(store.format || 1));
+    appendBytes(result, encode.USHORT(store.format || 1));
     
     // We'll fill in offsets later
     const headerSize = 2 + 4 + 2; // format + regionListOffset + subtableCount
@@ -180,20 +187,20 @@ export function encodeItemVariationStore(store) {
     }
     
     // Write header with offsets
-    result.push(...encode.ULONG(regionListOffset));
-    result.push(...encode.USHORT(subtableBytes.length));
+    appendBytes(result, encode.ULONG(regionListOffset));
+    appendBytes(result, encode.USHORT(subtableBytes.length));
     
     // Subtable offsets
     for (const offset of subtableOffsets) {
-        result.push(...encode.ULONG(offset));
+        appendBytes(result, encode.ULONG(offset));
     }
     
     // Region list
-    result.push(...regionListBytes);
+    appendBytes(result, regionListBytes);
     
     // Subtables
     for (const bytes of subtableBytes) {
-        result.push(...bytes);
+        appendBytes(result, bytes);
     }
     
     return result;
