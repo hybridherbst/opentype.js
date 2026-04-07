@@ -9915,6 +9915,13 @@ var opentype = (() => {
   var post_default = { parse: parsePostTable, make: makePostTable };
 
   // src/tables/hvar.js
+  function appendBytes(target, bytes) {
+    if (!bytes || bytes.length === 0)
+      return;
+    for (let i = 0; i < bytes.length; i++) {
+      target.push(bytes[i]);
+    }
+  }
   function parseHvarTable(data, start, _fvar) {
     const p = new parse_default.Parser(data, start);
     const tableVersionMajor = p.parseUShort();
@@ -10022,7 +10029,7 @@ var opentype = (() => {
       return [];
     }
     const result = [];
-    result.push(...encode.USHORT(store.format || 1));
+    appendBytes(result, encode.USHORT(store.format || 1));
     const headerSize = 2 + 4 + 2;
     const subtableOffsetArraySize = (store.itemVariationSubtables || []).length * 4;
     const regionListBytes = encodeVariationRegionList(store.variationRegions);
@@ -10037,14 +10044,14 @@ var opentype = (() => {
       subtableOffsets.push(currentOffset);
       currentOffset += bytes.length;
     }
-    result.push(...encode.ULONG(regionListOffset));
-    result.push(...encode.USHORT(subtableBytes.length));
+    appendBytes(result, encode.ULONG(regionListOffset));
+    appendBytes(result, encode.USHORT(subtableBytes.length));
     for (const offset of subtableOffsets) {
-      result.push(...encode.ULONG(offset));
+      appendBytes(result, encode.ULONG(offset));
     }
-    result.push(...regionListBytes);
+    appendBytes(result, regionListBytes);
     for (const bytes of subtableBytes) {
-      result.push(...bytes);
+      appendBytes(result, bytes);
     }
     return result;
   }
@@ -13033,11 +13040,11 @@ var opentype = (() => {
     for (const off of subtableOffsets) {
       writeUint32(bytes, off);
     }
-    bytes.push(...regionListBytes);
+    let result = bytes.concat(regionListBytes);
     for (const sb of subtableBytesArr) {
-      bytes.push(...sb);
+      result = result.concat(sb);
     }
-    return bytes;
+    return result;
   }
   function encodeDeltaSetIndexMap2(indexMap) {
     if (!indexMap || !indexMap.map || indexMap.map.length === 0)
@@ -18127,8 +18134,8 @@ var opentype = (() => {
           for (let i = 0; i < transformedPoints.length; i++) {
             const point = transformedPoints[i];
             if (flavor === "gvar") {
-              point.x = point.x + header.deltas[i] * factor;
-              point.y = point.y + header.deltasY[i] * factor;
+              point.x = Math.round(point.x + header.deltas[i] * factor);
+              point.y = Math.round(point.y + header.deltasY[i] * factor);
             } else if (flavor === "cvar") {
               transformedPoints[i] = point + header.deltas[i] * factor;
             }
