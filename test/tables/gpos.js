@@ -966,6 +966,54 @@ describe('tables/gpos.js', function() {
         assert.equal((encoded[8] << 8) | encoded[9], 1);     // posFormat = 1
     });
 
+    it('can encode full GPOS tables with multiple extension subtables', function() {
+        const encoded = gpos.make({
+            version: 1,
+            scripts: [],
+            features: [],
+            lookups: [{
+                lookupType: 9,
+                lookupFlag: 0,
+                subtables: [
+                    {
+                        posFormat: 1,
+                        extensionLookupType: 1,
+                        extensionSubtable: {
+                            posFormat: 1,
+                            coverage: { format: 1, glyphs: [0x4f] },
+                            value: { xAdvance: 100 }
+                        }
+                    },
+                    {
+                        posFormat: 1,
+                        extensionLookupType: 4,
+                        extensionSubtable: {
+                            posFormat: 1,
+                            markCoverage: { format: 1, glyphs: [0x300] },
+                            baseCoverage: { format: 1, glyphs: [0x41] },
+                            markClassCount: 1,
+                            markArray: [
+                                { markClass: 0, markAnchor: { format: 1, xCoordinate: 100, yCoordinate: 500 } }
+                            ],
+                            baseArray: [
+                                [{ format: 1, xCoordinate: 250, yCoordinate: 600 }]
+                            ]
+                        }
+                    }
+                ]
+            }]
+        }).encode();
+
+        const parsed = gpos.parse(new DataView(Uint8Array.from(encoded).buffer));
+        assert.equal(parsed.lookups.length, 1);
+        assert.equal(parsed.lookups[0].lookupType, 9);
+        assert.equal(parsed.lookups[0].subtables.length, 2);
+        assert.equal(parsed.lookups[0].subtables[0].extensionLookupType, 1);
+        assert.equal(parsed.lookups[0].subtables[1].extensionLookupType, 4);
+        assert.deepEqual(parsed.lookups[0].subtables[0].extension.coverage, { format: 1, glyphs: [0x4f] });
+        assert.deepEqual(parsed.lookups[0].subtables[1].extension.markCoverage, { format: 1, glyphs: [0x300] });
+    });
+
     //// Full table roundtrip //////////////////////////////////////////////////
 
     it('can make a complete GPOS table and re-parse it', function() {

@@ -66,16 +66,23 @@ function encodeTupleVariationHeader(header, axisCount, variationDataSize, shared
         tupleIndex |= 0x2000; // PRIVATE_POINT_NUMBERS
     }
     
-    // Check for intermediate region
-    const hasIntermediate = header.intermediateStartTuple && header.intermediateEndTuple;
-    if (hasIntermediate) {
-        tupleIndex |= 0x4000; // INTERMEDIATE_REGION
-    }
-    
     // Resolve peak tuple - either from header or from shared tuples
     let peakTuple = header.peakTuple;
     if (!peakTuple && header.sharedTupleRecordsIndex !== undefined && originalSharedTuples) {
         peakTuple = originalSharedTuples[header.sharedTupleRecordsIndex];
+    }
+
+    // OpenType gvar stores intermediate support regions as a pair of start/end
+    // tuples. Parsed data may carry only one bound explicitly when the other is
+    // the default implied by the peak tuple, so synthesize the missing side here
+    // instead of dropping the intermediate region on export.
+    const defaultStartTuple = peakTuple ? peakTuple.map(value => value < 0 ? value : 0) : null;
+    const defaultEndTuple = peakTuple ? peakTuple.map(value => value > 0 ? value : 0) : null;
+    const intermediateStartTuple = header.intermediateStartTuple || (header.intermediateEndTuple ? defaultStartTuple : null);
+    const intermediateEndTuple = header.intermediateEndTuple || (header.intermediateStartTuple ? defaultEndTuple : null);
+    const hasIntermediate = !!(intermediateStartTuple && intermediateEndTuple);
+    if (hasIntermediate) {
+        tupleIndex |= 0x4000; // INTERMEDIATE_REGION
     }
     
     // Check if peak tuple is shared or embedded
@@ -101,8 +108,8 @@ function encodeTupleVariationHeader(header, axisCount, variationDataSize, shared
     
     // Intermediate start and end tuples
     if (hasIntermediate) {
-        result.push(...encodeTuple(header.intermediateStartTuple));
-        result.push(...encodeTuple(header.intermediateEndTuple));
+        result.push(...encodeTuple(intermediateStartTuple));
+        result.push(...encodeTuple(intermediateEndTuple));
     }
     
     return result;

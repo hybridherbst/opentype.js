@@ -1389,6 +1389,7 @@ subtableMakers[8] = function makeLookup8(subtable) {
 // to the actual inner subtable data.
 // For two-phase encoding, we return just the 8-byte header with a placeholder offset;
 // the actual subtable data is collected separately and appended at the end of the GPOS table.
+// The placeholder field is marked so the final writer can patch it without rescanning bytes.
 subtableMakers[9] = function makeLookup9(subtable, extensionData) {
     // Handle error case from parser (unsupported lookup type)
     if (!subtable || subtable.error || subtable.posFormat === undefined) {
@@ -1427,19 +1428,15 @@ subtableMakers[9] = function makeLookup9(subtable, extensionData) {
 
         // If extensionData collector is provided, use two-phase encoding:
         // return just the 8-byte header, collect actual data for deferred writing.
-        // Use a unique sentinel as the offset placeholder so the header scanner
-        // can reliably distinguish extension headers from regular font data.
         if (extensionData) {
-            const idx = extensionData.actualData.length;
-            const sentinel = 0xEE5A0000 + idx; // unique per extension subtable
+            const patchKey = 'gpos-extension-offset-' + extensionData.actualData.length;
             extensionData.actualData.push(actualBytes);
-            extensionData.sentinels.push(sentinel);
-            extensionData.lookupTypes.push(extLookupType);
+            extensionData.patchKeys.push(patchKey);
 
             return new table.Table('extensionPosTable', [
                 { name: 'posFormat', type: 'USHORT', value: 1 },
                 { name: 'extensionLookupType', type: 'USHORT', value: extLookupType },
-                { name: 'extensionOffset', type: 'ULONG', value: sentinel }
+                { name: 'extensionOffset', type: 'ULONG', value: 0, patchKey: patchKey }
             ]);
         }
 
@@ -1490,11 +1487,10 @@ function makeGposTable(gpos) {
     }
 
     // Has extension lookups — use two-phase encoding
-    // Phase 1: Collect extension data and create headers with sentinel offsets
+    // Phase 1: Collect extension data and create headers with placeholder offsets
     const extensionData = {
         actualData: [],
-        sentinels: [],
-        lookupTypes: []
+        patchKeys: []
     };
 
     // Create modified subtableMakers that passes extensionData to type-9 maker
@@ -1513,33 +1509,15 @@ function makeGposTable(gpos) {
     ]);
 
     // Phase 2: Encode the main table, then append extension data and patch offsets
-    let mainBytes = mainTable.encode();
+    const encodedMainTable = mainTable.encodeWithMarkers();
+    let mainBytes = encodedMainTable.bytes;
 
     if (extensionData.actualData.length > 0) {
-        // Find extension header positions by scanning for unique sentinel values.
-        // Each sentinel is 0xEE5A0000 + index, written as the 32-bit extensionOffset field.
-        const headerPositions = [];
-        for (let idx = 0; idx < extensionData.sentinels.length; idx++) {
-            const sentinel = extensionData.sentinels[idx];
-            const b0 = (sentinel >> 24) & 0xff;
-            const b1 = (sentinel >> 16) & 0xff;
-            const b2 = (sentinel >> 8) & 0xff;
-            const b3 = sentinel & 0xff;
-            let found = false;
-            for (let i = 4; i <= mainBytes.length - 4; i++) {
-                if (mainBytes[i] === b0 && mainBytes[i + 1] === b1 &&
-                    mainBytes[i + 2] === b2 && mainBytes[i + 3] === b3) {
-                    // The sentinel is at the extensionOffset field (bytes 4-7 of the 8-byte header)
-                    headerPositions.push(i - 4);
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                console.warn('GPOS Extension sentinel not found for index ' + idx);
-                return mainTable;
-            }
-        }
+        const extensionOffsetPositions = extensionData.patchKeys.map((patchKey) => {
+            const positions = encodedMainTable.trackedFields[patchKey];
+            check.assert(positions && positions.length === 1, 'GPOS extension offset marker missing for ' + patchKey);
+            return positions[0];
+        });
 
         // Calculate where extension data will be appended
         const dataStartOffset = mainBytes.length;
@@ -1554,13 +1532,14 @@ function makeGposTable(gpos) {
         }
 
         // Patch the 32-bit extension offsets (relative to each header)
-        for (let i = 0; i < headerPositions.length; i++) {
-            const headerPos = headerPositions[i];
-            const relativeOffset = dataOffsets[i] - headerPos;
-            mainBytes[headerPos + 4] = (relativeOffset >> 24) & 0xff;
-            mainBytes[headerPos + 5] = (relativeOffset >> 16) & 0xff;
-            mainBytes[headerPos + 6] = (relativeOffset >> 8) & 0xff;
-            mainBytes[headerPos + 7] = relativeOffset & 0xff;
+        for (let i = 0; i < extensionOffsetPositions.length; i++) {
+            const offsetPos = extensionOffsetPositions[i];
+            const headerStart = offsetPos - 4;
+            const relativeOffset = dataOffsets[i] - headerStart;
+            mainBytes[offsetPos] = (relativeOffset >> 24) & 0xff;
+            mainBytes[offsetPos + 1] = (relativeOffset >> 16) & 0xff;
+            mainBytes[offsetPos + 2] = (relativeOffset >> 8) & 0xff;
+            mainBytes[offsetPos + 3] = relativeOffset & 0xff;
         }
 
         // Combine main table with extension data

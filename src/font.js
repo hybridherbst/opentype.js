@@ -761,7 +761,7 @@ Font.prototype.validate = function() {
 /**
  * Convert the font object to a SFNT data structure.
  * This structure contains all the necessary tables and metadata to create a binary OTF file.
- * @param {{postFormat?: number}} [options] - Options for table generation
+ * @param {{postFormat?: number, timingSink?: Record<string, number>}} [options] - Options for table generation
  * @return {Record<string, unknown> & {encode: Function}}
  */
 Font.prototype.toTables = function(options) {
@@ -776,16 +776,34 @@ Font.prototype.toBuffer = function() {
 };
 /**
  * Converts a `opentype.Font` into an `ArrayBuffer`
- * @param {{postFormat?: number}} [options] - Options for table generation
+ * @param {{postFormat?: number, timingSink?: Record<string, number>}} [options] - Options for table generation
  * @return {ArrayBuffer}
  */
 Font.prototype.toArrayBuffer = function(options) {
+    const timingSink = options && typeof options.timingSink === 'object' ? options.timingSink : null;
+    const now = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now());
+    const totalStartedAt = now();
+    const toTablesStartedAt = now();
     const sfntTable = this.toTables(options);
+    if (timingSink) {
+        timingSink.serializeToTablesMs = now() - toTablesStartedAt;
+    }
+    const finalEncodeStartedAt = now();
     const bytes = sfntTable.encode();
+    if (timingSink) {
+        timingSink.serializeFinalEncodeMs = now() - finalEncodeStartedAt;
+    }
+    const copyStartedAt = now();
     const buffer = new ArrayBuffer(bytes.length);
     const intArray = new Uint8Array(buffer);
     for (let i = 0; i < bytes.length; i++) {
         intArray[i] = bytes[i];
+    }
+    if (timingSink) {
+        timingSink.serializeArrayCopyMs = now() - copyStartedAt;
+        timingSink.serializeTotalMs = now() - totalStartedAt;
     }
 
     return buffer;

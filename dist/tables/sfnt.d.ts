@@ -5,6 +5,6 @@ declare namespace _default {
 }
 export default _default;
 declare function makeSfntTable(tables: any): import("../table.js").Table;
-declare function fontToSfntTable(font: any, options?: {}): import("../table.js").Table;
+declare function fontToSfntTable(font: any, options?: {}): any;
 declare function computeCheckSum(bytes: any): number;
 //# sourceMappingURL=sfnt.d.ts.map

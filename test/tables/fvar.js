@@ -128,4 +128,41 @@ describe('tables/fvar.js', function() {
         assert.equal(parsedFont.tables.fvar.instances[0].postScriptNameID, undefined);
         assert.equal(parsedFont.tables.fvar.instances[1].postScriptNameID, undefined);
     });
+
+    it('roundtrips fractional axis and instance coordinates', function() {
+        const narrowWidth = 62.5;
+        const fractionalTable = {
+            axes: [
+                {
+                    tag: 'wdth',
+                    minValue: narrowWidth,
+                    defaultValue: 100,
+                    maxValue: 100,
+                    axisNameID: 300,
+                    name: { en: 'Width' }
+                }
+            ],
+            instances: [
+                {
+                    name: { en: 'Narrow' },
+                    subfamilyNameID: 301,
+                    postScriptName: undefined,
+                    postScriptNameID: undefined,
+                    coordinates: { wdth: narrowWidth }
+                }
+            ]
+        };
+        const fractionalNames = {
+            macintosh: {
+                300: { en: 'Width' },
+                301: { en: 'Narrow' }
+            }
+        };
+
+        const encoded = Uint8Array.from(fvar.make(fractionalTable, fractionalNames).encode());
+        const parsed = fvar.parse(new DataView(encoded.buffer), 0, fractionalNames);
+
+        assert.ok(Math.abs(parsed.axes[0].minValue - fractionalTable.axes[0].minValue) < 1e-9);
+        assert.ok(Math.abs(parsed.instances[0].coordinates.wdth - fractionalTable.instances[0].coordinates.wdth) < 1e-9);
+    });
 });

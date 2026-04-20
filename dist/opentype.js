@@ -1142,7 +1142,7 @@ var opentype = (() => {
   function getFixed(dataView, offset) {
     const decimal = dataView.getInt16(offset, false);
     const fraction = dataView.getUint16(offset + 2, false);
-    return decimal + fraction / 65535;
+    return decimal + fraction / 65536;
   }
   function getTag(dataView, offset) {
     let tag = "";
@@ -2779,11 +2779,34 @@ var opentype = (() => {
     check_default.argument(sizeOfFunction !== void 0, "No sizeOf function for type " + v.type);
     return sizeOfFunction(v.value);
   };
-  encode.TABLE = function(table) {
+  function encodeTableWithMarkers(table) {
     let d = [];
     const length = (table.fields || []).length;
     const subtables = [];
     const subtableOffsets = [];
+    const subtableMarkers = [];
+    const trackedFields = {};
+    function trackField(patchKey, position) {
+      if (!patchKey)
+        return;
+      if (!trackedFields[patchKey])
+        trackedFields[patchKey] = [];
+      trackedFields[patchKey].push(position);
+    }
+    function mergeTrackedFields(source, baseOffset) {
+      const keys = Object.keys(source);
+      for (let i = 0; i < keys.length; i += 1) {
+        const key = keys[i];
+        const positions = source[key];
+        if (!positions || positions.length === 0)
+          continue;
+        if (!trackedFields[key])
+          trackedFields[key] = [];
+        for (let j = 0; j < positions.length; j += 1) {
+          trackedFields[key].push(positions[j] + baseOffset);
+        }
+      }
+    }
     for (let i = 0; i < length; i += 1) {
       const field = table.fields[i];
       const encodingFunction = encode[field.type];
@@ -2794,19 +2817,27 @@ var opentype = (() => {
       }
       if (value === null || value === void 0) {
         if (field.type === "TABLE") {
+          trackField(field.patchKey, d.length);
           d.push(...[0, 0]);
           continue;
         }
       }
-      const bytes = encodingFunction(value);
       if (field.type === "TABLE") {
-        if (value && /** @type {Record<string, unknown>} */
-        value.fields !== null) {
+        const encodedSubtable = value && /** @type {Record<string, unknown>} */
+        value.fields !== null ? encodeTableWithMarkers(
+          /** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string}} */
+          value
+        ) : null;
+        if (encodedSubtable) {
           subtableOffsets.push(d.length);
-          subtables.push(bytes);
+          subtables.push(encodedSubtable.bytes);
+          subtableMarkers.push(encodedSubtable.trackedFields);
         }
+        trackField(field.patchKey, d.length);
         d.push(...[0, 0]);
       } else {
+        const bytes = encodingFunction(value);
+        trackField(field.patchKey, d.length);
         for (let j = 0; j < bytes.length; j++) {
           d.push(bytes[j]);
         }
@@ -2818,12 +2849,17 @@ var opentype = (() => {
       check_default.argument(offset < 65536, "Table " + table.tableName + " too big.");
       d[o] = offset >> 8;
       d[o + 1] = offset & 255;
+      mergeTrackedFields(subtableMarkers[i], offset);
       for (let j = 0; j < subtables[i].length; j++) {
         d.push(subtables[i][j]);
       }
     }
-    return d;
+    return { bytes: d, trackedFields };
+  }
+  encode.TABLE = function(table) {
+    return encodeTableWithMarkers(table).bytes;
   };
+  encode.TABLE_WITH_MARKERS = encodeTableWithMarkers;
   sizeOf.TABLE = function(table) {
     let numBytes = 0;
     const length = (table.fields || []).length;
@@ -2881,6 +2917,13 @@ var opentype = (() => {
   Table.prototype.encode = function() {
     return encode.TABLE(
       /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */
+      /** @type {unknown} */
+      this
+    );
+  };
+  Table.prototype.encodeWithMarkers = function() {
+    return encode.TABLE_WITH_MARKERS(
+      /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string }} */
       /** @type {unknown} */
       this
     );
@@ -9975,6 +10018,12 @@ var opentype = (() => {
     const result = [];
     const itemCount = subtable.deltaSets ? subtable.deltaSets.length : 0;
     const regionIndexCount = subtable.regionIndexes ? subtable.regionIndexes.length : 0;
+    if (itemCount > 65535) {
+      throw new Error(`HVAR ItemVariationData itemCount ${itemCount} exceeds 65535; split rows across multiple subtables.`);
+    }
+    if (regionIndexCount > 65535) {
+      throw new Error(`HVAR ItemVariationData regionIndexCount ${regionIndexCount} exceeds 65535.`);
+    }
     let maxAbsDelta = 0;
     let needsLongWords = false;
     if (subtable.deltaSets) {
@@ -10078,6 +10127,9 @@ var opentype = (() => {
     }
     if (innerBitCount === 0)
       innerBitCount = 1;
+    if (innerBitCount > 16) {
+      throw new Error(`HVAR DeltaSetIndexMap innerIndex requires ${innerBitCount} bits; split rows across multiple subtables.`);
+    }
     let outerBitCount = 0;
     temp = maxOuterIndex;
     while (temp > 0) {
@@ -10675,14 +10727,14 @@ var opentype = (() => {
     check_default.assert(actualMaker, "No maker for extension lookup type " + subtable.lookupType);
     const actualTable = actualMaker(subtable.extension);
     const actualBytes = actualTable.encode();
-    if (extensionData) {
+    if (extensionData && extensionData.actualData && extensionData.patchKeys) {
+      const patchKey = "gsub-extension-offset-" + extensionData.actualData.length;
       extensionData.actualData.push(actualBytes);
-      extensionData.headerPositions.push(-1);
-      extensionData.lookupTypes.push(subtable.lookupType);
+      extensionData.patchKeys.push(patchKey);
       return new table_default.Table("extensionSubstitution", [
         { name: "substFormat", type: "USHORT", value: 1 },
         { name: "extensionLookupType", type: "USHORT", value: subtable.lookupType },
-        { name: "extensionOffset", type: "ULONG", value: 0 }
+        { name: "extensionOffset", type: "ULONG", value: 0, patchKey }
         // Placeholder
       ]);
     }
@@ -10767,6 +10819,31 @@ var opentype = (() => {
     }
     return bytes;
   }
+  function makeInlineGsubTable(gsub, hasFeatureVariations) {
+    const tableFields = [
+      { name: "version", type: "ULONG", value: hasFeatureVariations ? 65537 : 65536 },
+      { name: "scripts", type: "TABLE", value: new table_default.ScriptList(gsub.scripts) },
+      { name: "features", type: "TABLE", value: new table_default.FeatureList(gsub.features) },
+      { name: "lookups", type: "TABLE", value: new table_default.LookupList(gsub.lookups, subtableMakers) }
+    ];
+    if (!hasFeatureVariations) {
+      return new table_default.Table("GSUB", tableFields);
+    }
+    const mainTable = new table_default.Table("GSUB", [
+      ...tableFields,
+      { name: "featureVariationsOffset", type: "ULONG", value: 0 }
+    ]);
+    let mainBytes = mainTable.encode();
+    const fvBytes = buildFeatureVariationsBytes(gsub.variations || []);
+    const fvDataStart = mainBytes.length;
+    patchUint32(mainBytes, 10, fvDataStart);
+    const finalBytes = new Uint8Array(mainBytes.length + fvBytes.length);
+    finalBytes.set(mainBytes);
+    finalBytes.set(fvBytes, mainBytes.length);
+    return new table_default.Table("GSUB", [
+      { name: "data", type: "LITERAL", value: Array.from(finalBytes) }
+    ]);
+  }
   function makeGsubTable(gsub) {
     let hasExtensions = false;
     for (const lookup of gsub.lookups) {
@@ -10777,41 +10854,16 @@ var opentype = (() => {
     }
     const hasFeatureVariations = gsub.variations && gsub.variations.length > 0;
     if (!hasExtensions && !hasFeatureVariations) {
-      return new table_default.Table("GSUB", [
-        { name: "version", type: "ULONG", value: 65536 },
-        { name: "scripts", type: "TABLE", value: new table_default.ScriptList(gsub.scripts) },
-        { name: "features", type: "TABLE", value: new table_default.FeatureList(gsub.features) },
-        { name: "lookups", type: "TABLE", value: new table_default.LookupList(gsub.lookups, subtableMakers) }
-      ]);
+      return makeInlineGsubTable(gsub, false);
     }
     if (hasFeatureVariations && !hasExtensions) {
-      const mainTable2 = new table_default.Table("GSUB", [
-        { name: "version", type: "ULONG", value: 65537 },
-        { name: "scripts", type: "TABLE", value: new table_default.ScriptList(gsub.scripts) },
-        { name: "features", type: "TABLE", value: new table_default.FeatureList(gsub.features) },
-        { name: "lookups", type: "TABLE", value: new table_default.LookupList(gsub.lookups, subtableMakers) },
-        { name: "featureVariationsOffset", type: "ULONG", value: 0 }
-        // placeholder
-      ]);
-      let mainBytes2 = mainTable2.encode();
-      const fvBytes = buildFeatureVariationsBytes(gsub.variations);
-      const fvOffsetPos = 10;
-      const fvDataStart = mainBytes2.length;
-      patchUint32(mainBytes2, fvOffsetPos, fvDataStart);
-      const finalBytes = new Uint8Array(mainBytes2.length + fvBytes.length);
-      finalBytes.set(mainBytes2);
-      finalBytes.set(fvBytes, mainBytes2.length);
-      return new table_default.Table("GSUB", [
-        { name: "data", type: "LITERAL", value: Array.from(finalBytes) }
-      ]);
+      return makeInlineGsubTable(gsub, true);
     }
     const extensionData = {
       actualData: [],
       // The actual subtable bytes for each extension
-      headerPositions: [],
-      // Byte position of each extension header (for offset patching)
-      lookupTypes: []
-      // Lookup type for each extension
+      patchKeys: []
+      // Marker keys for each extensionOffset field
     };
     const makersWithExtension = Object.assign({}, subtableMakers);
     const originalMaker7 = subtableMakers[7];
@@ -10828,24 +10880,14 @@ var opentype = (() => {
       tableFields.push({ name: "featureVariationsOffset", type: "ULONG", value: 0 });
     }
     const mainTable = new table_default.Table("GSUB", tableFields);
-    let mainBytes = mainTable.encode();
+    const encodedMainTable = mainTable.encodeWithMarkers();
+    let mainBytes = encodedMainTable.bytes;
     if (extensionData.actualData.length > 0) {
-      const headerPositions = [];
-      for (let i = 0; i <= mainBytes.length - 8; i++) {
-        if (mainBytes[i] === 0 && mainBytes[i + 1] === 1) {
-          const lookupType = mainBytes[i + 2] << 8 | mainBytes[i + 3];
-          if (lookupType >= 1 && lookupType <= 6) {
-            const offset = mainBytes[i + 4] << 24 | mainBytes[i + 5] << 16 | mainBytes[i + 6] << 8 | mainBytes[i + 7];
-            if (offset === 0) {
-              headerPositions.push(i);
-            }
-          }
-        }
-      }
-      if (headerPositions.length !== extensionData.actualData.length) {
-        console.warn("Extension header detection mismatch, using inline encoding");
-        return mainTable;
-      }
+      const extensionOffsetPositions = extensionData.patchKeys.map((patchKey) => {
+        const positions = encodedMainTable.trackedFields[patchKey];
+        check_default.assert(positions && positions.length === 1, "GSUB extension offset marker missing for " + patchKey);
+        return positions[0];
+      });
       const dataStartOffset = mainBytes.length;
       const extDataBytes = [];
       const dataOffsets = [];
@@ -10855,13 +10897,11 @@ var opentype = (() => {
         extDataBytes.push(...extensionData.actualData[i]);
         currentOffset += extensionData.actualData[i].length;
       }
-      for (let i = 0; i < headerPositions.length; i++) {
-        const headerPos = headerPositions[i];
-        const relativeOffset = dataOffsets[i] - headerPos;
-        mainBytes[headerPos + 4] = relativeOffset >> 24 & 255;
-        mainBytes[headerPos + 5] = relativeOffset >> 16 & 255;
-        mainBytes[headerPos + 6] = relativeOffset >> 8 & 255;
-        mainBytes[headerPos + 7] = relativeOffset & 255;
+      for (let i = 0; i < extensionOffsetPositions.length; i++) {
+        const offsetPos = extensionOffsetPositions[i];
+        const headerStart = offsetPos - 4;
+        const relativeOffset = dataOffsets[i] - headerStart;
+        patchUint32(mainBytes, offsetPos, relativeOffset);
       }
       let combinedLength = mainBytes.length + extDataBytes.length;
       let fvBytes = null;
@@ -11993,15 +12033,13 @@ var opentype = (() => {
         ]);
       }
       if (extensionData) {
-        const idx = extensionData.actualData.length;
-        const sentinel = 3998875648 + idx;
+        const patchKey = "gpos-extension-offset-" + extensionData.actualData.length;
         extensionData.actualData.push(actualBytes);
-        extensionData.sentinels.push(sentinel);
-        extensionData.lookupTypes.push(extLookupType);
+        extensionData.patchKeys.push(patchKey);
         return new table_default.Table("extensionPosTable", [
           { name: "posFormat", type: "USHORT", value: 1 },
           { name: "extensionLookupType", type: "USHORT", value: extLookupType },
-          { name: "extensionOffset", type: "ULONG", value: sentinel }
+          { name: "extensionOffset", type: "ULONG", value: 0, patchKey }
         ]);
       }
       return new table_default.Table("extensionPosTable", [
@@ -12035,8 +12073,7 @@ var opentype = (() => {
     }
     const extensionData = {
       actualData: [],
-      sentinels: [],
-      lookupTypes: []
+      patchKeys: []
     };
     const makersWithExtension = Object.assign({}, subtableMakers2);
     const originalMaker9 = subtableMakers2[9];
@@ -12049,28 +12086,14 @@ var opentype = (() => {
       { name: "features", type: "TABLE", value: new table_default.FeatureList(gpos.features) },
       { name: "lookups", type: "TABLE", value: new table_default.LookupList(gpos.lookups, makersWithExtension) }
     ]);
-    let mainBytes = mainTable.encode();
+    const encodedMainTable = mainTable.encodeWithMarkers();
+    let mainBytes = encodedMainTable.bytes;
     if (extensionData.actualData.length > 0) {
-      const headerPositions = [];
-      for (let idx = 0; idx < extensionData.sentinels.length; idx++) {
-        const sentinel = extensionData.sentinels[idx];
-        const b0 = sentinel >> 24 & 255;
-        const b1 = sentinel >> 16 & 255;
-        const b2 = sentinel >> 8 & 255;
-        const b3 = sentinel & 255;
-        let found = false;
-        for (let i = 4; i <= mainBytes.length - 4; i++) {
-          if (mainBytes[i] === b0 && mainBytes[i + 1] === b1 && mainBytes[i + 2] === b2 && mainBytes[i + 3] === b3) {
-            headerPositions.push(i - 4);
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          console.warn("GPOS Extension sentinel not found for index " + idx);
-          return mainTable;
-        }
-      }
+      const extensionOffsetPositions = extensionData.patchKeys.map((patchKey) => {
+        const positions = encodedMainTable.trackedFields[patchKey];
+        check_default.assert(positions && positions.length === 1, "GPOS extension offset marker missing for " + patchKey);
+        return positions[0];
+      });
       const dataStartOffset = mainBytes.length;
       const extDataBytes = [];
       const dataOffsets = [];
@@ -12080,13 +12103,14 @@ var opentype = (() => {
         extDataBytes.push(...extensionData.actualData[i]);
         currentOffset += extensionData.actualData[i].length;
       }
-      for (let i = 0; i < headerPositions.length; i++) {
-        const headerPos = headerPositions[i];
-        const relativeOffset = dataOffsets[i] - headerPos;
-        mainBytes[headerPos + 4] = relativeOffset >> 24 & 255;
-        mainBytes[headerPos + 5] = relativeOffset >> 16 & 255;
-        mainBytes[headerPos + 6] = relativeOffset >> 8 & 255;
-        mainBytes[headerPos + 7] = relativeOffset & 255;
+      for (let i = 0; i < extensionOffsetPositions.length; i++) {
+        const offsetPos = extensionOffsetPositions[i];
+        const headerStart = offsetPos - 4;
+        const relativeOffset = dataOffsets[i] - headerStart;
+        mainBytes[offsetPos] = relativeOffset >> 24 & 255;
+        mainBytes[offsetPos + 1] = relativeOffset >> 16 & 255;
+        mainBytes[offsetPos + 2] = relativeOffset >> 8 & 255;
+        mainBytes[offsetPos + 3] = relativeOffset & 255;
       }
       const finalBytes = new Uint8Array(mainBytes.length + extDataBytes.length);
       finalBytes.set(mainBytes);
@@ -13500,9 +13524,9 @@ var opentype = (() => {
   function makeFvarAxis(n, axis, _names) {
     return [
       { name: "tag_" + n, type: "TAG", value: axis.tag },
-      { name: "minValue_" + n, type: "FIXED", value: axis.minValue << 16 },
-      { name: "defaultValue_" + n, type: "FIXED", value: axis.defaultValue << 16 },
-      { name: "maxValue_" + n, type: "FIXED", value: axis.maxValue << 16 },
+      { name: "minValue_" + n, type: "FLOAT", value: axis.minValue },
+      { name: "defaultValue_" + n, type: "FLOAT", value: axis.defaultValue },
+      { name: "maxValue_" + n, type: "FLOAT", value: axis.maxValue },
       { name: "flags_" + n, type: "USHORT", value: 0 },
       { name: "nameID_" + n, type: "USHORT", value: axis.axisNameID }
     ];
@@ -13529,8 +13553,8 @@ var opentype = (() => {
       const axisTag = axes[i].tag;
       fields.push({
         name: "axis_" + n + " " + axisTag,
-        type: "FIXED",
-        value: inst.coordinates[axisTag] << 16
+        type: "FLOAT",
+        value: inst.coordinates[axisTag]
       });
     }
     if (optionalFields && optionalFields.postScriptNameID) {
@@ -14070,13 +14094,17 @@ var opentype = (() => {
     if (hasPrivatePointNumbers) {
       tupleIndex |= 8192;
     }
-    const hasIntermediate = header.intermediateStartTuple && header.intermediateEndTuple;
-    if (hasIntermediate) {
-      tupleIndex |= 16384;
-    }
     let peakTuple = header.peakTuple;
     if (!peakTuple && header.sharedTupleRecordsIndex !== void 0 && originalSharedTuples) {
       peakTuple = originalSharedTuples[header.sharedTupleRecordsIndex];
+    }
+    const defaultStartTuple = peakTuple ? peakTuple.map((value) => value < 0 ? value : 0) : null;
+    const defaultEndTuple = peakTuple ? peakTuple.map((value) => value > 0 ? value : 0) : null;
+    const intermediateStartTuple = header.intermediateStartTuple || (header.intermediateEndTuple ? defaultStartTuple : null);
+    const intermediateEndTuple = header.intermediateEndTuple || (header.intermediateStartTuple ? defaultEndTuple : null);
+    const hasIntermediate = !!(intermediateStartTuple && intermediateEndTuple);
+    if (hasIntermediate) {
+      tupleIndex |= 16384;
     }
     let useEmbeddedPeak = true;
     if (peakTuple && sharedTupleMap) {
@@ -14094,8 +14122,8 @@ var opentype = (() => {
       result.push(...encodeTuple2(peakTuple));
     }
     if (hasIntermediate) {
-      result.push(...encodeTuple2(header.intermediateStartTuple));
-      result.push(...encodeTuple2(header.intermediateEndTuple));
+      result.push(...encodeTuple2(intermediateStartTuple));
+      result.push(...encodeTuple2(intermediateEndTuple));
     }
     return result;
   }
@@ -15178,6 +15206,23 @@ var opentype = (() => {
     sum %= Math.pow(2, 32);
     return sum;
   }
+  function perfNow() {
+    return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+  }
+  function recordTiming(timingSink, key, startedAt) {
+    if (!timingSink)
+      return;
+    timingSink[key] = perfNow() - startedAt;
+  }
+  function timeStep(timingSink, key, fn) {
+    if (!timingSink) {
+      return fn();
+    }
+    const startedAt = perfNow();
+    const result = fn();
+    recordTiming(timingSink, key, startedAt);
+    return result;
+  }
   function makeTableRecord(tag, checkSum, offset, length) {
     return new table_default.Record("Table Record", [
       { name: "tag", type: "TAG", value: tag !== void 0 ? tag : "" },
@@ -15328,6 +15373,8 @@ var opentype = (() => {
   }
   function fontToSfntTable(font, options = {}) {
     var _a;
+    const timingSink = options && typeof options.timingSink === "object" ? options.timingSink : null;
+    const totalStartedAt = perfNow();
     const xMins = [];
     const yMins = [];
     const xMaxs = [];
@@ -15404,6 +15451,11 @@ var opentype = (() => {
     }
     globals.ascender = font.ascender;
     globals.descender = font.descender;
+    const explicitHhea = font.tables.hhea || {};
+    const explicitOs2 = font.tables.os2 || {};
+    const hheaAscender = explicitHhea.ascender !== void 0 ? explicitHhea.ascender : globals.ascender;
+    const hheaDescender = explicitHhea.descender !== void 0 ? explicitHhea.descender : globals.descender;
+    const hheaLineGap = explicitHhea.lineGap !== void 0 ? explicitHhea.lineGap : 0;
     let macStyle = 0;
     if (font.weightClass >= 600) {
       macStyle |= font.macStyleValues.BOLD;
@@ -15422,7 +15474,7 @@ var opentype = (() => {
       }
     }
     const fontRevisionFixed = Math.round(fontRevision * 65536);
-    const headTable = head_default.make({
+    const headTable = timeStep(timingSink, "serializeHeadTableMs", () => head_default.make({
       flags: 3,
       // 00000011 (baseline for font at y=0; left sidebearing point at x=0)
       unitsPerEm: font.unitsPerEm,
@@ -15434,24 +15486,30 @@ var opentype = (() => {
       macStyle,
       createdTimestamp: font.createdTimestamp,
       fontRevision: fontRevisionFixed
-    });
-    const hheaTable = hhea_default.make({
-      ascender: globals.ascender,
-      descender: globals.descender,
+    }));
+    const hheaTable = timeStep(timingSink, "serializeHheaTableMs", () => hhea_default.make({
+      ascender: hheaAscender,
+      descender: hheaDescender,
+      lineGap: hheaLineGap,
       advanceWidthMax: globals.advanceWidthMax,
       minLeftSideBearing: globals.minLeftSideBearing,
       minRightSideBearing: globals.minRightSideBearing,
       xMaxExtent: globals.xMaxExtent,
       numberOfHMetrics: font.glyphs.length
-    });
+    }));
     const hasGvarData = font.tables.gvar && font.tables.gvar.glyphVariations && Object.keys(font.tables.gvar.glyphVariations).length > 0;
     const isTrueTypeFont = font.outlinesFormat === "truetype";
     const useTrueTypeOutlines = hasGvarData || isTrueTypeFont;
     const maxpValues = useTrueTypeOutlines ? computeMaxpValues(font.glyphs) : {};
-    const maxpTable = maxp_default.make(font.glyphs.length, useTrueTypeOutlines, maxpValues);
+    const maxpTable = timeStep(timingSink, "serializeMaxpTableMs", () => maxp_default.make(font.glyphs.length, useTrueTypeOutlines, maxpValues));
     const existingFsType = font.tables.os2 && font.tables.os2.fsType;
     const fsType = existingFsType !== void 0 ? existingFsType : 4;
-    const os2Table = os2_default.make(Object.assign({}, font.tables.os2, {
+    const typoAscender = explicitOs2.sTypoAscender !== void 0 ? explicitOs2.sTypoAscender : hheaAscender;
+    const typoDescender = explicitOs2.sTypoDescender !== void 0 ? explicitOs2.sTypoDescender : hheaDescender;
+    const typoLineGap = explicitOs2.sTypoLineGap !== void 0 ? explicitOs2.sTypoLineGap : hheaLineGap;
+    const winAscent = explicitOs2.usWinAscent !== void 0 ? explicitOs2.usWinAscent : globals.yMax;
+    const winDescent = explicitOs2.usWinDescent !== void 0 ? explicitOs2.usWinDescent : Math.abs(globals.yMin);
+    const os2Table = timeStep(timingSink, "serializeOs2TableMs", () => os2_default.make(Object.assign({}, font.tables.os2, {
       xAvgCharWidth: Math.round(globals.advanceWidthAvg),
       usFirstCharIndex: firstCharIndex,
       usLastCharIndex: lastCharIndex,
@@ -15460,12 +15518,11 @@ var opentype = (() => {
       ulUnicodeRange3,
       ulUnicodeRange4,
       // OS/2 sTypo* values match hhea values for consistent linespacing
-      sTypoAscender: globals.ascender,
-      sTypoDescender: globals.descender,
-      sTypoLineGap: 0,
-      // hhea lineGap is 0 (Google Fonts requirement)
-      usWinAscent: globals.yMax,
-      usWinDescent: Math.abs(globals.yMin),
+      sTypoAscender: typoAscender,
+      sTypoDescender: typoDescender,
+      sTypoLineGap: typoLineGap,
+      usWinAscent: winAscent,
+      usWinDescent: winDescent,
       fsType,
       // Embedding permissions (Fontwerk requires bit 4)
       ulCodePageRange1: 1,
@@ -15476,9 +15533,9 @@ var opentype = (() => {
       // Use space as the default character, if available.
       usBreakChar: font.hasChar(" ") ? 32 : 0
       // Use space as the break character, if available.
-    }));
-    const hmtxTable = hmtx_default.make(font.glyphs);
-    const cmapTable = cmap_default.make(font.glyphs);
+    })));
+    const hmtxTable = timeStep(timingSink, "serializeHmtxTableMs", () => hmtx_default.make(font.glyphs));
+    const cmapTable = timeStep(timingSink, "serializeCmapTableMs", () => cmap_default.make(font.glyphs));
     const englishFamilyName = font.getEnglishName("fontFamily");
     const englishStyleName = font.getEnglishName("fontSubfamily");
     let englishFullName = font.getEnglishName("fullName");
@@ -15568,12 +15625,12 @@ var opentype = (() => {
       names.windows.variationsPostScriptNamePrefix = { en: basePostScriptName };
     }
     const languageTags = [];
-    const nameTable = name_default.make(names, languageTags, { skipMacPlatform: true, noStringDedup: true });
-    const postTable = post_default.make(font, { postFormat: options.postFormat });
-    const metaTable = font.metas && Object.keys(font.metas).length > 0 ? meta_default.make(font.metas) : void 0;
+    const nameTable = timeStep(timingSink, "serializeNameTableMs", () => name_default.make(names, languageTags, { skipMacPlatform: true, noStringDedup: true }));
+    const postTable = timeStep(timingSink, "serializePostTableMs", () => post_default.make(font, { postFormat: options.postFormat }));
+    const metaTable = font.metas && Object.keys(font.metas).length > 0 ? timeStep(timingSink, "serializeMetaTableMs", () => meta_default.make(font.metas)) : void 0;
     const tables = [headTable, hheaTable, maxpTable, os2Table, nameTable, cmapTable, postTable, hmtxTable];
     if (useTrueTypeOutlines) {
-      const glyfResult = glyf_default.make(font.glyphs);
+      const glyfResult = timeStep(timingSink, "serializeGlyfSourceMs", () => glyf_default.make(font.glyphs));
       const maxOffset = glyfResult.offsets[glyfResult.offsets.length - 1];
       const useShortLoca = maxOffset < 65536 * 2;
       /** @type {Record<string, unknown>} */
@@ -15585,18 +15642,19 @@ var opentype = (() => {
           break;
         }
       }
-      const locaTable = loca_default.make(glyfResult.offsets, useShortLoca);
+      const locaTable = timeStep(timingSink, "serializeLocaTableMs", () => loca_default.make(glyfResult.offsets, useShortLoca));
       tables.push(locaTable);
-      const glyfTable = new table_default.Table("glyf", [
+      const glyfTable = timeStep(timingSink, "serializeGlyfTableMs", () => new table_default.Table("glyf", [
         { name: "glyphs", type: "LITERAL", value: Array.from(glyfResult.glyfData) }
-      ]);
+      ]));
       tables.push(glyfTable);
     } else {
       const useCFFtable = font.tables.cff || font.tables.cff2;
       const forceCFF1 = font.options && font.options.forceCFF1;
       const preferCFF2 = !forceCFF1 && font.tables.cff2;
       const cffVersionToWrite = preferCFF2 ? 2 : 1;
-      const cffTable = cff_default.make(font.glyphs, {
+      const cffTimingKey = preferCFF2 ? "serializeCff2TableMs" : "serializeCffTableMs";
+      const cffTable = timeStep(timingSink, cffTimingKey, () => cff_default.make(font.glyphs, {
         version: font.getEnglishName("version"),
         fullName: englishFullName,
         familyName: englishFamilyName,
@@ -15605,7 +15663,7 @@ var opentype = (() => {
         unitsPerEm: font.unitsPerEm,
         fontBBox: [0, globals.yMin, globals.ascender, globals.advanceWidthMax],
         topDict: useCFFtable && useCFFtable.topDict || {}
-      }, cffVersionToWrite);
+      }, cffVersionToWrite));
       tables.push(cffTable);
     }
     if (!font.tables.gasp) {
@@ -15615,31 +15673,6 @@ var opentype = (() => {
         gaspRanges: [
           { rangeMaxPPEM: 65535, rangeGaspBehavior: 15 }
         ]
-      };
-    }
-    if (hasGvarData && font.tables.fvar && !font.tables.hvar) {
-      const axes = font.tables.fvar.axes || [];
-      const numGlyphs = font.glyphs ? font.glyphs.length : font.numGlyphs || 1;
-      font.tables.hvar = {
-        version: [1, 0],
-        itemVariationStore: {
-          format: 1,
-          variationRegions: axes.length > 0 ? [{
-            regionAxes: axes.map(() => ({
-              startCoord: -1,
-              peakCoord: 0,
-              endCoord: 1
-            }))
-          }] : [],
-          itemVariationData: [{
-            itemCount: numGlyphs,
-            regionIndices: [],
-            deltaSets: Array(numGlyphs).fill([])
-          }]
-        },
-        advanceWidth: null,
-        lsb: null,
-        rsb: null
       };
     }
     const optionalTables = {
@@ -15670,7 +15703,12 @@ var opentype = (() => {
     for (let tableName in optionalTables) {
       const optTable = font.tables[tableName];
       if (optTable) {
-        const tableData = optionalTables[tableName].make.call(font, optTable, ...optionalTableArgs[tableName] || []);
+        const timingKey = `serialize${tableName[0].toUpperCase()}${tableName.slice(1)}TableMs`;
+        const tableData = timeStep(
+          timingSink,
+          timingKey,
+          () => optionalTables[tableName].make.call(font, optTable, ...optionalTableArgs[tableName] || [])
+        );
         if (tableData) {
           tables.push(tableData);
         }
@@ -15679,9 +15717,13 @@ var opentype = (() => {
     if (metaTable) {
       tables.push(metaTable);
     }
-    const sfntTable = makeSfntTable(tables);
+    const sfntTable = timeStep(timingSink, "serializeSfntAssemblyMs", () => makeSfntTable(tables));
+    const checksumEncodeStartedAt = perfNow();
     const bytes = sfntTable.encode();
+    recordTiming(timingSink, "serializeChecksumEncodeMs", checksumEncodeStartedAt);
+    const checksumStartedAt = perfNow();
     const checkSum = computeCheckSum(bytes);
+    recordTiming(timingSink, "serializeChecksumComputeMs", checksumStartedAt);
     const tableFields = sfntTable.fields;
     let checkSumAdjusted = false;
     for (let i = 0; i < tableFields.length; i += 1) {
@@ -15694,6 +15736,7 @@ var opentype = (() => {
     if (!checkSumAdjusted) {
       throw new Error("Could not find head table with checkSum to adjust.");
     }
+    recordTiming(timingSink, "serializeTablesTotalMs", totalStartedAt);
     return sfntTable;
   }
   var sfnt_default = { make: makeSfntTable, fontToTable: fontToSfntTable, computeCheckSum };
@@ -16544,8 +16587,32 @@ var opentype = (() => {
     if (!gsub) {
       gsub = this.font.tables.gsub = this.createDefaultTable();
     }
-    const substitutions = Array.isArray(rule.substitution) ? rule.substitution : [rule.substitution];
-    const singleSubLookupIndex = this._getOrCreateSingleSubLookup(gsub, substitutions);
+    const substitutions = rule.substitution === void 0 ? [] : Array.isArray(rule.substitution) ? rule.substitution : [rule.substitution];
+    const directLookupRecords = Array.isArray(rule.lookupRecords) ? rule.lookupRecords : null;
+    const lookupRecords = [];
+    if (directLookupRecords) {
+      for (const record of directLookupRecords) {
+        lookupRecords.push({
+          sequenceIndex: record.sequenceIndex,
+          lookupListIndex: record.lookupListIndex
+        });
+      }
+    } else if (substitutions.length > 0) {
+      const singleSubLookupIndex = this._getOrCreateSingleSubLookup(gsub, substitutions);
+      const subsByIndex = /* @__PURE__ */ new Map();
+      for (const sub of substitutions) {
+        if (!subsByIndex.has(sub.sequenceIndex)) {
+          subsByIndex.set(sub.sequenceIndex, []);
+        }
+        subsByIndex.get(sub.sequenceIndex).push(sub);
+      }
+      for (const [sequenceIndex] of subsByIndex) {
+        lookupRecords.push({
+          sequenceIndex,
+          lookupListIndex: singleSubLookupIndex
+        });
+      }
+    }
     const chainLookup = this.getLookupTables(script, language, feature, 6, true)[0];
     const subtable = {
       substFormat: 3,
@@ -16575,17 +16642,10 @@ var opentype = (() => {
         glyphs: Array.isArray(glyph) ? glyph.slice().sort((a, b) => a - b) : [glyph]
       });
     }
-    const subsByIndex = /* @__PURE__ */ new Map();
-    for (const sub of substitutions) {
-      if (!subsByIndex.has(sub.sequenceIndex)) {
-        subsByIndex.set(sub.sequenceIndex, []);
-      }
-      subsByIndex.get(sub.sequenceIndex).push(sub);
-    }
-    for (const [sequenceIndex] of subsByIndex) {
+    for (const record of lookupRecords) {
       subtable.lookupRecords.push({
-        sequenceIndex,
-        lookupListIndex: singleSubLookupIndex
+        sequenceIndex: record.sequenceIndex,
+        lookupListIndex: record.lookupListIndex
       });
     }
     chainLookup.subtables.push(subtable);
@@ -16596,8 +16656,32 @@ var opentype = (() => {
     if (!gsub) {
       gsub = this.font.tables.gsub = this.createDefaultTable();
     }
-    const substitutions = Array.isArray(rule.substitution) ? rule.substitution : [rule.substitution];
-    const singleSubLookupIndex = this._getOrCreateSingleSubLookupExtension(gsub, substitutions);
+    const substitutions = rule.substitution === void 0 ? [] : Array.isArray(rule.substitution) ? rule.substitution : [rule.substitution];
+    const directLookupRecords = Array.isArray(rule.lookupRecords) ? rule.lookupRecords : null;
+    const lookupRecords = [];
+    if (directLookupRecords) {
+      for (const record of directLookupRecords) {
+        lookupRecords.push({
+          sequenceIndex: record.sequenceIndex,
+          lookupListIndex: record.lookupListIndex
+        });
+      }
+    } else if (substitutions.length > 0) {
+      const singleSubLookupIndex = this._getOrCreateSingleSubLookupExtension(gsub, substitutions);
+      const subsByIndex = /* @__PURE__ */ new Map();
+      for (const sub of substitutions) {
+        if (!subsByIndex.has(sub.sequenceIndex)) {
+          subsByIndex.set(sub.sequenceIndex, []);
+        }
+        subsByIndex.get(sub.sequenceIndex).push(sub);
+      }
+      for (const [sequenceIndex] of subsByIndex) {
+        lookupRecords.push({
+          sequenceIndex,
+          lookupListIndex: singleSubLookupIndex
+        });
+      }
+    }
     const chainSubtable = {
       substFormat: 3,
       backtrackCoverage: [],
@@ -16626,17 +16710,10 @@ var opentype = (() => {
         glyphs: Array.isArray(glyph) ? glyph.slice().sort((a, b) => a - b) : [glyph]
       });
     }
-    const subsByIndex = /* @__PURE__ */ new Map();
-    for (const sub of substitutions) {
-      if (!subsByIndex.has(sub.sequenceIndex)) {
-        subsByIndex.set(sub.sequenceIndex, []);
-      }
-      subsByIndex.get(sub.sequenceIndex).push(sub);
-    }
-    for (const [sequenceIndex] of subsByIndex) {
+    for (const record of lookupRecords) {
       chainSubtable.lookupRecords.push({
-        sequenceIndex,
-        lookupListIndex: singleSubLookupIndex
+        sequenceIndex: record.sequenceIndex,
+        lookupListIndex: record.lookupListIndex
       });
     }
     const extensionSubtable = {
@@ -24239,12 +24316,28 @@ var opentype = (() => {
     return this.toArrayBuffer();
   };
   Font.prototype.toArrayBuffer = function(options) {
+    const timingSink = options && typeof options.timingSink === "object" ? options.timingSink : null;
+    const now = () => typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+    const totalStartedAt = now();
+    const toTablesStartedAt = now();
     const sfntTable = this.toTables(options);
+    if (timingSink) {
+      timingSink.serializeToTablesMs = now() - toTablesStartedAt;
+    }
+    const finalEncodeStartedAt = now();
     const bytes = sfntTable.encode();
+    if (timingSink) {
+      timingSink.serializeFinalEncodeMs = now() - finalEncodeStartedAt;
+    }
+    const copyStartedAt = now();
     const buffer = new ArrayBuffer(bytes.length);
     const intArray = new Uint8Array(buffer);
     for (let i = 0; i < bytes.length; i++) {
       intArray[i] = bytes[i];
+    }
+    if (timingSink) {
+      timingSink.serializeArrayCopyMs = now() - copyStartedAt;
+      timingSink.serializeTotalMs = now() - totalStartedAt;
     }
     return buffer;
   };

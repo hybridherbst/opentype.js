@@ -349,6 +349,49 @@ describe('tables/gsub.js', function() {
         });
     });
 
+    it('can encode full GSUB tables with multiple extension subtables', function() {
+        const encoded = gsub.make({
+            version: 1,
+            scripts: [],
+            features: [],
+            lookups: [{
+                lookupType: 7,
+                lookupFlag: 0,
+                subtables: [
+                    {
+                        substFormat: 1,
+                        lookupType: 1,
+                        extension: {
+                            substFormat: 1,
+                            coverage: { format: 1, glyphs: [0x4f] },
+                            deltaGlyphId: 2
+                        }
+                    },
+                    {
+                        substFormat: 1,
+                        lookupType: 4,
+                        extension: {
+                            substFormat: 1,
+                            coverage: { format: 1, glyphs: [0x66] },
+                            ligatureSets: [[
+                                { ligGlyph: 0x123, components: [0x69] }
+                            ]]
+                        }
+                    }
+                ]
+            }]
+        }).encode();
+
+        const parsed = gsub.parse(new DataView(Uint8Array.from(encoded).buffer));
+        assert.equal(parsed.lookups.length, 1);
+        assert.equal(parsed.lookups[0].lookupType, 7);
+        assert.equal(parsed.lookups[0].subtables.length, 2);
+        assert.equal(parsed.lookups[0].subtables[0].lookupType, 1);
+        assert.equal(parsed.lookups[0].subtables[1].lookupType, 4);
+        assert.deepEqual(parsed.lookups[0].subtables[0].extension.coverage, { format: 1, glyphs: [0x4f] });
+        assert.deepEqual(parsed.lookups[0].subtables[1].extension.coverage, { format: 1, glyphs: [0x66] });
+    });
+
     //// Lookup type 8 ////////////////////////////////////////////////////////
     it('can parse lookup8', function() {
         // https://www.microsoft.com/typography/OTSPEC/GSUB.htm#EX10

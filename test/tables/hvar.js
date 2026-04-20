@@ -1,5 +1,6 @@
 import assert from 'assert';
 import { parse } from '../../src/opentype.js';
+import hvar from '../../src/tables/hvar.js';
 import { readFileSync } from 'fs';
 const loadSync = (url, opt) => parse(readFileSync(url), opt);
 
@@ -59,5 +60,48 @@ describe('tables/hvar.js', function() {
             const rtRegion = rtIVS.variationRegions[i];
             assert.deepEqual(rtRegion, origRegion, `Variation region ${i} should match`);
         }
+    });
+
+    it('rejects oversized ItemVariationData subtables instead of silently wrapping itemCount', function() {
+        const hugeDeltaSets = Array.from({ length: 0x10000 }, () => [0]);
+        assert.throws(() => {
+            hvar.make({
+                version: [1, 0],
+                itemVariationStore: {
+                    format: 1,
+                    variationRegions: [{
+                        regionAxes: [{ startCoord: 0, peakCoord: 1, endCoord: 1 }]
+                    }],
+                    itemVariationSubtables: [{
+                        regionIndexes: [0],
+                        deltaSets: hugeDeltaSets
+                    }]
+                },
+                advanceWidth: {
+                    map: [{ outerIndex: 0, innerIndex: 0 }]
+                }
+            });
+        }, /itemCount 65536 exceeds 65535/);
+    });
+
+    it('rejects DeltaSetIndexMap entries that require more than 16 inner-index bits', function() {
+        assert.throws(() => {
+            hvar.make({
+                version: [1, 0],
+                itemVariationStore: {
+                    format: 1,
+                    variationRegions: [{
+                        regionAxes: [{ startCoord: 0, peakCoord: 1, endCoord: 1 }]
+                    }],
+                    itemVariationSubtables: [{
+                        regionIndexes: [0],
+                        deltaSets: [[0]]
+                    }]
+                },
+                advanceWidth: {
+                    map: [{ outerIndex: 0, innerIndex: 0x10000 }]
+                }
+            });
+        }, /innerIndex requires 17 bits/);
     });
 });

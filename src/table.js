@@ -42,6 +42,15 @@ Table.prototype.encode = function() {
 };
 
 /**
+ * Encodes the table and returns both bytes and tracked field positions.
+ * Fields marked with `patchKey` are reported in `trackedFields`.
+ * @return {{bytes: Array<number>, trackedFields: Record<string, number[]>}}
+ */
+Table.prototype.encodeWithMarkers = function() {
+    return encode.TABLE_WITH_MARKERS(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string }} */ (/** @type {unknown} */ (this)));
+};
+
+/**
  * Get the size of the table.
  * @return {number}
  */

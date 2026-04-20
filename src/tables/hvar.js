@@ -86,6 +86,13 @@ function encodeItemVariationSubtable(subtable) {
     
     const itemCount = subtable.deltaSets ? subtable.deltaSets.length : 0;
     const regionIndexCount = subtable.regionIndexes ? subtable.regionIndexes.length : 0;
+
+    if (itemCount > 0xFFFF) {
+        throw new Error(`HVAR ItemVariationData itemCount ${itemCount} exceeds 65535; split rows across multiple subtables.`);
+    }
+    if (regionIndexCount > 0xFFFF) {
+        throw new Error(`HVAR ItemVariationData regionIndexCount ${regionIndexCount} exceeds 65535.`);
+    }
     
     // Determine the delta format by analyzing the delta values
     // We need to find the max absolute value to decide between byte/word/long
@@ -237,6 +244,9 @@ function encodeDeltaSetIndexMap(indexMap) {
         temp >>= 1;
     }
     if (innerBitCount === 0) innerBitCount = 1;
+    if (innerBitCount > 16) {
+        throw new Error(`HVAR DeltaSetIndexMap innerIndex requires ${innerBitCount} bits; split rows across multiple subtables.`);
+    }
     
     // Calculate total bits needed
     let outerBitCount = 0;

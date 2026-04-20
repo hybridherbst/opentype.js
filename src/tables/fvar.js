@@ -35,9 +35,9 @@ import { getNameByID } from './name.js';
 function makeFvarAxis(n, axis, _names) {
     return [
         {name: 'tag_' + n, type: 'TAG', value: axis.tag},
-        {name: 'minValue_' + n, type: 'FIXED', value: axis.minValue << 16},
-        {name: 'defaultValue_' + n, type: 'FIXED', value: axis.defaultValue << 16},
-        {name: 'maxValue_' + n, type: 'FIXED', value: axis.maxValue << 16},
+        {name: 'minValue_' + n, type: 'FLOAT', value: axis.minValue},
+        {name: 'defaultValue_' + n, type: 'FLOAT', value: axis.defaultValue},
+        {name: 'maxValue_' + n, type: 'FLOAT', value: axis.maxValue},
         {name: 'flags_' + n, type: 'USHORT', value: 0},
         {name: 'nameID_' + n, type: 'USHORT', value: axis.axisNameID}
     ];
@@ -67,8 +67,8 @@ function makeFvarInstance(n, inst, axes, optionalFields = {}) {
         const axisTag = axes[i].tag;
         fields.push({
             name: 'axis_' + n + ' ' + axisTag,
-            type: 'FIXED',
-            value: inst.coordinates[axisTag] << 16
+            type: 'FLOAT',
+            value: inst.coordinates[axisTag]
         });
     }
 

@@ -631,6 +631,43 @@ describe('types.js', function() {
         assert.equal(sizeOf.TABLE(table), 8);
     });
 
+    it('can track marked field offsets across nested TABLEs', function() {
+        const table = {
+            fields: [
+                {name: 'version', type: 'FIXED', value: 0x00010000},
+                {name: 'scriptList', type: 'TABLE'},
+                {name: 'featureList', type: 'TABLE'},
+                {name: 'lookupList', type: 'TABLE'}
+            ],
+            scriptList: { fields: [] },
+            featureList: { fields: [] },
+            lookupList: {
+                fields: [
+                    {name: 'lookupCount', type: 'USHORT', value: 1},
+                    {name: 'lookup_0', type: 'TABLE'}
+                ],
+                lookup_0: {
+                    fields: [
+                        {name: 'lookupType', type: 'USHORT', value: 7},
+                        {name: 'lookupFlag', type: 'USHORT', value: 0},
+                        {name: 'subtable_0', type: 'TABLE'}
+                    ],
+                    subtable_0: {
+                        fields: [
+                            {name: 'substFormat', type: 'USHORT', value: 1},
+                            {name: 'extensionLookupType', type: 'USHORT', value: 4},
+                            {name: 'extensionOffset', type: 'ULONG', value: 0, patchKey: 'ext-0'}
+                        ]
+                    }
+                }
+            }
+        };
+
+        const encoded = encode.TABLE_WITH_MARKERS(table);
+        assert.equal(hex(encoded.bytes), '00 01 00 00 00 0A 00 0A 00 0A 00 01 00 04 00 07 00 00 00 06 00 01 00 04 00 00 00 00');
+        assert.deepEqual(encoded.trackedFields, { 'ext-0': [24] });
+    });
+
     it('can handle LITERAL', function() {
         assert.equal(hex(encode.LITERAL([])), '');
         assert.equal(sizeOf.LITERAL([]), 0);

@@ -555,7 +555,8 @@ subtableMakers[6] = function makeLookup6(subtable) {
 // Extension Substitution subtable (lookup type 7)
 // For extension subtables during the first pass, we only write the 8-byte header
 // with a placeholder offset. The actual subtable data is collected separately
-// and appended at the end of the GSUB table.
+// and appended at the end of the GSUB table. The placeholder field itself is
+// marked so the final writer can patch the exact emitted bytes structurally.
 subtableMakers[7] = function makeLookup7(subtable, extensionData) {
     // subtable has: { substFormat: 1, lookupType: actualType, extension: actualSubtable }
     check.argument(subtable.substFormat === 1, 'Extension substitution format must be 1');
@@ -571,16 +572,16 @@ subtableMakers[7] = function makeLookup7(subtable, extensionData) {
     
     // If extensionData array is provided, collect the data for deferred writing
     // and return just an 8-byte header with placeholder offset
-    if (extensionData) {
+    if (extensionData && extensionData.actualData && extensionData.patchKeys) {
+        const patchKey = 'gsub-extension-offset-' + extensionData.actualData.length;
         extensionData.actualData.push(actualBytes);
-        extensionData.headerPositions.push(-1);  // Will be patched later
-        extensionData.lookupTypes.push(subtable.lookupType);
+        extensionData.patchKeys.push(patchKey);
         
         // Return header with placeholder offset (will be patched)
         return new table.Table('extensionSubstitution', [
             {name: 'substFormat', type: 'USHORT', value: 1},
             {name: 'extensionLookupType', type: 'USHORT', value: subtable.lookupType},
-            {name: 'extensionOffset', type: 'ULONG', value: 0}  // Placeholder
+            {name: 'extensionOffset', type: 'ULONG', value: 0, patchKey: patchKey}  // Placeholder
         ]);
     }
     
@@ -686,6 +687,45 @@ function buildFeatureVariationsBytes(variations) {
 }
 
 /**
+ * Build a GSUB table using the standard inline subtable encoding path.
+ * This is the canonical fallback when extension-offset patching cannot be
+ * completed reliably.
+ * @param {GsubTable} gsub
+ * @param {boolean} hasFeatureVariations
+ * @returns {object}
+ */
+function makeInlineGsubTable(gsub, hasFeatureVariations) {
+    const tableFields = [
+        {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
+        {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
+        {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
+        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, subtableMakers)}
+    ];
+
+    if (!hasFeatureVariations) {
+        return new table.Table('GSUB', tableFields);
+    }
+
+    const mainTable = new table.Table('GSUB', [
+        ...tableFields,
+        {name: 'featureVariationsOffset', type: 'ULONG', value: 0}
+    ]);
+
+    let mainBytes = mainTable.encode();
+    const fvBytes = buildFeatureVariationsBytes(gsub.variations || []);
+    const fvDataStart = mainBytes.length;
+    patchUint32(mainBytes, 10, fvDataStart);
+
+    const finalBytes = new Uint8Array(mainBytes.length + fvBytes.length);
+    finalBytes.set(mainBytes);
+    finalBytes.set(fvBytes, mainBytes.length);
+
+    return new table.Table('GSUB', [
+        {name: 'data', type: 'LITERAL', value: Array.from(finalBytes)}
+    ]);
+}
+
+/**
  * @param {GsubTable} gsub
  * @returns {object}
  */
@@ -702,53 +742,18 @@ function makeGsubTable(gsub) {
     const hasFeatureVariations = gsub.variations && gsub.variations.length > 0;
 
     if (!hasExtensions && !hasFeatureVariations) {
-        // No extension lookups, no feature variations - use standard encoding
-        return new table.Table('GSUB', [
-            {name: 'version', type: 'ULONG', value: 0x10000},
-            {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
-            {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
-            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, subtableMakers)}
-        ]);
+        return makeInlineGsubTable(gsub, false);
     }
 
     if (hasFeatureVariations && !hasExtensions) {
-        // Version 1.1 with FeatureVariations
-        // Build main table with version 1.1 and ULONG placeholder for FV offset
-        const mainTable = new table.Table('GSUB', [
-            {name: 'version', type: 'ULONG', value: 0x00010001},
-            {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
-            {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
-            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, subtableMakers)},
-            {name: 'featureVariationsOffset', type: 'ULONG', value: 0} // placeholder
-        ]);
-
-        let mainBytes = mainTable.encode();
-
-        // Build FeatureVariations data
-        const fvBytes = buildFeatureVariationsBytes(gsub.variations);
-
-        // The featureVariationsOffset is at byte position 10
-        // (version=4 + scriptOffset=2 + featureOffset=2 + lookupOffset=2)
-        const fvOffsetPos = 10;
-        const fvDataStart = mainBytes.length;
-        patchUint32(mainBytes, fvOffsetPos, fvDataStart);
-
-        // Combine main table with FV data
-        const finalBytes = new Uint8Array(mainBytes.length + fvBytes.length);
-        finalBytes.set(mainBytes);
-        finalBytes.set(fvBytes, mainBytes.length);
-
-        return new table.Table('GSUB', [
-            {name: 'data', type: 'LITERAL', value: Array.from(finalBytes)}
-        ]);
+        return makeInlineGsubTable(gsub, true);
     }
     
     // Has extension lookups (with or without feature variations)
     // Phase 1: Collect extension data and create headers with placeholder offsets
     const extensionData = {
-        actualData: [],      // The actual subtable bytes for each extension
-        headerPositions: [], // Byte position of each extension header (for offset patching)
-        lookupTypes: []      // Lookup type for each extension
+        actualData: [], // The actual subtable bytes for each extension
+        patchKeys: []   // Marker keys for each extensionOffset field
     };
     
     // Create a modified subtableMakers that passes extensionData to type-7 maker
@@ -775,40 +780,16 @@ function makeGsubTable(gsub) {
     const mainTable = new table.Table('GSUB', tableFields);
     
     // Phase 2: Encode the main table, then append extension data and patch offsets
-    let mainBytes = mainTable.encode();
+    const encodedMainTable = mainTable.encodeWithMarkers();
+    let mainBytes = encodedMainTable.bytes;
     
     // If we have extension data, append it and patch offsets
     if (extensionData.actualData.length > 0) {
-        // Find all extension header positions by searching for the pattern
-        // We need to find each 8-byte extension header and patch its offset
-        // The headers are: substFormat(2) + lookupType(2) + offset(4)
-        
-        // Build list of extension header positions in the encoded bytes
-        // We'll scan for extension headers by looking for the substFormat=1 pattern
-        // followed by a valid lookup type (1-6) and placeholder offset (0)
-        const headerPositions = [];
-        for (let i = 0; i <= mainBytes.length - 8; i++) {
-            // Check for substFormat = 1
-            if (mainBytes[i] === 0 && mainBytes[i + 1] === 1) {
-                // Check for valid lookupType (1-6 for GSUB)
-                const lookupType = (mainBytes[i + 2] << 8) | mainBytes[i + 3];
-                if (lookupType >= 1 && lookupType <= 6) {
-                    // Check for placeholder offset = 0
-                    const offset = (mainBytes[i + 4] << 24) | (mainBytes[i + 5] << 16) | 
-                                   (mainBytes[i + 6] << 8) | mainBytes[i + 7];
-                    if (offset === 0) {
-                        headerPositions.push(i);
-                    }
-                }
-            }
-        }
-        
-        // Verify we found the expected number of headers
-        if (headerPositions.length !== extensionData.actualData.length) {
-            // Fallback: if we can't find headers reliably, use inline encoding
-            console.warn('Extension header detection mismatch, using inline encoding');
-            return mainTable;
-        }
+        const extensionOffsetPositions = extensionData.patchKeys.map((patchKey) => {
+            const positions = encodedMainTable.trackedFields[patchKey];
+            check.assert(positions && positions.length === 1, 'GSUB extension offset marker missing for ' + patchKey);
+            return positions[0];
+        });
         
         // Calculate where extension data will be appended
         const dataStartOffset = mainBytes.length;
@@ -825,16 +806,11 @@ function makeGsubTable(gsub) {
         }
         
         // Patch the extension offsets in mainBytes
-        for (let i = 0; i < headerPositions.length; i++) {
-            const headerPos = headerPositions[i];
-            // Offset is relative to the start of the extension header
-            const relativeOffset = dataOffsets[i] - headerPos;
-            
-            // Write the 32-bit offset (big-endian)
-            mainBytes[headerPos + 4] = (relativeOffset >> 24) & 0xff;
-            mainBytes[headerPos + 5] = (relativeOffset >> 16) & 0xff;
-            mainBytes[headerPos + 6] = (relativeOffset >> 8) & 0xff;
-            mainBytes[headerPos + 7] = relativeOffset & 0xff;
+        for (let i = 0; i < extensionOffsetPositions.length; i++) {
+            const offsetPos = extensionOffsetPositions[i];
+            const headerStart = offsetPos - 4;
+            const relativeOffset = dataOffsets[i] - headerStart;
+            patchUint32(mainBytes, offsetPos, relativeOffset);
         }
         
         // Combine main table bytes with extension data

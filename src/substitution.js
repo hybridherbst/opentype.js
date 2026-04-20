@@ -449,7 +449,7 @@ Substitution.prototype.addLigature = function(feature, ligature, script, languag
  *
  * @this {object}
  * @param {string} feature - 4-letter feature name ('calt', 'rclt', etc.)
- * @param {{backtrack?: (number|number[])[], input: (number|number[])[], lookahead?: (number|number[])[], substitution: {sequenceIndex: number, sub: number, by: number}|{sequenceIndex: number, sub: number, by: number}[]}} rule - The chaining rule definition:
+ * @param {{backtrack?: (number|number[])[], input: (number|number[])[], lookahead?: (number|number[])[], substitution?: {sequenceIndex: number, sub: number, by: number}|{sequenceIndex: number, sub: number, by: number}[], lookupRecords?: {sequenceIndex: number, lookupListIndex: number}[]}} rule - The chaining rule definition:
  *   - backtrack: Array of glyph IDs that must precede the input (in visual order, reversed internally)
  *   - input: Array of glyph IDs to match (the glyphs that may be substituted)
  *   - lookahead: Array of glyph IDs that must follow the input
@@ -490,11 +490,37 @@ Substitution.prototype.addChaining = function(feature, rule, script, language) {
     }
     
     // Normalize substitution to array
-    const substitutions = Array.isArray(rule.substitution) ? rule.substitution : [rule.substitution];
+    const substitutions = rule.substitution === undefined
+        ? []
+        : (Array.isArray(rule.substitution) ? rule.substitution : [rule.substitution]);
+    const directLookupRecords = Array.isArray(rule.lookupRecords) ? rule.lookupRecords : null;
+    const lookupRecords = [];
     
-    // Step 1: Create or find a single substitution lookup for the actual replacements
-    // We need a separate lookup that the chaining context will reference
-    const singleSubLookupIndex = this._getOrCreateSingleSubLookup(gsub, substitutions);
+    if (directLookupRecords) {
+        for (const record of directLookupRecords) {
+            lookupRecords.push({
+                sequenceIndex: record.sequenceIndex,
+                lookupListIndex: record.lookupListIndex
+            });
+        }
+    } else if (substitutions.length > 0) {
+        // Step 1: Create or find a single substitution lookup for the actual replacements
+        // We need a separate lookup that the chaining context will reference
+        const singleSubLookupIndex = this._getOrCreateSingleSubLookup(gsub, substitutions);
+        const subsByIndex = new Map();
+        for (const sub of substitutions) {
+            if (!subsByIndex.has(sub.sequenceIndex)) {
+                subsByIndex.set(sub.sequenceIndex, []);
+            }
+            subsByIndex.get(sub.sequenceIndex).push(sub);
+        }
+        for (const [sequenceIndex] of subsByIndex) {
+            lookupRecords.push({
+                sequenceIndex: sequenceIndex,
+                lookupListIndex: singleSubLookupIndex
+            });
+        }
+    }
     
     // Step 2: Create the chaining context lookup (type 6, format 3)
     const chainLookup = this.getLookupTables(script, language, feature, 6, true)[0];
@@ -535,20 +561,10 @@ Substitution.prototype.addChaining = function(feature, rule, script, language) {
         });
     }
     
-    // Add lookup records - each substitution references the single sub lookup
-    // Group substitutions by sequenceIndex to handle multi-glyph inputs
-    const subsByIndex = new Map();
-    for (const sub of substitutions) {
-        if (!subsByIndex.has(sub.sequenceIndex)) {
-            subsByIndex.set(sub.sequenceIndex, []);
-        }
-        subsByIndex.get(sub.sequenceIndex).push(sub);
-    }
-    
-    for (const [sequenceIndex] of subsByIndex) {
+    for (const record of lookupRecords) {
         subtable.lookupRecords.push({
-            sequenceIndex: sequenceIndex,
-            lookupListIndex: singleSubLookupIndex
+            sequenceIndex: record.sequenceIndex,
+            lookupListIndex: record.lookupListIndex
         });
     }
     
@@ -563,7 +579,7 @@ Substitution.prototype.addChaining = function(feature, rule, script, language) {
  *
  * @this {object}
  * @param {string} feature - 4-letter feature name
- * @param {{backtrack?: (number|number[])[], input: (number|number[])[], lookahead?: (number|number[])[], substitution: {sequenceIndex: number, sub: number, by: number}|{sequenceIndex: number, sub: number, by: number}[]}} rule - The chaining context rule:
+ * @param {{backtrack?: (number|number[])[], input: (number|number[])[], lookahead?: (number|number[])[], substitution?: {sequenceIndex: number, sub: number, by: number}|{sequenceIndex: number, sub: number, by: number}[], lookupRecords?: {sequenceIndex: number, lookupListIndex: number}[]}} rule - The chaining context rule:
  *   - backtrack: Array of glyph ID arrays (glyphs that must precede input)
  *   - input: Array of glyph ID arrays (glyphs that may be substituted)
  *   - lookahead: Array of glyph ID arrays (glyphs that must follow input)
@@ -581,11 +597,37 @@ Substitution.prototype.addChainingExtension = function(feature, rule, script, la
     }
     
     // Normalize substitution to array
-    const substitutions = Array.isArray(rule.substitution) ? rule.substitution : [rule.substitution];
-    
-    // Step 1: Create a single substitution lookup for the actual replacements
-    // This lookup also needs to be wrapped in an extension for consistency
-    const singleSubLookupIndex = this._getOrCreateSingleSubLookupExtension(gsub, substitutions);
+    const substitutions = rule.substitution === undefined
+        ? []
+        : (Array.isArray(rule.substitution) ? rule.substitution : [rule.substitution]);
+    const directLookupRecords = Array.isArray(rule.lookupRecords) ? rule.lookupRecords : null;
+    const lookupRecords = [];
+
+    if (directLookupRecords) {
+        for (const record of directLookupRecords) {
+            lookupRecords.push({
+                sequenceIndex: record.sequenceIndex,
+                lookupListIndex: record.lookupListIndex
+            });
+        }
+    } else if (substitutions.length > 0) {
+        // Step 1: Create a single substitution lookup for the actual replacements
+        // This lookup also needs to be wrapped in an extension for consistency
+        const singleSubLookupIndex = this._getOrCreateSingleSubLookupExtension(gsub, substitutions);
+        const subsByIndex = new Map();
+        for (const sub of substitutions) {
+            if (!subsByIndex.has(sub.sequenceIndex)) {
+                subsByIndex.set(sub.sequenceIndex, []);
+            }
+            subsByIndex.get(sub.sequenceIndex).push(sub);
+        }
+        for (const [sequenceIndex] of subsByIndex) {
+            lookupRecords.push({
+                sequenceIndex: sequenceIndex,
+                lookupListIndex: singleSubLookupIndex
+            });
+        }
+    }
     
     // Step 2: Create the chaining context subtable (format 3: coverage-based)
     const chainSubtable = {
@@ -623,19 +665,10 @@ Substitution.prototype.addChainingExtension = function(feature, rule, script, la
         });
     }
     
-    // Add lookup records - each substitution references the single sub lookup
-    const subsByIndex = new Map();
-    for (const sub of substitutions) {
-        if (!subsByIndex.has(sub.sequenceIndex)) {
-            subsByIndex.set(sub.sequenceIndex, []);
-        }
-        subsByIndex.get(sub.sequenceIndex).push(sub);
-    }
-    
-    for (const [sequenceIndex] of subsByIndex) {
+    for (const record of lookupRecords) {
         chainSubtable.lookupRecords.push({
-            sequenceIndex: sequenceIndex,
-            lookupListIndex: singleSubLookupIndex
+            sequenceIndex: record.sequenceIndex,
+            lookupListIndex: record.lookupListIndex
         });
     }
     

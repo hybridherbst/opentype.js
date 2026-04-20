@@ -59,6 +59,27 @@ function computeCheckSum(bytes) {
     return sum;
 }
 
+function perfNow() {
+    return (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+}
+
+function recordTiming(timingSink, key, startedAt) {
+    if (!timingSink) return;
+    timingSink[key] = perfNow() - startedAt;
+}
+
+function timeStep(timingSink, key, fn) {
+    if (!timingSink) {
+        return fn();
+    }
+    const startedAt = perfNow();
+    const result = fn();
+    recordTiming(timingSink, key, startedAt);
+    return result;
+}
+
 function makeTableRecord(tag, checkSum, offset, length) {
     return new table.Record('Table Record', [
         {name: 'tag', type: 'TAG', value: tag !== undefined ? tag : ''},
@@ -230,6 +251,8 @@ function computeMaxpValues(glyphs) {
 // Convert the font object to a SFNT data structure.
 // This structure contains all the necessary tables and metadata to create a binary OTF file.
 function fontToSfntTable(font, options = {}) {
+    const timingSink = options && typeof options.timingSink === 'object' ? options.timingSink : null;
+    const totalStartedAt = perfNow();
     const xMins = [];
     const yMins = [];
     const xMaxs = [];
@@ -322,6 +345,11 @@ function fontToSfntTable(font, options = {}) {
     
     globals.ascender = font.ascender;
     globals.descender = font.descender;
+    const explicitHhea = font.tables.hhea || {};
+    const explicitOs2 = font.tables.os2 || {};
+    const hheaAscender = explicitHhea.ascender !== undefined ? explicitHhea.ascender : globals.ascender;
+    const hheaDescender = explicitHhea.descender !== undefined ? explicitHhea.descender : globals.descender;
+    const hheaLineGap = explicitHhea.lineGap !== undefined ? explicitHhea.lineGap : 0;
 
     // macStyle bits must agree with the fsSelection bits
     let macStyle = 0;
@@ -348,7 +376,7 @@ function fontToSfntTable(font, options = {}) {
     const fontRevisionFixed = Math.round(fontRevision * 65536);
 
     /** @type {import('../table.js').Table} */
-    const headTable = head.make({
+    const headTable = timeStep(timingSink, 'serializeHeadTableMs', () => head.make({
         flags: 3, // 00000011 (baseline for font at y=0; left sidebearing point at x=0)
         unitsPerEm: font.unitsPerEm,
         xMin: globals.xMin,
@@ -359,17 +387,18 @@ function fontToSfntTable(font, options = {}) {
         macStyle: macStyle,
         createdTimestamp: font.createdTimestamp,
         fontRevision: fontRevisionFixed
-    });
+    }));
 
-    const hheaTable = hhea.make({
-        ascender: globals.ascender,
-        descender: globals.descender,
+    const hheaTable = timeStep(timingSink, 'serializeHheaTableMs', () => hhea.make({
+        ascender: hheaAscender,
+        descender: hheaDescender,
+        lineGap: hheaLineGap,
         advanceWidthMax: globals.advanceWidthMax,
         minLeftSideBearing: globals.minLeftSideBearing,
         minRightSideBearing: globals.minRightSideBearing,
         xMaxExtent: globals.xMaxExtent,
         numberOfHMetrics: font.glyphs.length,
-    });
+    }));
 
     // Determine if we need TrueType outlines (glyf) instead of CFF
     // gvar table only works with TrueType outlines, so if we have gvar, we must use glyf+loca
@@ -381,7 +410,7 @@ function fontToSfntTable(font, options = {}) {
 
     // Compute maxp values from glyphs for TrueType fonts (required for macOS validation)
     const maxpValues = useTrueTypeOutlines ? computeMaxpValues(font.glyphs) : {};
-    const maxpTable = maxp.make(font.glyphs.length, useTrueTypeOutlines, maxpValues);
+    const maxpTable = timeStep(timingSink, 'serializeMaxpTableMs', () => maxp.make(font.glyphs.length, useTrueTypeOutlines, maxpValues));
 
     // OS/2 sTypo* metrics should match hhea to produce consistent linespacing
     // across Mac, GNU+Linux and Windows
@@ -391,8 +420,13 @@ function fontToSfntTable(font, options = {}) {
     // Use !== undefined to also preserve fsType=0 (Installable embedding)
     const existingFsType = font.tables.os2 && font.tables.os2.fsType;
     const fsType = existingFsType !== undefined ? existingFsType : 0x0004;
+    const typoAscender = explicitOs2.sTypoAscender !== undefined ? explicitOs2.sTypoAscender : hheaAscender;
+    const typoDescender = explicitOs2.sTypoDescender !== undefined ? explicitOs2.sTypoDescender : hheaDescender;
+    const typoLineGap = explicitOs2.sTypoLineGap !== undefined ? explicitOs2.sTypoLineGap : hheaLineGap;
+    const winAscent = explicitOs2.usWinAscent !== undefined ? explicitOs2.usWinAscent : globals.yMax;
+    const winDescent = explicitOs2.usWinDescent !== undefined ? explicitOs2.usWinDescent : Math.abs(globals.yMin);
     
-    const os2Table = os2.make(Object.assign({}, font.tables.os2, {
+    const os2Table = timeStep(timingSink, 'serializeOs2TableMs', () => os2.make(Object.assign({}, font.tables.os2, {
         xAvgCharWidth: Math.round(globals.advanceWidthAvg),
         usFirstCharIndex: firstCharIndex,
         usLastCharIndex: lastCharIndex,
@@ -401,21 +435,21 @@ function fontToSfntTable(font, options = {}) {
         ulUnicodeRange3: ulUnicodeRange3,
         ulUnicodeRange4: ulUnicodeRange4,
         // OS/2 sTypo* values match hhea values for consistent linespacing
-        sTypoAscender: globals.ascender,
-        sTypoDescender: globals.descender,
-        sTypoLineGap: 0, // hhea lineGap is 0 (Google Fonts requirement)
-        usWinAscent: globals.yMax,
-        usWinDescent: Math.abs(globals.yMin),
+        sTypoAscender: typoAscender,
+        sTypoDescender: typoDescender,
+        sTypoLineGap: typoLineGap,
+        usWinAscent: winAscent,
+        usWinDescent: winDescent,
         fsType: fsType, // Embedding permissions (Fontwerk requires bit 4)
         ulCodePageRange1: 1, // FIXME: hard-code Latin 1 support for now
         sxHeight: metricsForChar(font, 'xyvw', {yMax: Math.round(globals.ascender / 2)}).yMax,
         sCapHeight: metricsForChar(font, 'HIKLEFJMNTZBDPRAGOQSUVWXY', globals).yMax,
         usDefaultChar: font.hasChar(' ') ? 32 : 0, // Use space as the default character, if available.
         usBreakChar: font.hasChar(' ') ? 32 : 0, // Use space as the break character, if available.
-    }));
+    })));
 
-    const hmtxTable = hmtx.make(font.glyphs);
-    const cmapTable = cmap.make(font.glyphs);
+    const hmtxTable = timeStep(timingSink, 'serializeHmtxTableMs', () => hmtx.make(font.glyphs));
+    const cmapTable = timeStep(timingSink, 'serializeCmapTableMs', () => cmap.make(font.glyphs));
 
     const englishFamilyName = font.getEnglishName('fontFamily');
     const englishStyleName = font.getEnglishName('fontSubfamily');
@@ -533,19 +567,21 @@ function fontToSfntTable(font, options = {}) {
     const languageTags = [];
     // Skip Mac platform name entries (fontspector no_mac_entries recommendation)
     // Disable string deduplication for Apple compatibility (ftxvalidator complains about overlapping entries)
-    const nameTable = _name.make(names, languageTags, { skipMacPlatform: true, noStringDedup: true });
+    const nameTable = timeStep(timingSink, 'serializeNameTableMs', () => _name.make(names, languageTags, { skipMacPlatform: true, noStringDedup: true }));
     // Skip ltag table creation - not needed for modern fonts
 
-    const postTable = post.make(font, { postFormat: options.postFormat });
+    const postTable = timeStep(timingSink, 'serializePostTableMs', () => post.make(font, { postFormat: options.postFormat }));
     
-    const metaTable = (font.metas && Object.keys(font.metas).length > 0) ? meta.make(font.metas) : undefined;
+    const metaTable = (font.metas && Object.keys(font.metas).length > 0)
+        ? timeStep(timingSink, 'serializeMetaTableMs', () => meta.make(font.metas))
+        : undefined;
 
     // The order does not matter because makeSfntTable() will sort them.
     const tables = [headTable, hheaTable, maxpTable, os2Table, nameTable, cmapTable, postTable, hmtxTable];
     
     if (useTrueTypeOutlines) {
         // Use TrueType outlines (glyf + loca) for variable fonts with gvar
-        const glyfResult = glyf.make(font.glyphs);
+        const glyfResult = timeStep(timingSink, 'serializeGlyfSourceMs', () => glyf.make(font.glyphs));
         
         // Determine if we can use short loca format (all offsets fit in 16-bit when divided by 2)
         const maxOffset = glyfResult.offsets[glyfResult.offsets.length - 1];
@@ -562,13 +598,13 @@ function fontToSfntTable(font, options = {}) {
         }
         
         // Create loca table
-        const locaTable = loca.make(glyfResult.offsets, useShortLoca);
+        const locaTable = timeStep(timingSink, 'serializeLocaTableMs', () => loca.make(glyfResult.offsets, useShortLoca));
         tables.push(locaTable);
         
         // Create glyf table as a raw data table
-        const glyfTable = new table.Table('glyf', [
+        const glyfTable = timeStep(timingSink, 'serializeGlyfTableMs', () => new table.Table('glyf', [
             { name: 'glyphs', type: 'LITERAL', value: Array.from(glyfResult.glyfData) }
-        ]);
+        ]));
         tables.push(glyfTable);
     } else {
         // Use CFF outlines
@@ -579,7 +615,8 @@ function fontToSfntTable(font, options = {}) {
         const forceCFF1 = font.options && font.options.forceCFF1;
         const preferCFF2 = !forceCFF1 && font.tables.cff2;
         const cffVersionToWrite = preferCFF2 ? 2 : 1;
-        const cffTable = cff.make(font.glyphs, {
+        const cffTimingKey = preferCFF2 ? 'serializeCff2TableMs' : 'serializeCffTableMs';
+        const cffTable = timeStep(timingSink, cffTimingKey, () => cff.make(font.glyphs, {
             version: font.getEnglishName('version'),
             fullName: englishFullName,
             familyName: englishFamilyName,
@@ -588,7 +625,7 @@ function fontToSfntTable(font, options = {}) {
             unitsPerEm: font.unitsPerEm,
             fontBBox: [0, globals.yMin, globals.ascender, globals.advanceWidthMax],
             topDict: useCFFtable && useCFFtable.topDict || {},
-        }, cffVersionToWrite);
+        }, cffVersionToWrite));
         tables.push(cffTable);
     }
 
@@ -601,35 +638,6 @@ function fontToSfntTable(font, options = {}) {
             gaspRanges: [
                 { rangeMaxPPEM: 0xFFFF, rangeGaspBehavior: 0x000F }
             ]
-        };
-    }
-
-    // Ensure HVAR table for variable fonts (required by Google Fonts)
-    if (hasGvarData && font.tables.fvar && !font.tables.hvar) {
-        const axes = font.tables.fvar.axes || [];
-        const numGlyphs = font.glyphs ? font.glyphs.length : (font.numGlyphs || 1);
-        
-        // Create a minimal HVAR table indicating no horizontal metric variations
-        font.tables.hvar = {
-            version: [1, 0],
-            itemVariationStore: {
-                format: 1,
-                variationRegions: axes.length > 0 ? [{
-                    regionAxes: axes.map(() => ({
-                        startCoord: -1,
-                        peakCoord: 0,
-                        endCoord: 1
-                    }))
-                }] : [],
-                itemVariationData: [{
-                    itemCount: numGlyphs,
-                    regionIndices: [],
-                    deltaSets: Array(numGlyphs).fill([])
-                }]
-            },
-            advanceWidth: null,
-            lsb: null,
-            rsb: null
         };
     }
 
@@ -664,7 +672,12 @@ function fontToSfntTable(font, options = {}) {
     for (let tableName in optionalTables) {
         const optTable = font.tables[tableName];
         if (optTable) {
-            const tableData = optionalTables[tableName].make.call(font, optTable, ...(optionalTableArgs[tableName] || []));
+            const timingKey = `serialize${tableName[0].toUpperCase()}${tableName.slice(1)}TableMs`;
+            const tableData = timeStep(
+                timingSink,
+                timingKey,
+                () => optionalTables[tableName].make.call(font, optTable, ...(optionalTableArgs[tableName] || []))
+            );
             if (tableData) {
                 tables.push(tableData);
             }
@@ -675,11 +688,15 @@ function fontToSfntTable(font, options = {}) {
         tables.push(metaTable);
     }
 
-    const sfntTable = makeSfntTable(tables);
+    const sfntTable = timeStep(timingSink, 'serializeSfntAssemblyMs', () => makeSfntTable(tables));
 
     // Compute the font's checkSum and store it in head.checkSumAdjustment.
+    const checksumEncodeStartedAt = perfNow();
     const bytes = sfntTable.encode();
+    recordTiming(timingSink, 'serializeChecksumEncodeMs', checksumEncodeStartedAt);
+    const checksumStartedAt = perfNow();
     const checkSum = computeCheckSum(bytes);
+    recordTiming(timingSink, 'serializeChecksumComputeMs', checksumStartedAt);
     const tableFields = sfntTable.fields;
     let checkSumAdjusted = false;
     for (let i = 0; i < tableFields.length; i += 1) {
@@ -693,6 +710,8 @@ function fontToSfntTable(font, options = {}) {
     if (!checkSumAdjusted) {
         throw new Error('Could not find head table with checkSum to adjust.');
     }
+
+    recordTiming(timingSink, 'serializeTablesTotalMs', totalStartedAt);
 
     return sfntTable;
 }

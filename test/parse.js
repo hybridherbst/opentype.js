@@ -11,6 +11,13 @@ describe('parse.js', function() {
         return (hex & mask) ? -(~hex & maxUnsigned) - 1 : hex;
     };    
 
+    describe('parseFixed', function() {
+        it('parses 16.16 fixed-point values using a 65536 denominator', function() {
+            const p = new Parser(unhex('003E8000'), 0);
+            assert.equal(p.parseFixed(), 62.5);
+        });
+    });
+
     describe('parseUShortList', function() {
         it('can parse an empty list', function() {
             const p = new Parser(unhex('0000'), 0);

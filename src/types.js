@@ -1107,14 +1107,47 @@ sizeOf.OBJECT = function(v) {
  * Convert a table object to bytes.
  * A table contains a list of fields containing the metadata (name, type and default value).
  * The table itself has the field values set as attributes.
- * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string}} table
- * @returns {Array}
+ * When a field carries a `patchKey`, the encoder also records the emitted byte
+ * position so callers can patch that exact field later without rescanning the
+ * serialized byte stream.
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string}} table
+ * @returns {{bytes: Array<number>, trackedFields: Record<string, number[]>}}
  */
-encode.TABLE = function(table) {
+function encodeTableWithMarkers(table) {
     let d = [];
     const length = (table.fields || []).length;
     const subtables = [];
     const subtableOffsets = [];
+    const subtableMarkers = [];
+    /** @type {Record<string, number[]>} */
+    const trackedFields = {};
+
+    /**
+     * @param {string | undefined} patchKey
+     * @param {number} position
+     */
+    function trackField(patchKey, position) {
+        if (!patchKey) return;
+        if (!trackedFields[patchKey]) trackedFields[patchKey] = [];
+        trackedFields[patchKey].push(position);
+    }
+
+    /**
+     * @param {Record<string, number[]>} source
+     * @param {number} baseOffset
+     */
+    function mergeTrackedFields(source, baseOffset) {
+        const keys = Object.keys(source);
+        for (let i = 0; i < keys.length; i += 1) {
+            const key = keys[i];
+            const positions = source[key];
+            if (!positions || positions.length === 0) continue;
+            if (!trackedFields[key]) trackedFields[key] = [];
+            for (let j = 0; j < positions.length; j += 1) {
+                trackedFields[key].push(positions[j] + baseOffset);
+            }
+        }
+    }
 
     for (let i = 0; i < length; i += 1) {
         const field = table.fields[i];
@@ -1128,23 +1161,29 @@ encode.TABLE = function(table) {
         // Handle null/undefined table values gracefully
         if (value === null || value === undefined) {
             if (field.type === 'TABLE') {
+                trackField(field.patchKey, d.length);
                 d.push(...[0, 0]); // Offset 0 for null tables
                 continue;
             }
         }
 
-        const bytes = encodingFunction(value);
-
         if (field.type === 'TABLE') {
+            const encodedSubtable = value && /** @type {Record<string, unknown>} */ (value).fields !== null
+                ? encodeTableWithMarkers(/** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string}} */ (value))
+                : null;
             // If the table.fields are set to NULL, don't add it as subtable data,
             // so the offset will be set to 0 but no table data will be added.
             // This is required e.g. for classSeqRuleSetOffsets with no defined contexts.
-            if (value && /** @type {Record<string, unknown>} */ (value).fields !== null) {
+            if (encodedSubtable) {
                 subtableOffsets.push(d.length);
-                subtables.push(bytes);
+                subtables.push(encodedSubtable.bytes);
+                subtableMarkers.push(encodedSubtable.trackedFields);
             }
+            trackField(field.patchKey, d.length);
             d.push(...[0, 0]);
         } else {
+            const bytes = encodingFunction(value);
+            trackField(field.patchKey, d.length);
             for (let j = 0; j < bytes.length; j++) {
                 d.push(bytes[j]);
             }
@@ -1157,13 +1196,25 @@ encode.TABLE = function(table) {
         check.argument(offset < 65536, 'Table ' + table.tableName + ' too big.');
         d[o] = offset >> 8;
         d[o + 1] = offset & 0xff;
+        mergeTrackedFields(subtableMarkers[i], offset);
         for (let j = 0; j < subtables[i].length; j++) {
             d.push(subtables[i][j]);
         }
     }
 
-    return d;
+    return { bytes: d, trackedFields: trackedFields };
+}
+
+/**
+ * Convert a table object to bytes.
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string}} table
+ * @returns {Array}
+ */
+encode.TABLE = function(table) {
+    return encodeTableWithMarkers(table).bytes;
 };
+
+encode.TABLE_WITH_MARKERS = encodeTableWithMarkers;
 
 /**
  * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>}} table

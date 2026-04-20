@@ -404,11 +404,12 @@ export class Font {
     /**
      * Convert the font object to a SFNT data structure.
      * This structure contains all the necessary tables and metadata to create a binary OTF file.
-     * @param {{postFormat?: number}} [options] - Options for table generation
+     * @param {{postFormat?: number, timingSink?: Record<string, number>}} [options] - Options for table generation
      * @return {Record<string, unknown> & {encode: Function}}
      */
     toTables(options?: {
         postFormat?: number;
+        timingSink?: Record<string, number>;
     }): Record<string, unknown> & {
         encode: Function;
     };
@@ -418,11 +419,12 @@ export class Font {
     toBuffer(): ArrayBuffer;
     /**
      * Converts a `opentype.Font` into an `ArrayBuffer`
-     * @param {{postFormat?: number}} [options] - Options for table generation
+     * @param {{postFormat?: number, timingSink?: Record<string, number>}} [options] - Options for table generation
      * @return {ArrayBuffer}
      */
     toArrayBuffer(options?: {
         postFormat?: number;
+        timingSink?: Record<string, number>;
     }): ArrayBuffer;
     /**
      * Initiate a download of the OpenType font.

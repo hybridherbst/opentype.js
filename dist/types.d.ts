@@ -251,9 +251,7 @@ export namespace encode {
     }>): any[];
     /**
      * Convert a table object to bytes.
-     * A table contains a list of fields containing the metadata (name, type and default value).
-     * The table itself has the field values set as attributes.
-     * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string}} table
+     * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string}} table
      * @returns {Array}
      */
     export function TABLE(table: Record<string, unknown> & {
@@ -261,9 +259,11 @@ export namespace encode {
             name: string;
             type: string;
             value?: unknown;
+            patchKey?: string;
         }>;
         tableName?: string;
     }): any[];
+    export { encodeTableWithMarkers as TABLE_WITH_MARKERS };
     import RECORD = TABLE;
     export { RECORD };
     export function LITERAL(v: any): any;
@@ -380,4 +380,27 @@ export namespace sizeOf {
     export { RECORD_1 as RECORD };
     export function LITERAL(v: any): any;
 }
+/**
+ * Convert a table object to bytes.
+ * A table contains a list of fields containing the metadata (name, type and default value).
+ * The table itself has the field values set as attributes.
+ * When a field carries a `patchKey`, the encoder also records the emitted byte
+ * position so callers can patch that exact field later without rescanning the
+ * serialized byte stream.
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string}} table
+ * @returns {{bytes: Array<number>, trackedFields: Record<string, number[]>}}
+ */
+declare function encodeTableWithMarkers(table: Record<string, unknown> & {
+    fields?: Array<{
+        name: string;
+        type: string;
+        value?: unknown;
+        patchKey?: string;
+    }>;
+    tableName?: string;
+}): {
+    bytes: Array<number>;
+    trackedFields: Record<string, number[]>;
+};
+export {};
 //# sourceMappingURL=types.d.ts.map

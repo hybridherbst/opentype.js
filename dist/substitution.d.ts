@@ -131,7 +131,7 @@ declare class Substitution {
      *
      * @this {object}
      * @param {string} feature - 4-letter feature name ('calt', 'rclt', etc.)
-     * @param {{backtrack?: (number|number[])[], input: (number|number[])[], lookahead?: (number|number[])[], substitution: {sequenceIndex: number, sub: number, by: number}|{sequenceIndex: number, sub: number, by: number}[]}} rule - The chaining rule definition:
+     * @param {{backtrack?: (number|number[])[], input: (number|number[])[], lookahead?: (number|number[])[], substitution?: {sequenceIndex: number, sub: number, by: number}|{sequenceIndex: number, sub: number, by: number}[], lookupRecords?: {sequenceIndex: number, lookupListIndex: number}[]}} rule - The chaining rule definition:
      *   - backtrack: Array of glyph IDs that must precede the input (in visual order, reversed internally)
      *   - input: Array of glyph IDs to match (the glyphs that may be substituted)
      *   - lookahead: Array of glyph IDs that must follow the input
@@ -166,7 +166,7 @@ declare class Substitution {
         backtrack?: (number | number[])[];
         input: (number | number[])[];
         lookahead?: (number | number[])[];
-        substitution: {
+        substitution?: {
             sequenceIndex: number;
             sub: number;
             by: number;
@@ -174,6 +174,10 @@ declare class Substitution {
             sequenceIndex: number;
             sub: number;
             by: number;
+        }[];
+        lookupRecords?: {
+            sequenceIndex: number;
+            lookupListIndex: number;
         }[];
     }, script?: string, language?: string): void;
     /**
@@ -184,7 +188,7 @@ declare class Substitution {
      *
      * @this {object}
      * @param {string} feature - 4-letter feature name
-     * @param {{backtrack?: (number|number[])[], input: (number|number[])[], lookahead?: (number|number[])[], substitution: {sequenceIndex: number, sub: number, by: number}|{sequenceIndex: number, sub: number, by: number}[]}} rule - The chaining context rule:
+     * @param {{backtrack?: (number|number[])[], input: (number|number[])[], lookahead?: (number|number[])[], substitution?: {sequenceIndex: number, sub: number, by: number}|{sequenceIndex: number, sub: number, by: number}[], lookupRecords?: {sequenceIndex: number, lookupListIndex: number}[]}} rule - The chaining context rule:
      *   - backtrack: Array of glyph ID arrays (glyphs that must precede input)
      *   - input: Array of glyph ID arrays (glyphs that may be substituted)
      *   - lookahead: Array of glyph ID arrays (glyphs that must follow input)
@@ -196,7 +200,7 @@ declare class Substitution {
         backtrack?: (number | number[])[];
         input: (number | number[])[];
         lookahead?: (number | number[])[];
-        substitution: {
+        substitution?: {
             sequenceIndex: number;
             sub: number;
             by: number;
@@ -204,6 +208,10 @@ declare class Substitution {
             sequenceIndex: number;
             sub: number;
             by: number;
+        }[];
+        lookupRecords?: {
+            sequenceIndex: number;
+            lookupListIndex: number;
         }[];
     }, script?: string, language?: string): void;
     private _getOrCreateSingleSubLookupExtension;
