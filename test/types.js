@@ -631,41 +631,34 @@ describe('types.js', function() {
         assert.equal(sizeOf.TABLE(table), 8);
     });
 
-    it('can track marked field offsets across nested TABLEs', function() {
+    it('can encode nested OFFSET16/OFFSET24/OFFSET32 references structurally', function() {
         const table = {
             fields: [
-                {name: 'version', type: 'FIXED', value: 0x00010000},
-                {name: 'scriptList', type: 'TABLE'},
-                {name: 'featureList', type: 'TABLE'},
-                {name: 'lookupList', type: 'TABLE'}
+                {name: 'version', type: 'USHORT', value: 1},
+                {name: 'offset16', type: 'OFFSET16'},
+                {name: 'offset24', type: 'OFFSET24'},
+                {name: 'offset32', type: 'OFFSET32'}
             ],
-            scriptList: { fields: [] },
-            featureList: { fields: [] },
-            lookupList: {
+            offset16: {
                 fields: [
-                    {name: 'lookupCount', type: 'USHORT', value: 1},
-                    {name: 'lookup_0', type: 'TABLE'}
-                ],
-                lookup_0: {
-                    fields: [
-                        {name: 'lookupType', type: 'USHORT', value: 7},
-                        {name: 'lookupFlag', type: 'USHORT', value: 0},
-                        {name: 'subtable_0', type: 'TABLE'}
-                    ],
-                    subtable_0: {
-                        fields: [
-                            {name: 'substFormat', type: 'USHORT', value: 1},
-                            {name: 'extensionLookupType', type: 'USHORT', value: 4},
-                            {name: 'extensionOffset', type: 'ULONG', value: 0, patchKey: 'ext-0'}
-                        ]
-                    }
-                }
-            }
+                    {name: 'value', type: 'USHORT', value: 0x1111}
+                ]
+            },
+            offset24: {
+                fields: [
+                    {name: 'data', type: 'LITERAL', value: [0x22, 0x33]}
+                ]
+            },
+            offset32: {
+                fields: [
+                    {name: 'value', type: 'USHORT', value: 0x4444}
+                ]
+            },
         };
 
-        const encoded = encode.TABLE_WITH_MARKERS(table);
-        assert.equal(hex(encoded.bytes), '00 01 00 00 00 0A 00 0A 00 0A 00 01 00 04 00 07 00 00 00 06 00 01 00 04 00 00 00 00');
-        assert.deepEqual(encoded.trackedFields, { 'ext-0': [24] });
+        const encoded = encode.TABLE(table);
+        assert.equal(hex(encoded), '00 01 00 0B 00 00 0D 00 00 00 0F 11 11 22 33 44 44');
+        assert.equal(sizeOf.TABLE(table), encoded.length);
     });
 
     it('can handle LITERAL', function() {

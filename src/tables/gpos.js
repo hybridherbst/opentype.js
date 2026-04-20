@@ -5,6 +5,7 @@ import check from '../check.js';
 import { encode } from '../types.js';
 import { Parser } from '../parse.js';
 import table from '../table.js';
+import featureVariationsTable from './featurevariations.js';
 
 const subtableParsers = new Array(10);         // subtableParsers[0] is unused
 
@@ -523,8 +524,8 @@ function makeAnchor(anchor) {
     if (format === 2) {
         fields.push({name: 'anchorPoint', type: 'USHORT', value: anchor.anchorPoint || 0});
     } else if (format === 3) {
-        fields.push({name: 'xDeviceTableOffset', type: 'USHORT', value: 0});
-        fields.push({name: 'yDeviceTableOffset', type: 'USHORT', value: 0});
+        fields.push({name: 'xDeviceTableOffset', type: 'OFFSET16', value: makeDeviceOrVariationIndexTable(anchor.xDevice)});
+        fields.push({name: 'yDeviceTableOffset', type: 'OFFSET16', value: makeDeviceOrVariationIndexTable(anchor.yDevice)});
     }
     
     return new table.Table('anchorTable', fields);
@@ -561,114 +562,64 @@ function valueRecordFields(prefix, value, valueFormat) {
     if (valueFormat & 0x0002) fields.push({name: prefix + 'yPlacement', type: 'SHORT', value: value?.yPlacement || 0});
     if (valueFormat & 0x0004) fields.push({name: prefix + 'xAdvance', type: 'SHORT', value: value?.xAdvance || 0});
     if (valueFormat & 0x0008) fields.push({name: prefix + 'yAdvance', type: 'SHORT', value: value?.yAdvance || 0});
-    // Device/VariationIndex: write 0 offset (only used by non-LITERAL encodings)
-    if (valueFormat & 0x0010) fields.push({name: prefix + 'xPlaDevOff', type: 'USHORT', value: 0});
-    if (valueFormat & 0x0020) fields.push({name: prefix + 'yPlaDevOff', type: 'USHORT', value: 0});
-    if (valueFormat & 0x0040) fields.push({name: prefix + 'xAdvDevOff', type: 'USHORT', value: 0});
-    if (valueFormat & 0x0080) fields.push({name: prefix + 'yAdvDevOff', type: 'USHORT', value: 0});
+    if (valueFormat & 0x0010) fields.push({name: prefix + 'xPlaDevOff', type: 'OFFSET16', value: makeDeviceOrVariationIndexTable(value?.xPlaDevice)});
+    if (valueFormat & 0x0020) fields.push({name: prefix + 'yPlaDevOff', type: 'OFFSET16', value: makeDeviceOrVariationIndexTable(value?.yPlaDevice)});
+    if (valueFormat & 0x0040) fields.push({name: prefix + 'xAdvDevOff', type: 'OFFSET16', value: makeDeviceOrVariationIndexTable(value?.xAdvDevice)});
+    if (valueFormat & 0x0080) fields.push({name: prefix + 'yAdvDevOff', type: 'OFFSET16', value: makeDeviceOrVariationIndexTable(value?.yAdvDevice)});
     return fields;
 }
 
-// Encode a Device or VariationIndex table to raw bytes
+function packDeviceTableWords(device) {
+    const fields = [];
+    const values = device.deltaValues || [];
+    const bitsPerValue = [0, 2, 4, 8][device.deltaFormat] || 2;
+    const valuesPerWord = 16 / bitsPerValue;
+    const mask = (1 << bitsPerValue) - 1;
+    for (let i = 0; i < values.length; i += valuesPerWord) {
+        let word = 0;
+        for (let j = 0; j < valuesPerWord && (i + j) < values.length; j++) {
+            let v = values[i + j];
+            if (v < 0) v += (1 << bitsPerValue);
+            word |= (v & mask) << (16 - bitsPerValue * (j + 1));
+        }
+        fields.push({name: 'deltaValueWord' + (i / valuesPerWord), type: 'USHORT', value: word});
+    }
+    return fields;
+}
+
 // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#device-and-variationindex-tables
-function encodeDeviceTable(device) {
+function makeDeviceOrVariationIndexTable(device) {
     if (!device) return null;
-    const d = [];
     if (device.type === 'variationIndex') {
-        d.push((device.deltaSetOuterIndex >> 8) & 0xff, device.deltaSetOuterIndex & 0xff);
-        d.push((device.deltaSetInnerIndex >> 8) & 0xff, device.deltaSetInnerIndex & 0xff);
-        d.push((device.deltaFormat >> 8) & 0xff, device.deltaFormat & 0xff);
-    } else if (device.type === 'device') {
-        d.push((device.startSize >> 8) & 0xff, device.startSize & 0xff);
-        d.push((device.endSize >> 8) & 0xff, device.endSize & 0xff);
-        d.push((device.deltaFormat >> 8) & 0xff, device.deltaFormat & 0xff);
-        const values = device.deltaValues || [];
-        const bitsPerValue = [0, 2, 4, 8][device.deltaFormat] || 2;
-        const valuesPerWord = 16 / bitsPerValue;
-        const mask = (1 << bitsPerValue) - 1;
-        for (let i = 0; i < values.length; i += valuesPerWord) {
-            let word = 0;
-            for (let j = 0; j < valuesPerWord && (i + j) < values.length; j++) {
-                let v = values[i + j];
-                if (v < 0) v = v + (1 << bitsPerValue);
-                word |= (v & mask) << (16 - bitsPerValue * (j + 1));
-            }
-            d.push((word >> 8) & 0xff, word & 0xff);
-        }
+        return new table.Table('variationIndexTable', [
+            {name: 'deltaSetOuterIndex', type: 'USHORT', value: device.deltaSetOuterIndex || 0},
+            {name: 'deltaSetInnerIndex', type: 'USHORT', value: device.deltaSetInnerIndex || 0},
+            {name: 'deltaFormat', type: 'USHORT', value: device.deltaFormat || 0}
+        ]);
     }
-    return d.length > 0 ? d : null;
+    if (device.type === 'device') {
+        return new table.Table('deviceTable', [
+            {name: 'startSize', type: 'USHORT', value: device.startSize || 0},
+            {name: 'endSize', type: 'USHORT', value: device.endSize || 0},
+            {name: 'deltaFormat', type: 'USHORT', value: device.deltaFormat || 0}
+        ].concat(packDeviceTableWords(device)));
+    }
+    check.assert(false, 'Unsupported GPOS device table type ' + device.type + '.');
+    return null;
 }
 
-// Push a signed SHORT (int16) as 2 bytes into array d
-function pushShort(d, v) {
-    v = v || 0;
-    d.push((v >> 8) & 0xff, v & 0xff);
-}
-
-// Push an unsigned USHORT (uint16) as 2 bytes into array d
-function pushUShort(d, v) {
-    v = v || 0;
-    d.push((v >> 8) & 0xff, v & 0xff);
-}
-
-// Write a value record's inline fields (SHORT/USHORT) into byte array d.
-// For device table bits (0x0010-0x0080), writes a placeholder offset and
-// records it in devicePatches for later back-patching.
-// devicePatches: Array of { bytePos, deviceData } where bytePos is the
-// index in d where the 2-byte offset placeholder was written.
-function writeValueRecordBytes(d, value, valueFormat, devicePatches) {
-    if (valueFormat & 0x0001) pushShort(d, value?.xPlacement);
-    if (valueFormat & 0x0002) pushShort(d, value?.yPlacement);
-    if (valueFormat & 0x0004) pushShort(d, value?.xAdvance);
-    if (valueFormat & 0x0008) pushShort(d, value?.yAdvance);
-    if (valueFormat & 0x0010) {
-        const pos = d.length;
-        d.push(0, 0);
-        const bytes = encodeDeviceTable(value?.xPlaDevice);
-        if (bytes) devicePatches.push({ bytePos: pos, deviceData: bytes });
+function makePairSetTable(pairSet, valueFormat1, valueFormat2, pairSetIndex) {
+    const fields = [
+        {name: 'pairValueCount', type: 'USHORT', value: pairSet.length}
+    ];
+    for (let i = 0; i < pairSet.length; i++) {
+        const pair = pairSet[i] || {};
+        const prefix = 'pairSet' + pairSetIndex + 'Pair' + i + '_';
+        fields.push({name: prefix + 'secondGlyph', type: 'USHORT', value: pair.secondGlyph || 0});
+        fields.push(...valueRecordFields(prefix + 'value1_', pair.value1, valueFormat1));
+        fields.push(...valueRecordFields(prefix + 'value2_', pair.value2, valueFormat2));
     }
-    if (valueFormat & 0x0020) {
-        const pos = d.length;
-        d.push(0, 0);
-        const bytes = encodeDeviceTable(value?.yPlaDevice);
-        if (bytes) devicePatches.push({ bytePos: pos, deviceData: bytes });
-    }
-    if (valueFormat & 0x0040) {
-        const pos = d.length;
-        d.push(0, 0);
-        const bytes = encodeDeviceTable(value?.xAdvDevice);
-        if (bytes) devicePatches.push({ bytePos: pos, deviceData: bytes });
-    }
-    if (valueFormat & 0x0080) {
-        const pos = d.length;
-        d.push(0, 0);
-        const bytes = encodeDeviceTable(value?.yAdvDevice);
-        if (bytes) devicePatches.push({ bytePos: pos, deviceData: bytes });
-    }
-}
-
-// Finalize device table patches: append device table data to the byte array d,
-// deduplicating identical tables, and patch the offset placeholders.
-// baseOffset is subtracted from the device table position to get the relative offset
-// (e.g. for PairPosFormat1, baseOffset is the PairSet start relative to d[0]).
-function finalizeDevicePatches(d, devicePatches, baseOffset) {
-    if (devicePatches.length === 0) return;
-    // Deduplicate device tables by their serialized bytes
-    const cache = new Map(); // key = comma-separated bytes, value = offset in d
-    for (const patch of devicePatches) {
-        const key = patch.deviceData.join(',');
-        let offset = cache.get(key);
-        if (offset === undefined) {
-            offset = d.length;
-            cache.set(key, offset);
-            for (let k = 0; k < patch.deviceData.length; k++) {
-                d.push(patch.deviceData[k]);
-            }
-        }
-        const relativeOffset = offset - baseOffset;
-        d[patch.bytePos] = (relativeOffset >> 8) & 0xff;
-        d[patch.bytePos + 1] = relativeOffset & 0xff;
-    }
+    return new table.Table('pairSetTable', fields);
 }
 
 // Lookup Type 1: Single Adjustment Positioning
@@ -710,228 +661,50 @@ subtableMakers[2] = function makeLookup2(subtable) {
         'Lookup type 2 posFormat must be 1 or 2.');
 
     if (subtable.posFormat === 1) {
-        // PairPosFormat1: Individual pair adjustments
-        // Binary layout: posFormat(2), coverageOffset(2), vf1(2), vf2(2), pairSetCount(2),
-        //   pairSetOffsets[count](2 each), then pairSet data, then device table pool,
-        //   then coverage data.
-        // pairSets come BEFORE coverage to keep offsets within 16-bit range.
-        // LITERAL encoding for precise layout control.
-        //
-        // Optimizations:
-        // 1. PairSet deduplication: identical PairSets share the same data offset
-        //    (matching real font compilers like fontTools).
-        // 2. Device table pool: all device/VariationIndex tables are stored in a
-        //    shared pool after PairSet data, with deduplication across PairSets.
-        //    Device offsets in value records are relative to PairSet start.
         const pairSets = subtable.pairSets || [];
-        const vf1 = subtable.valueFormat1 || 0;
-        const vf2 = subtable.valueFormat2 || 0;
-        const hasDeviceTables = (vf1 | vf2) & 0xF0;
-
-        // Pre-encode each PairSet's pair records.
-        // For device table support, record placeholder positions.
-        const pairSetRecords = []; // byte arrays
-        const pairSetDevicePatches = []; // per-PairSet device patch lists
-        
+        const valueFormat1 = subtable.valueFormat1 || 0;
+        const valueFormat2 = subtable.valueFormat2 || 0;
+        const fields = [
+            {name: 'posFormat', type: 'USHORT', value: 1},
+            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage), appendPhase: 1},
+            {name: 'valueFormat1', type: 'USHORT', value: valueFormat1},
+            {name: 'valueFormat2', type: 'USHORT', value: valueFormat2},
+            {name: 'pairSetCount', type: 'USHORT', value: pairSets.length}
+        ];
         for (let i = 0; i < pairSets.length; i++) {
-            const pairs = pairSets[i] || [];
-            const d = [];
-            const devicePatches = [];
-            pushUShort(d, pairs.length);
-            for (let j = 0; j < pairs.length; j++) {
-                const pair = pairs[j];
-                pushUShort(d, pair.secondGlyph);
-                writeValueRecordBytes(d, pair.value1, vf1, devicePatches);
-                writeValueRecordBytes(d, pair.value2, vf2, devicePatches);
-            }
-            pairSetRecords.push(d);
-            pairSetDevicePatches.push(devicePatches);
+            fields.push({
+                name: 'pairSet' + i,
+                type: 'TABLE',
+                value: pairSets[i] ? makePairSetTable(pairSets[i], valueFormat1, valueFormat2, i) : null
+            });
         }
-
-        // Deduplicate PairSets: find identical record data and map to canonical index.
-        // For the dedup key, we use pair record bytes (before device offsets are patched,
-        // but including device patches so identical pair sets with different device refs
-        // are NOT merged). We serialize both the pair bytes and the encoded device data.
-        const pairSetKeyMap = new Map(); // key → canonical index
-        const canonicalIndex = []; // for each pairSet i, the canonical index
-        const uniquePairSets = []; // { recordBytes, devicePatches, originalIndex }
-        
-        for (let i = 0; i < pairSetRecords.length; i++) {
-            // Build dedup key from pair records + device table references
-            let key = pairSetRecords[i].join(',');
-            if (hasDeviceTables && pairSetDevicePatches[i].length > 0) {
-                key += '|' + pairSetDevicePatches[i].map(p => 
-                    p.bytePos + ':' + p.deviceData.join(',')
-                ).join(';');
-            }
-            
-            let cidx = pairSetKeyMap.get(key);
-            if (cidx === undefined) {
-                cidx = uniquePairSets.length;
-                pairSetKeyMap.set(key, cidx);
-                uniquePairSets.push({
-                    recordBytes: pairSetRecords[i],
-                    devicePatches: pairSetDevicePatches[i],
-                    originalIndex: i
-                });
-            }
-            canonicalIndex.push(cidx);
-        }
-
-        // Pre-encode coverage table
-        const coverageTable = new table.Coverage(subtable.coverage);
-        const coverageBytes = encode.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */ (/** @type {unknown} */ (coverageTable)));
-
-        // Calculate layout: header, then unique PairSet data, then device pool, then coverage
-        const headerSize = 10 + pairSets.length * 2;
-        let offset = headerSize;
-        const uniquePairSetPositions = []; // absolute offset from subtable start for each unique PairSet
-        for (let i = 0; i < uniquePairSets.length; i++) {
-            uniquePairSetPositions.push(offset);
-            offset += uniquePairSets[i].recordBytes.length;
-        }
-
-        // Map each pairSet to its offset (canonical PairSetposition)
-        const pairSetOffsets = [];
-        for (let i = 0; i < pairSets.length; i++) {
-            pairSetOffsets.push(uniquePairSetPositions[canonicalIndex[i]]);
-        }
-
-        // Build device table pool with deduplication
-        const deviceCache = new Map();
-        const patchList = [];
-
-        if (hasDeviceTables) {
-            for (let u = 0; u < uniquePairSets.length; u++) {
-                const ups = uniquePairSets[u];
-                const pairSetStart = uniquePairSetPositions[u];
-                for (const patch of ups.devicePatches) {
-                    const key = patch.deviceData.join(',');
-                    let deviceAbsOffset = deviceCache.get(key);
-                    if (deviceAbsOffset === undefined) {
-                        deviceAbsOffset = offset;
-                        deviceCache.set(key, deviceAbsOffset);
-                        offset += patch.deviceData.length;
-                    }
-                    const relativeOffset = deviceAbsOffset - pairSetStart;
-                    const absoluteBytePos = pairSetStart + patch.bytePos;
-                    patchList.push({ absoluteBytePos, relativeOffset });
-                }
-            }
-        }
-
-        const coverageOffset = offset;
-
-        // Build complete binary
-        const d = [];
-        pushUShort(d, 1);              // posFormat
-        pushUShort(d, coverageOffset);  // coverageOffset
-        pushUShort(d, vf1);            // valueFormat1
-        pushUShort(d, vf2);            // valueFormat2
-        pushUShort(d, pairSets.length); // pairSetCount
-        for (let i = 0; i < pairSetOffsets.length; i++) {
-            pushUShort(d, pairSetOffsets[i]);
-        }
-        // Unique pairSet data
-        for (let i = 0; i < uniquePairSets.length; i++) {
-            const bytes = uniquePairSets[i].recordBytes;
-            for (let j = 0; j < bytes.length; j++) {
-                d.push(bytes[j]);
-            }
-        }
-        // Device table pool (deduplicated)
-        if (hasDeviceTables) {
-            const written = new Set();
-            for (let u = 0; u < uniquePairSets.length; u++) {
-                for (const patch of uniquePairSets[u].devicePatches) {
-                    const key = patch.deviceData.join(',');
-                    if (!written.has(key)) {
-                        written.add(key);
-                        for (let k = 0; k < patch.deviceData.length; k++) {
-                            d.push(patch.deviceData[k]);
-                        }
-                    }
-                }
-            }
-            // Patch all device offsets
-            for (const p of patchList) {
-                d[p.absoluteBytePos] = (p.relativeOffset >> 8) & 0xff;
-                d[p.absoluteBytePos + 1] = p.relativeOffset & 0xff;
-            }
-        }
-        // Coverage data
-        for (let j = 0; j < coverageBytes.length; j++) {
-            d.push(coverageBytes[j]);
-        }
-
-        return new table.Table('pairPosFormat1', [
-            {name: 'data', type: 'LITERAL', value: d}
-        ]);
+        return new table.Table('pairPosFormat1', fields);
     } else {
-        // PairPosFormat2: Class pair adjustments
-        // Binary layout: posFormat(2), coverageOffset(2), vf1(2), vf2(2),
-        //   classDef1Offset(2), classDef2Offset(2), class1Count(2), class2Count(2),
-        //   classRecords[c1*c2], then coverage, classDef1, classDef2, then device tables.
-        // Device table offsets in class records are relative to subtable start.
-        // We use LITERAL encoding for precise layout control and device table support.
-        const vf1 = subtable.valueFormat1 || 0;
-        const vf2 = subtable.valueFormat2 || 0;
+        const valueFormat1 = subtable.valueFormat1 || 0;
+        const valueFormat2 = subtable.valueFormat2 || 0;
         const class1Count = subtable.class1Count || 0;
         const class2Count = subtable.class2Count || 0;
         const classRecords = subtable.classRecords || [];
-
-        // Pre-encode coverage and classDef tables
-        const coverageBytes = encode.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */ (/** @type {unknown} */ (new table.Coverage(subtable.coverage))));
-        const classDef1Bytes = subtable.classDef1 ? encode.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */ (/** @type {unknown} */ (new table.ClassDef(subtable.classDef1)))) : [];
-        const classDef2Bytes = subtable.classDef2 ? encode.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */ (/** @type {unknown} */ (new table.ClassDef(subtable.classDef2)))) : [];
-
-        // Build complete binary
-        const d = [];
-        const devicePatches = [];
-
-        // Header (16 bytes, offsets patched later)
-        pushUShort(d, 2);           // posFormat
-        pushUShort(d, 0);           // coverageOffset placeholder
-        pushUShort(d, vf1);
-        pushUShort(d, vf2);
-        pushUShort(d, 0);           // classDef1Offset placeholder
-        pushUShort(d, 0);           // classDef2Offset placeholder
-        pushUShort(d, class1Count);
-        pushUShort(d, class2Count);
-
-        // Class records (bytePos in devicePatches is absolute position in d)
+        const fields = [
+            {name: 'posFormat', type: 'USHORT', value: 2},
+            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
+            {name: 'valueFormat1', type: 'USHORT', value: valueFormat1},
+            {name: 'valueFormat2', type: 'USHORT', value: valueFormat2},
+            {name: 'classDef1', type: 'TABLE', value: subtable.classDef1 ? new table.ClassDef(subtable.classDef1) : null},
+            {name: 'classDef2', type: 'TABLE', value: subtable.classDef2 ? new table.ClassDef(subtable.classDef2) : null},
+            {name: 'class1Count', type: 'USHORT', value: class1Count},
+            {name: 'class2Count', type: 'USHORT', value: class2Count}
+        ];
         for (let i = 0; i < class1Count; i++) {
             const class2Records = classRecords[i] || [];
             for (let j = 0; j < class2Count; j++) {
-                const rec = class2Records[j] || {};
-                writeValueRecordBytes(d, rec.value1, vf1, devicePatches);
-                writeValueRecordBytes(d, rec.value2, vf2, devicePatches);
+                const record = class2Records[j] || {};
+                const prefix = 'class1_' + i + '_class2_' + j + '_';
+                fields.push(...valueRecordFields(prefix + 'value1_', record.value1, valueFormat1));
+                fields.push(...valueRecordFields(prefix + 'value2_', record.value2, valueFormat2));
             }
         }
-
-        // Coverage data
-        const coverageOffset = d.length;
-        for (let k = 0; k < coverageBytes.length; k++) d.push(coverageBytes[k]);
-
-        // ClassDef1 data
-        const classDef1Offset = subtable.classDef1 ? d.length : 0;
-        for (let k = 0; k < classDef1Bytes.length; k++) d.push(classDef1Bytes[k]);
-
-        // ClassDef2 data
-        const classDef2Offset = subtable.classDef2 ? d.length : 0;
-        for (let k = 0; k < classDef2Bytes.length; k++) d.push(classDef2Bytes[k]);
-
-        // Append device tables and patch offsets (relative to subtable start = 0)
-        finalizeDevicePatches(d, devicePatches, 0);
-
-        // Patch header offsets
-        d[2] = (coverageOffset >> 8) & 0xff; d[3] = coverageOffset & 0xff;
-        d[8] = (classDef1Offset >> 8) & 0xff; d[9] = classDef1Offset & 0xff;
-        d[10] = (classDef2Offset >> 8) & 0xff; d[11] = classDef2Offset & 0xff;
-
-        return new table.Table('pairPosFormat2', [
-            {name: 'data', type: 'LITERAL', value: d}
-        ]);
+        return new table.Table('pairPosFormat2', fields);
     }
 };
 
@@ -1384,13 +1157,9 @@ subtableMakers[8] = function makeLookup8(subtable) {
 
 // Lookup Type 9: Extension Positioning
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-9-extension-positioning-subtable
-// Extension header: posFormat(2) + extensionLookupType(2) + extensionOffset(4) = 8 bytes.
-// The extensionOffset is ULONG (32-bit), pointing from the extension subtable start
-// to the actual inner subtable data.
-// For two-phase encoding, we return just the 8-byte header with a placeholder offset;
-// the actual subtable data is collected separately and appended at the end of the GPOS table.
-// The placeholder field is marked so the final writer can patch it without rescanning bytes.
-subtableMakers[9] = function makeLookup9(subtable, extensionData) {
+// The inner subtable is encoded as a first-class 32-bit offset reference from
+// the extension header rather than being emitted and patched in a custom pass.
+subtableMakers[9] = function makeLookup9(subtable) {
     // Handle error case from parser (unsupported lookup type)
     if (!subtable || subtable.error || subtable.posFormat === undefined) {
         return new table.Table('extensionPosTable', [
@@ -1413,39 +1182,10 @@ subtableMakers[9] = function makeLookup9(subtable, extensionData) {
 
     if (extSubtable && !extSubtable.error) {
         const actualTable = actualMaker(extSubtable);
-        let actualBytes;
-        try {
-            actualBytes = actualTable.encode();
-        } catch (e) {
-            // Subtable content exceeds internal 16-bit offset limits (e.g. very large PairPosFormat1).
-            // Return an empty extension header rather than crashing the entire GPOS table build.
-            return new table.Table('extensionPosTable', [
-                { name: 'posFormat', type: 'USHORT', value: 1 },
-                { name: 'extensionLookupType', type: 'USHORT', value: extLookupType },
-                { name: 'extensionOffset', type: 'ULONG', value: 0 }
-            ]);
-        }
-
-        // If extensionData collector is provided, use two-phase encoding:
-        // return just the 8-byte header, collect actual data for deferred writing.
-        if (extensionData) {
-            const patchKey = 'gpos-extension-offset-' + extensionData.actualData.length;
-            extensionData.actualData.push(actualBytes);
-            extensionData.patchKeys.push(patchKey);
-
-            return new table.Table('extensionPosTable', [
-                { name: 'posFormat', type: 'USHORT', value: 1 },
-                { name: 'extensionLookupType', type: 'USHORT', value: extLookupType },
-                { name: 'extensionOffset', type: 'ULONG', value: 0, patchKey: patchKey }
-            ]);
-        }
-
-        // Fallback: embed data inline (may cause size issues for large tables)
         return new table.Table('extensionPosTable', [
             { name: 'posFormat', type: 'USHORT', value: 1 },
             { name: 'extensionLookupType', type: 'USHORT', value: extLookupType },
-            { name: 'extensionOffset', type: 'ULONG', value: 8 },
-            { name: 'extensionData', type: 'LITERAL', value: actualBytes }
+            { name: 'extensionOffset', type: 'OFFSET32', value: actualTable, targetScope: 'root' }
         ]);
     }
 
@@ -1458,103 +1198,28 @@ subtableMakers[9] = function makeLookup9(subtable, extensionData) {
 };
 
 /**
- * Custom GPOS table encoder that handles extension lookups properly.
- * Extension subtable data is stored at the end of the table with 32-bit offsets.
- * Mirrors the GSUB approach for type 7 Extension Substitution.
- */
-/**
  * @param {GposTable} gpos
  * @returns {object}
  */
 function makeGposTable(gpos) {
-    // Check if we have any extension lookups
-    let hasExtensions = false;
-    for (const lookup of gpos.lookups) {
-        if (lookup.lookupType === 9) {
-            hasExtensions = true;
-            break;
-        }
-    }
-
-    if (!hasExtensions) {
-        // No extension lookups — use standard encoding
-        return new table.Table('GPOS', [
-            {name: 'version', type: 'ULONG', value: 0x10000},
-            {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
-            {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
-            {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, subtableMakers)}
-        ]);
-    }
-
-    // Has extension lookups — use two-phase encoding
-    // Phase 1: Collect extension data and create headers with placeholder offsets
-    const extensionData = {
-        actualData: [],
-        patchKeys: []
-    };
-
-    // Create modified subtableMakers that passes extensionData to type-9 maker
-    const makersWithExtension = Object.assign({}, subtableMakers);
-    const originalMaker9 = subtableMakers[9];
-    makersWithExtension[9] = function(subtable) {
-        return originalMaker9(subtable, extensionData);
-    };
-
-    // Build the main table structure with small extension headers
-    const mainTable = new table.Table('GPOS', [
-        {name: 'version', type: 'ULONG', value: 0x10000},
+    const hasFeatureVariations = gpos.variations && gpos.variations.length > 0;
+    /** @type {Array<{name: string, type: string, value?: unknown}>} */
+    const fields = [
+        {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
         {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
         {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
-        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, makersWithExtension)}
-    ]);
+        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, subtableMakers)}
+    ];
 
-    // Phase 2: Encode the main table, then append extension data and patch offsets
-    const encodedMainTable = mainTable.encodeWithMarkers();
-    let mainBytes = encodedMainTable.bytes;
-
-    if (extensionData.actualData.length > 0) {
-        const extensionOffsetPositions = extensionData.patchKeys.map((patchKey) => {
-            const positions = encodedMainTable.trackedFields[patchKey];
-            check.assert(positions && positions.length === 1, 'GPOS extension offset marker missing for ' + patchKey);
-            return positions[0];
+    if (hasFeatureVariations) {
+        fields.push({
+            name: 'featureVariations',
+            type: 'OFFSET32',
+            value: featureVariationsTable.make(gpos.variations)
         });
-
-        // Calculate where extension data will be appended
-        const dataStartOffset = mainBytes.length;
-        const extDataBytes = [];
-        const dataOffsets = [];
-        let currentOffset = 0;
-
-        for (let i = 0; i < extensionData.actualData.length; i++) {
-            dataOffsets.push(dataStartOffset + currentOffset);
-            extDataBytes.push(...extensionData.actualData[i]);
-            currentOffset += extensionData.actualData[i].length;
-        }
-
-        // Patch the 32-bit extension offsets (relative to each header)
-        for (let i = 0; i < extensionOffsetPositions.length; i++) {
-            const offsetPos = extensionOffsetPositions[i];
-            const headerStart = offsetPos - 4;
-            const relativeOffset = dataOffsets[i] - headerStart;
-            mainBytes[offsetPos] = (relativeOffset >> 24) & 0xff;
-            mainBytes[offsetPos + 1] = (relativeOffset >> 16) & 0xff;
-            mainBytes[offsetPos + 2] = (relativeOffset >> 8) & 0xff;
-            mainBytes[offsetPos + 3] = relativeOffset & 0xff;
-        }
-
-        // Combine main table with extension data
-        const finalBytes = new Uint8Array(mainBytes.length + extDataBytes.length);
-        finalBytes.set(mainBytes);
-        finalBytes.set(extDataBytes, mainBytes.length);
-
-        // Return a Table-like wrapper with pre-computed bytes
-        const finalBytesArray = Array.from(finalBytes);
-        return new table.Table('GPOS', [
-            {name: 'data', type: 'LITERAL', value: finalBytesArray}
-        ]);
     }
 
-    return mainTable;
+    return new table.Table('GPOS', fields);
 }
 
 export default { parse: parseGposTable, make: makeGposTable };

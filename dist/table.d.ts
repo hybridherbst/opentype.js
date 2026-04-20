@@ -39,15 +39,6 @@ export class Table {
      */
     encode(): any[];
     /**
-     * Encodes the table and returns both bytes and tracked field positions.
-     * Fields marked with `patchKey` are reported in `trackedFields`.
-     * @return {{bytes: Array<number>, trackedFields: Record<string, number[]>}}
-     */
-    encodeWithMarkers(): {
-        bytes: Array<number>;
-        trackedFields: Record<string, number[]>;
-    };
-    /**
      * Get the size of the table.
      * @return {number}
      */

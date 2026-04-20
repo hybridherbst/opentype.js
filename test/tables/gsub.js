@@ -392,6 +392,63 @@ describe('tables/gsub.js', function() {
         assert.deepEqual(parsed.lookups[0].subtables[1].extension.coverage, { format: 1, glyphs: [0x66] });
     });
 
+    it('can encode GSUB feature variations alongside extension lookups', function() {
+        const encoded = gsub.make({
+            version: 1.1,
+            scripts: [{
+                tag: 'DFLT',
+                script: {
+                    defaultLangSys: { reqFeatureIndex: 0xFFFF, featureIndexes: [0] },
+                    langSysRecords: []
+                }
+            }],
+            features: [{
+                tag: 'liga',
+                feature: { featureParams: 0, lookupListIndexes: [0] }
+            }],
+            lookups: [{
+                lookupType: 7,
+                lookupFlag: 0,
+                subtables: [{
+                    substFormat: 1,
+                    lookupType: 1,
+                    extension: {
+                        substFormat: 1,
+                        coverage: { format: 1, glyphs: [0x4f] },
+                        deltaGlyphId: 2
+                    }
+                }]
+            }],
+            variations: [{
+                conditions: [{
+                    axisIndex: 0,
+                    filterRangeMinValue: -1,
+                    filterRangeMaxValue: 1
+                }],
+                featureSubstitutions: [{
+                    featureIndex: 0,
+                    lookupListIndices: [0]
+                }]
+            }]
+        }).encode();
+
+        const parsed = gsub.parse(new DataView(Uint8Array.from(encoded).buffer));
+        assert.equal(parsed.version, 1.1);
+        assert.equal(parsed.lookups.length, 1);
+        assert.equal(parsed.lookups[0].lookupType, 7);
+        assert.equal(parsed.variations.length, 1);
+        assert.deepEqual(parsed.variations[0].conditions, [{
+            format: 1,
+            axisIndex: 0,
+            filterRangeMinValue: -1,
+            filterRangeMaxValue: 1
+        }]);
+        assert.deepEqual(parsed.variations[0].featureSubstitutions, [{
+            featureIndex: 0,
+            lookupListIndices: [0]
+        }]);
+    });
+
     //// Lookup type 8 ////////////////////////////////////////////////////////
     it('can parse lookup8', function() {
         // https://www.microsoft.com/typography/OTSPEC/GSUB.htm#EX10

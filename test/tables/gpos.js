@@ -418,6 +418,38 @@ describe('tables/gpos.js', function() {
         assert.deepEqual(reparsed, parsed);
     });
 
+    it('can roundtrip lookup2 PairPosFormat1 with device value records', function() {
+        const subtable = {
+            posFormat: 1,
+            coverage: {
+                format: 1,
+                glyphs: [0x2d]
+            },
+            valueFormat1: 0x0010,
+            valueFormat2: 0,
+            pairSets: [[{
+                secondGlyph: 0x59,
+                value1: {
+                    xPlaDevice: {
+                        type: 'device',
+                        startSize: 11,
+                        endSize: 15,
+                        deltaFormat: 1,
+                        deltaValues: [1, 1, 1, 1, 1]
+                    }
+                }
+            }]]
+        };
+
+        const encoded = makeLookup(2, subtable);
+        const reparsed = parseLookup(2, Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join(' '));
+
+        assert.equal(reparsed.posFormat, 1);
+        assert.equal(reparsed.valueFormat1, 0x0010);
+        assert.ok(reparsed.pairSets[0][0].value1?.xPlaDevice, 'device table should survive roundtrip');
+        assert.deepEqual(reparsed.pairSets[0][0].value1.xPlaDevice, subtable.pairSets[0][0].value1.xPlaDevice);
+    });
+
     //// Parse: Lookup type 4 ////////////////////////////////////////////////
     // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-4-mark-to-base-attachment-positioning-subtable
 
@@ -1012,6 +1044,63 @@ describe('tables/gpos.js', function() {
         assert.equal(parsed.lookups[0].subtables[1].extensionLookupType, 4);
         assert.deepEqual(parsed.lookups[0].subtables[0].extension.coverage, { format: 1, glyphs: [0x4f] });
         assert.deepEqual(parsed.lookups[0].subtables[1].extension.markCoverage, { format: 1, glyphs: [0x300] });
+    });
+
+    it('can encode GPOS feature variations alongside extension lookups', function() {
+        const encoded = gpos.make({
+            version: 1.1,
+            scripts: [{
+                tag: 'DFLT',
+                script: {
+                    defaultLangSys: { reserved: 0, reqFeatureIndex: 0xFFFF, featureIndexes: [0] },
+                    langSysRecords: []
+                }
+            }],
+            features: [{
+                tag: 'kern',
+                feature: { featureParams: 0, lookupListIndexes: [0] }
+            }],
+            lookups: [{
+                lookupType: 9,
+                lookupFlag: 0,
+                subtables: [{
+                    posFormat: 1,
+                    extensionLookupType: 1,
+                    extensionSubtable: {
+                        posFormat: 1,
+                        coverage: { format: 1, glyphs: [0x4f] },
+                        value: { xAdvance: 100 }
+                    }
+                }]
+            }],
+            variations: [{
+                conditions: [{
+                    axisIndex: 0,
+                    filterRangeMinValue: -1,
+                    filterRangeMaxValue: 1
+                }],
+                featureSubstitutions: [{
+                    featureIndex: 0,
+                    lookupListIndices: [0]
+                }]
+            }]
+        }).encode();
+
+        const parsed = gpos.parse(new DataView(Uint8Array.from(encoded).buffer));
+        assert.equal(parsed.version, 1.1);
+        assert.equal(parsed.lookups.length, 1);
+        assert.equal(parsed.lookups[0].lookupType, 9);
+        assert.equal(parsed.variations.length, 1);
+        assert.deepEqual(parsed.variations[0].conditions, [{
+            format: 1,
+            axisIndex: 0,
+            filterRangeMinValue: -1,
+            filterRangeMaxValue: 1
+        }]);
+        assert.deepEqual(parsed.variations[0].featureSubstitutions, [{
+            featureIndex: 0,
+            lookupListIndices: [0]
+        }]);
     });
 
     //// Full table roundtrip //////////////////////////////////////////////////

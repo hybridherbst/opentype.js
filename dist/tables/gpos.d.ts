@@ -411,11 +411,6 @@ export type GposTable = {
  */
 declare function parseGposTable(data: DataView, start?: number): GposTable;
 /**
- * Custom GPOS table encoder that handles extension lookups properly.
- * Extension subtable data is stored at the end of the table with 32-bit offsets.
- * Mirrors the GSUB approach for type 7 Extension Substitution.
- */
-/**
  * @param {GposTable} gpos
  * @returns {object}
  */

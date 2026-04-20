@@ -2779,109 +2779,283 @@ var opentype = (() => {
     check_default.argument(sizeOfFunction !== void 0, "No sizeOf function for type " + v.type);
     return sizeOfFunction(v.value);
   };
-  function encodeTableWithMarkers(table) {
+  function getOffsetFieldWidth(fieldType) {
+    if (fieldType === "TABLE" || fieldType === "OFFSET16") {
+      return 2;
+    }
+    if (fieldType === "OFFSET24") {
+      return 3;
+    }
+    if (fieldType === "OFFSET32") {
+      return 4;
+    }
+    return 0;
+  }
+  function isTableLike(value) {
+    return !!value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "fields");
+  }
+  function encodeOffsetTarget(target) {
+    if (target === null || target === void 0) {
+      return { bytes: [], deferredForParent: [] };
+    }
+    if (isTableLike(target)) {
+      const tableTarget = (
+        /** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string}} */
+        target
+      );
+      if (tableTarget.fields === null) {
+        return { bytes: [], deferredForParent: [] };
+      }
+      return encodeTableNode(tableTarget);
+    }
+    if (Array.isArray(target) || target instanceof Uint8Array) {
+      return { bytes: Array.from(target), deferredForParent: [] };
+    }
+    if (typeof target === "object" && target && "type" in target && "value" in target) {
+      return {
+        bytes: encode.OBJECT(
+          /** @type {{type: string, value: unknown}|Array<{type: string, value: unknown}>} */
+          target
+        ),
+        deferredForParent: []
+      };
+    }
+    check_default.argument(false, "Unsupported offset target type.");
+    return { bytes: [], deferredForParent: [] };
+  }
+  function sizeOfOffsetTarget(target) {
+    if (target === null || target === void 0) {
+      return { size: 0, deferredForParent: [] };
+    }
+    if (isTableLike(target)) {
+      const tableTarget = (
+        /** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>}} */
+        target
+      );
+      if (tableTarget.fields === null) {
+        return { size: 0, deferredForParent: [] };
+      }
+      return sizeOfTableNode(tableTarget);
+    }
+    if (Array.isArray(target) || target instanceof Uint8Array) {
+      return { size: target.length, deferredForParent: [] };
+    }
+    if (typeof target === "object" && target && "type" in target && "value" in target) {
+      return {
+        size: sizeOf.OBJECT(
+          /** @type {{type: string, value: unknown}|Array<{type: string, value: unknown}>} */
+          target
+        ),
+        deferredForParent: []
+      };
+    }
+    check_default.argument(false, "Unsupported offset target type.");
+    return { size: 0, deferredForParent: [] };
+  }
+  function writeOffset(bytes, position, width, value) {
+    if (width === 2) {
+      bytes[position] = value >> 8 & 255;
+      bytes[position + 1] = value & 255;
+      return;
+    }
+    if (width === 3) {
+      bytes[position] = value >> 16 & 255;
+      bytes[position + 1] = value >> 8 & 255;
+      bytes[position + 2] = value & 255;
+      return;
+    }
+    if (width === 4) {
+      bytes[position] = value >> 24 & 255;
+      bytes[position + 1] = value >> 16 & 255;
+      bytes[position + 2] = value >> 8 & 255;
+      bytes[position + 3] = value & 255;
+      return;
+    }
+    check_default.argument(false, "Unsupported offset width " + width + ".");
+  }
+  function appendDeferredEntries(targetEntries, sourceEntries, baseOffset) {
+    for (let i = 0; i < sourceEntries.length; i += 1) {
+      const entry = sourceEntries[i];
+      targetEntries.push({
+        fieldName: entry.fieldName,
+        patchPos: baseOffset + entry.patchPos,
+        ownerStart: baseOffset + entry.ownerStart,
+        width: entry.width,
+        targetScope: entry.targetScope,
+        appendPhase: entry.appendPhase,
+        target: entry.target
+      });
+    }
+  }
+  function routeDeferredEntries(resolveNow, bubbleUp, sourceEntries, baseOffset, resolveRootScoped) {
+    const adjustedEntries = [];
+    appendDeferredEntries(adjustedEntries, sourceEntries, baseOffset);
+    for (let i = 0; i < adjustedEntries.length; i += 1) {
+      const entry = adjustedEntries[i];
+      if (entry.targetScope === "parent" || resolveRootScoped && entry.targetScope === "root") {
+        resolveNow.push(entry);
+      } else {
+        bubbleUp.push(entry);
+      }
+    }
+  }
+  function findNextAppendIndex(queue) {
+    let bestIndex = 0;
+    let bestPhase = queue[0].appendPhase;
+    for (let i = 1; i < queue.length; i += 1) {
+      if (queue[i].appendPhase < bestPhase) {
+        bestIndex = i;
+        bestPhase = queue[i].appendPhase;
+      }
+    }
+    return bestIndex;
+  }
+  function getMaxOffsetForRelocation(relocation) {
+    return relocation.width === 2 ? 65535 : relocation.width === 3 ? 16777215 : 4294967295;
+  }
+  function encodeTableNode(table) {
     let d = [];
     const length = (table.fields || []).length;
-    const subtables = [];
-    const subtableOffsets = [];
-    const subtableMarkers = [];
-    const trackedFields = {};
-    function trackField(patchKey, position) {
-      if (!patchKey)
-        return;
-      if (!trackedFields[patchKey])
-        trackedFields[patchKey] = [];
-      trackedFields[patchKey].push(position);
-    }
-    function mergeTrackedFields(source, baseOffset) {
-      const keys = Object.keys(source);
-      for (let i = 0; i < keys.length; i += 1) {
-        const key = keys[i];
-        const positions = source[key];
-        if (!positions || positions.length === 0)
-          continue;
-        if (!trackedFields[key])
-          trackedFields[key] = [];
-        for (let j = 0; j < positions.length; j += 1) {
-          trackedFields[key].push(positions[j] + baseOffset);
-        }
-      }
-    }
+    const currentScopeEntries = [];
+    const deferredForAncestor = [];
     for (let i = 0; i < length; i += 1) {
       const field = table.fields[i];
+      let value = table[field.name];
+      if (value === void 0) {
+        value = field.value;
+      }
+      const offsetWidth = getOffsetFieldWidth(field.type);
+      if (offsetWidth > 0) {
+        const patchPos = d.length;
+        for (let j = 0; j < offsetWidth; j += 1) {
+          d.push(0);
+        }
+        if (value !== null && value !== void 0 && !(isTableLike(value) && /** @type {{fields?: Array<unknown> | null}} */
+        value.fields === null)) {
+          const relocation = {
+            fieldName: field.name,
+            patchPos,
+            ownerStart: 0,
+            width: offsetWidth,
+            targetScope: field.targetScope || "local",
+            appendPhase: field.appendPhase || 0,
+            target: encodeOffsetTarget(value)
+          };
+          if (relocation.targetScope === "parent" || relocation.targetScope === "root") {
+            deferredForAncestor.push(relocation);
+          } else {
+            currentScopeEntries.push(relocation);
+          }
+        }
+        continue;
+      }
       const encodingFunction = encode[field.type];
       check_default.argument(encodingFunction !== void 0, "No encoding function for field type " + field.type + " (" + field.name + ")");
-      let value = table[field.name];
-      if (value === void 0) {
-        value = field.value;
-      }
-      if (value === null || value === void 0) {
-        if (field.type === "TABLE") {
-          trackField(field.patchKey, d.length);
-          d.push(...[0, 0]);
-          continue;
-        }
-      }
-      if (field.type === "TABLE") {
-        const encodedSubtable = value && /** @type {Record<string, unknown>} */
-        value.fields !== null ? encodeTableWithMarkers(
-          /** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string}} */
-          value
-        ) : null;
-        if (encodedSubtable) {
-          subtableOffsets.push(d.length);
-          subtables.push(encodedSubtable.bytes);
-          subtableMarkers.push(encodedSubtable.trackedFields);
-        }
-        trackField(field.patchKey, d.length);
-        d.push(...[0, 0]);
-      } else {
-        const bytes = encodingFunction(value);
-        trackField(field.patchKey, d.length);
-        for (let j = 0; j < bytes.length; j++) {
-          d.push(bytes[j]);
-        }
+      const bytes = encodingFunction(value);
+      for (let j = 0; j < bytes.length; j++) {
+        d.push(bytes[j]);
       }
     }
-    for (let i = 0; i < subtables.length; i += 1) {
-      const o = subtableOffsets[i];
+    while (currentScopeEntries.length > 0) {
+      const relocation = currentScopeEntries.splice(findNextAppendIndex(currentScopeEntries), 1)[0];
       const offset = d.length;
-      check_default.argument(offset < 65536, "Table " + table.tableName + " too big.");
-      d[o] = offset >> 8;
-      d[o + 1] = offset & 255;
-      mergeTrackedFields(subtableMarkers[i], offset);
-      for (let j = 0; j < subtables[i].length; j++) {
-        d.push(subtables[i][j]);
+      const maxOffset = getMaxOffsetForRelocation(relocation);
+      check_default.argument(offset <= maxOffset, "Table " + table.tableName + " offset for " + relocation.fieldName + " exceeds " + maxOffset + ".");
+      writeOffset(d, relocation.patchPos, relocation.width, offset);
+      for (let j = 0; j < relocation.target.bytes.length; j++) {
+        d.push(relocation.target.bytes[j]);
       }
+      routeDeferredEntries(currentScopeEntries, deferredForAncestor, relocation.target.deferredForParent, offset, false);
     }
-    return { bytes: d, trackedFields };
+    return { bytes: d, deferredForParent: deferredForAncestor };
+  }
+  function encodeTable(table) {
+    const encoded = encodeTableNode(table);
+    const deferredForRoot = [];
+    const unresolved = [];
+    routeDeferredEntries(deferredForRoot, unresolved, encoded.deferredForParent, 0, true);
+    for (let i = 0; i < deferredForRoot.length; i += 1) {
+      const relocation = deferredForRoot[i];
+      const targetStart = encoded.bytes.length;
+      const relativeOffset = targetStart - relocation.ownerStart;
+      const maxOffset = getMaxOffsetForRelocation(relocation);
+      check_default.argument(relativeOffset <= maxOffset, "Table " + table.tableName + " offset for " + relocation.fieldName + " exceeds " + maxOffset + ".");
+      writeOffset(encoded.bytes, relocation.patchPos, relocation.width, relativeOffset);
+      for (let j = 0; j < relocation.target.bytes.length; j++) {
+        encoded.bytes.push(relocation.target.bytes[j]);
+      }
+      routeDeferredEntries(deferredForRoot, unresolved, relocation.target.deferredForParent, targetStart, true);
+    }
+    check_default.argument(unresolved.length === 0, "Table " + table.tableName + " has unresolved ancestor-scoped offsets.");
+    return encoded.bytes;
   }
   encode.TABLE = function(table) {
-    return encodeTableWithMarkers(table).bytes;
+    return encodeTable(table);
   };
-  encode.TABLE_WITH_MARKERS = encodeTableWithMarkers;
-  sizeOf.TABLE = function(table) {
+  function sizeOfTableNode(table) {
     let numBytes = 0;
     const length = (table.fields || []).length;
+    const currentScopeEntries = [];
+    const deferredForAncestor = [];
     for (let i = 0; i < length; i += 1) {
       const field = table.fields[i];
-      const sizeOfFunction = sizeOf[field.type];
-      check_default.argument(sizeOfFunction !== void 0, "No sizeOf function for field type " + field.type + " (" + field.name + ")");
       let value = table[field.name];
       if (value === void 0) {
         value = field.value;
       }
-      if (value === null || value === void 0) {
-        if (field.type === "TABLE") {
-          numBytes += 2;
-          continue;
+      const offsetWidth = getOffsetFieldWidth(field.type);
+      if (offsetWidth > 0) {
+        const patchPos = numBytes;
+        numBytes += offsetWidth;
+        if (value !== null && value !== void 0 && !(isTableLike(value) && /** @type {{fields?: Array<unknown> | null}} */
+        value.fields === null)) {
+          const relocation = {
+            fieldName: field.name,
+            patchPos,
+            ownerStart: 0,
+            width: offsetWidth,
+            targetScope: field.targetScope || "local",
+            appendPhase: field.appendPhase || 0,
+            target: sizeOfOffsetTarget(value)
+          };
+          if (relocation.targetScope === "parent" || relocation.targetScope === "root") {
+            deferredForAncestor.push(relocation);
+          } else {
+            currentScopeEntries.push(relocation);
+          }
         }
+        continue;
       }
+      const sizeOfFunction = sizeOf[field.type];
+      check_default.argument(sizeOfFunction !== void 0, "No sizeOf function for field type " + field.type + " (" + field.name + ")");
       numBytes += sizeOfFunction(value);
-      if (field.type === "TABLE") {
-        numBytes += 2;
-      }
     }
+    while (currentScopeEntries.length > 0) {
+      const relocation = currentScopeEntries.splice(findNextAppendIndex(currentScopeEntries), 1)[0];
+      const offset = numBytes;
+      const maxOffset = getMaxOffsetForRelocation(relocation);
+      check_default.argument(offset <= maxOffset, "Table " + table.tableName + " offset for " + relocation.fieldName + " exceeds " + maxOffset + ".");
+      numBytes += relocation.target.size;
+      routeDeferredEntries(currentScopeEntries, deferredForAncestor, relocation.target.deferredForParent, offset, false);
+    }
+    return { size: numBytes, deferredForParent: deferredForAncestor };
+  }
+  sizeOf.TABLE = function(table) {
+    const sized = sizeOfTableNode(table);
+    let numBytes = sized.size;
+    const deferredForRoot = [];
+    const unresolved = [];
+    routeDeferredEntries(deferredForRoot, unresolved, sized.deferredForParent, 0, true);
+    for (let i = 0; i < deferredForRoot.length; i += 1) {
+      const relocation = deferredForRoot[i];
+      const targetStart = numBytes;
+      const relativeOffset = targetStart - relocation.ownerStart;
+      const maxOffset = getMaxOffsetForRelocation(relocation);
+      check_default.argument(relativeOffset <= maxOffset, "Table " + table.tableName + " offset for " + relocation.fieldName + " exceeds " + maxOffset + ".");
+      numBytes += relocation.target.size;
+      routeDeferredEntries(deferredForRoot, unresolved, relocation.target.deferredForParent, targetStart, true);
+    }
+    check_default.argument(unresolved.length === 0, "Table " + table.tableName + " has unresolved ancestor-scoped offsets.");
     return numBytes;
   };
   encode.RECORD = encode.TABLE;
@@ -2917,13 +3091,6 @@ var opentype = (() => {
   Table.prototype.encode = function() {
     return encode.TABLE(
       /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */
-      /** @type {unknown} */
-      this
-    );
-  };
-  Table.prototype.encodeWithMarkers = function() {
-    return encode.TABLE_WITH_MARKERS(
-      /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string }} */
       /** @type {unknown} */
       this
     );
@@ -10340,6 +10507,83 @@ var opentype = (() => {
   }
   var gdef_default = { parse: parseGDEFTable, make: makeGDEFTable };
 
+  // src/tables/featurevariations.js
+  function makeConditionTable(condition) {
+    return new table_default.Table("conditionTable", [
+      { name: "format", type: "USHORT", value: condition.format || 1 },
+      { name: "axisIndex", type: "USHORT", value: condition.axisIndex },
+      { name: "filterRangeMinValue", type: "F2DOT14", value: condition.filterRangeMinValue },
+      { name: "filterRangeMaxValue", type: "F2DOT14", value: condition.filterRangeMaxValue }
+    ]);
+  }
+  function makeConditionSetTable(conditions) {
+    const conditionList = Array.isArray(conditions) ? conditions : [];
+    const fields = [
+      { name: "conditionCount", type: "USHORT", value: conditionList.length }
+    ];
+    for (let i = 0; i < conditionList.length; i += 1) {
+      fields.push({
+        name: "condition_" + i,
+        type: "OFFSET32",
+        value: makeConditionTable(conditionList[i])
+      });
+    }
+    return new table_default.Table("conditionSetTable", fields);
+  }
+  function makeAlternateFeatureTable(substitution) {
+    const lookupListIndices = substitution.lookupListIndices || [];
+    return new table_default.Table("alternateFeatureTable", [
+      { name: "featureParams", type: "USHORT", value: 0 }
+    ].concat(table_default.ushortList("lookupListIndex", lookupListIndices)));
+  }
+  function makeFeatureTableSubstitutionTable(featureSubstitutions) {
+    const substitutions = Array.isArray(featureSubstitutions) ? featureSubstitutions : [];
+    const fields = [
+      { name: "majorVersion", type: "USHORT", value: 1 },
+      { name: "minorVersion", type: "USHORT", value: 0 },
+      { name: "substitutionCount", type: "USHORT", value: substitutions.length }
+    ];
+    for (let i = 0; i < substitutions.length; i += 1) {
+      const substitution = substitutions[i];
+      fields.push({
+        name: "featureIndex_" + i,
+        type: "USHORT",
+        value: substitution.featureIndex
+      });
+      fields.push({
+        name: "alternateFeature_" + i,
+        type: "OFFSET32",
+        value: makeAlternateFeatureTable(substitution)
+      });
+    }
+    return new table_default.Table("featureTableSubstitutionTable", fields);
+  }
+  function makeFeatureVariationsTable(variations) {
+    const featureVariations = Array.isArray(variations) ? variations : [];
+    const fields = [
+      { name: "majorVersion", type: "USHORT", value: 1 },
+      { name: "minorVersion", type: "USHORT", value: 0 },
+      { name: "featureVariationRecordCount", type: "ULONG", value: featureVariations.length }
+    ];
+    for (let i = 0; i < featureVariations.length; i += 1) {
+      const variation = featureVariations[i];
+      fields.push({
+        name: "conditionSet_" + i,
+        type: "OFFSET32",
+        value: makeConditionSetTable(variation.conditions)
+      });
+      fields.push({
+        name: "featureTableSubstitution_" + i,
+        type: "OFFSET32",
+        value: makeFeatureTableSubstitutionTable(variation.featureSubstitutions)
+      });
+    }
+    return new table_default.Table("featureVariationsTable", fields);
+  }
+  var featurevariations_default = {
+    make: makeFeatureVariationsTable
+  };
+
   // src/tables/gsub.js
   var subtableParsers = new Array(9);
   subtableParsers[1] = function parseLookup1() {
@@ -10720,209 +10964,34 @@ var opentype = (() => {
     }
     check_default.assert(false, "lookup type 6 format must be 1, 2 or 3.");
   };
-  subtableMakers[7] = function makeLookup7(subtable, extensionData) {
+  subtableMakers[7] = function makeLookup7(subtable) {
     check_default.argument(subtable.substFormat === 1, "Extension substitution format must be 1");
     check_default.argument(subtable.lookupType && subtable.lookupType !== 7, "Extension cannot wrap another extension");
     const actualMaker = subtableMakers[subtable.lookupType];
     check_default.assert(actualMaker, "No maker for extension lookup type " + subtable.lookupType);
     const actualTable = actualMaker(subtable.extension);
-    const actualBytes = actualTable.encode();
-    if (extensionData && extensionData.actualData && extensionData.patchKeys) {
-      const patchKey = "gsub-extension-offset-" + extensionData.actualData.length;
-      extensionData.actualData.push(actualBytes);
-      extensionData.patchKeys.push(patchKey);
-      return new table_default.Table("extensionSubstitution", [
-        { name: "substFormat", type: "USHORT", value: 1 },
-        { name: "extensionLookupType", type: "USHORT", value: subtable.lookupType },
-        { name: "extensionOffset", type: "ULONG", value: 0, patchKey }
-        // Placeholder
-      ]);
-    }
     return new table_default.Table("extensionSubstitution", [
       { name: "substFormat", type: "USHORT", value: 1 },
       { name: "extensionLookupType", type: "USHORT", value: subtable.lookupType },
-      { name: "extensionOffset", type: "ULONG", value: 8 },
-      { name: "extension", type: "LITERAL", value: actualBytes }
+      { name: "extensionOffset", type: "OFFSET32", value: actualTable, targetScope: "root" }
     ]);
   };
-  function patchUint32(bytes, pos, value) {
-    bytes[pos] = value >> 24 & 255;
-    bytes[pos + 1] = value >> 16 & 255;
-    bytes[pos + 2] = value >> 8 & 255;
-    bytes[pos + 3] = value & 255;
-  }
-  function buildFeatureVariationsBytes(variations) {
-    const bytes = [];
-    const write16 = (v) => {
-      bytes.push(v >> 8 & 255, v & 255);
-    };
-    const write32 = (v) => {
-      bytes.push(v >> 24 & 255, v >> 16 & 255, v >> 8 & 255, v & 255);
-    };
-    const writeF2Dot142 = (v) => {
-      let i = Math.round(v * 16384);
-      if (i < 0)
-        i += 65536;
-      write16(i);
-    };
-    write16(1);
-    write16(0);
-    write32(variations.length);
-    const recordOffsetPositions = [];
-    for (let i = 0; i < variations.length; i++) {
-      recordOffsetPositions.push(bytes.length);
-      write32(0);
-      write32(0);
-    }
-    for (let i = 0; i < variations.length; i++) {
-      const v = variations[i];
-      const csOffset = bytes.length;
-      patchUint32(bytes, recordOffsetPositions[i], csOffset);
-      write16(v.conditions.length);
-      const condOffsetPositions = [];
-      for (let j = 0; j < v.conditions.length; j++) {
-        condOffsetPositions.push(bytes.length);
-        write32(0);
-      }
-      for (let j = 0; j < v.conditions.length; j++) {
-        const cond = v.conditions[j];
-        patchUint32(bytes, condOffsetPositions[j], bytes.length - csOffset);
-        write16(cond.format || 1);
-        write16(cond.axisIndex);
-        writeF2Dot142(cond.filterRangeMinValue);
-        writeF2Dot142(cond.filterRangeMaxValue);
-      }
-    }
-    for (let i = 0; i < variations.length; i++) {
-      const v = variations[i];
-      const ftsOffset = bytes.length;
-      patchUint32(bytes, recordOffsetPositions[i] + 4, ftsOffset);
-      write16(1);
-      write16(0);
-      write16(v.featureSubstitutions.length);
-      const subOffsetPositions = [];
-      for (let j = 0; j < v.featureSubstitutions.length; j++) {
-        const fs = v.featureSubstitutions[j];
-        write16(fs.featureIndex);
-        subOffsetPositions.push(bytes.length);
-        write32(0);
-      }
-      for (let j = 0; j < v.featureSubstitutions.length; j++) {
-        const fs = v.featureSubstitutions[j];
-        patchUint32(bytes, subOffsetPositions[j], bytes.length - ftsOffset);
-        write16(0);
-        write16(fs.lookupListIndices.length);
-        for (const li of fs.lookupListIndices) {
-          write16(li);
-        }
-      }
-    }
-    return bytes;
-  }
-  function makeInlineGsubTable(gsub, hasFeatureVariations) {
+  function makeGsubTable(gsub) {
+    const hasFeatureVariations = gsub.variations && gsub.variations.length > 0;
     const tableFields = [
       { name: "version", type: "ULONG", value: hasFeatureVariations ? 65537 : 65536 },
       { name: "scripts", type: "TABLE", value: new table_default.ScriptList(gsub.scripts) },
       { name: "features", type: "TABLE", value: new table_default.FeatureList(gsub.features) },
       { name: "lookups", type: "TABLE", value: new table_default.LookupList(gsub.lookups, subtableMakers) }
     ];
-    if (!hasFeatureVariations) {
-      return new table_default.Table("GSUB", tableFields);
-    }
-    const mainTable = new table_default.Table("GSUB", [
-      ...tableFields,
-      { name: "featureVariationsOffset", type: "ULONG", value: 0 }
-    ]);
-    let mainBytes = mainTable.encode();
-    const fvBytes = buildFeatureVariationsBytes(gsub.variations || []);
-    const fvDataStart = mainBytes.length;
-    patchUint32(mainBytes, 10, fvDataStart);
-    const finalBytes = new Uint8Array(mainBytes.length + fvBytes.length);
-    finalBytes.set(mainBytes);
-    finalBytes.set(fvBytes, mainBytes.length);
-    return new table_default.Table("GSUB", [
-      { name: "data", type: "LITERAL", value: Array.from(finalBytes) }
-    ]);
-  }
-  function makeGsubTable(gsub) {
-    let hasExtensions = false;
-    for (const lookup of gsub.lookups) {
-      if (lookup.lookupType === 7) {
-        hasExtensions = true;
-        break;
-      }
-    }
-    const hasFeatureVariations = gsub.variations && gsub.variations.length > 0;
-    if (!hasExtensions && !hasFeatureVariations) {
-      return makeInlineGsubTable(gsub, false);
-    }
-    if (hasFeatureVariations && !hasExtensions) {
-      return makeInlineGsubTable(gsub, true);
-    }
-    const extensionData = {
-      actualData: [],
-      // The actual subtable bytes for each extension
-      patchKeys: []
-      // Marker keys for each extensionOffset field
-    };
-    const makersWithExtension = Object.assign({}, subtableMakers);
-    const originalMaker7 = subtableMakers[7];
-    makersWithExtension[7] = function(subtable) {
-      return originalMaker7(subtable, extensionData);
-    };
-    const tableFields = [
-      { name: "version", type: "ULONG", value: hasFeatureVariations ? 65537 : 65536 },
-      { name: "scripts", type: "TABLE", value: new table_default.ScriptList(gsub.scripts) },
-      { name: "features", type: "TABLE", value: new table_default.FeatureList(gsub.features) },
-      { name: "lookups", type: "TABLE", value: new table_default.LookupList(gsub.lookups, makersWithExtension) }
-    ];
     if (hasFeatureVariations) {
-      tableFields.push({ name: "featureVariationsOffset", type: "ULONG", value: 0 });
-    }
-    const mainTable = new table_default.Table("GSUB", tableFields);
-    const encodedMainTable = mainTable.encodeWithMarkers();
-    let mainBytes = encodedMainTable.bytes;
-    if (extensionData.actualData.length > 0) {
-      const extensionOffsetPositions = extensionData.patchKeys.map((patchKey) => {
-        const positions = encodedMainTable.trackedFields[patchKey];
-        check_default.assert(positions && positions.length === 1, "GSUB extension offset marker missing for " + patchKey);
-        return positions[0];
+      tableFields.push({
+        name: "featureVariations",
+        type: "OFFSET32",
+        value: featurevariations_default.make(gsub.variations)
       });
-      const dataStartOffset = mainBytes.length;
-      const extDataBytes = [];
-      const dataOffsets = [];
-      let currentOffset = 0;
-      for (let i = 0; i < extensionData.actualData.length; i++) {
-        dataOffsets.push(dataStartOffset + currentOffset);
-        extDataBytes.push(...extensionData.actualData[i]);
-        currentOffset += extensionData.actualData[i].length;
-      }
-      for (let i = 0; i < extensionOffsetPositions.length; i++) {
-        const offsetPos = extensionOffsetPositions[i];
-        const headerStart = offsetPos - 4;
-        const relativeOffset = dataOffsets[i] - headerStart;
-        patchUint32(mainBytes, offsetPos, relativeOffset);
-      }
-      let combinedLength = mainBytes.length + extDataBytes.length;
-      let fvBytes = null;
-      if (hasFeatureVariations) {
-        fvBytes = buildFeatureVariationsBytes(gsub.variations);
-        combinedLength += fvBytes.length;
-      }
-      const finalBytes = new Uint8Array(combinedLength);
-      finalBytes.set(mainBytes);
-      finalBytes.set(extDataBytes, mainBytes.length);
-      if (hasFeatureVariations && fvBytes) {
-        const fvDataStart = mainBytes.length + extDataBytes.length;
-        finalBytes.set(fvBytes, fvDataStart);
-        patchUint32(finalBytes, 10, fvDataStart);
-      }
-      const finalBytesArray = Array.from(finalBytes);
-      return new table_default.Table("GSUB", [
-        { name: "data", type: "LITERAL", value: finalBytesArray }
-      ]);
     }
-    return mainTable;
+    return new table_default.Table("GSUB", tableFields);
   }
   var gsub_default = { parse: parseGsubTable, make: makeGsubTable };
 
@@ -11277,8 +11346,8 @@ var opentype = (() => {
     if (format === 2) {
       fields.push({ name: "anchorPoint", type: "USHORT", value: anchor.anchorPoint || 0 });
     } else if (format === 3) {
-      fields.push({ name: "xDeviceTableOffset", type: "USHORT", value: 0 });
-      fields.push({ name: "yDeviceTableOffset", type: "USHORT", value: 0 });
+      fields.push({ name: "xDeviceTableOffset", type: "OFFSET16", value: makeDeviceOrVariationIndexTable(anchor.xDevice) });
+      fields.push({ name: "yDeviceTableOffset", type: "OFFSET16", value: makeDeviceOrVariationIndexTable(anchor.yDevice) });
     }
     return new table_default.Table("anchorTable", fields);
   }
@@ -11320,108 +11389,65 @@ var opentype = (() => {
     if (valueFormat & 8)
       fields.push({ name: prefix + "yAdvance", type: "SHORT", value: (value == null ? void 0 : value.yAdvance) || 0 });
     if (valueFormat & 16)
-      fields.push({ name: prefix + "xPlaDevOff", type: "USHORT", value: 0 });
+      fields.push({ name: prefix + "xPlaDevOff", type: "OFFSET16", value: makeDeviceOrVariationIndexTable(value == null ? void 0 : value.xPlaDevice) });
     if (valueFormat & 32)
-      fields.push({ name: prefix + "yPlaDevOff", type: "USHORT", value: 0 });
+      fields.push({ name: prefix + "yPlaDevOff", type: "OFFSET16", value: makeDeviceOrVariationIndexTable(value == null ? void 0 : value.yPlaDevice) });
     if (valueFormat & 64)
-      fields.push({ name: prefix + "xAdvDevOff", type: "USHORT", value: 0 });
+      fields.push({ name: prefix + "xAdvDevOff", type: "OFFSET16", value: makeDeviceOrVariationIndexTable(value == null ? void 0 : value.xAdvDevice) });
     if (valueFormat & 128)
-      fields.push({ name: prefix + "yAdvDevOff", type: "USHORT", value: 0 });
+      fields.push({ name: prefix + "yAdvDevOff", type: "OFFSET16", value: makeDeviceOrVariationIndexTable(value == null ? void 0 : value.yAdvDevice) });
     return fields;
   }
-  function encodeDeviceTable(device) {
+  function packDeviceTableWords(device) {
+    const fields = [];
+    const values = device.deltaValues || [];
+    const bitsPerValue = [0, 2, 4, 8][device.deltaFormat] || 2;
+    const valuesPerWord = 16 / bitsPerValue;
+    const mask = (1 << bitsPerValue) - 1;
+    for (let i = 0; i < values.length; i += valuesPerWord) {
+      let word = 0;
+      for (let j = 0; j < valuesPerWord && i + j < values.length; j++) {
+        let v = values[i + j];
+        if (v < 0)
+          v += 1 << bitsPerValue;
+        word |= (v & mask) << 16 - bitsPerValue * (j + 1);
+      }
+      fields.push({ name: "deltaValueWord" + i / valuesPerWord, type: "USHORT", value: word });
+    }
+    return fields;
+  }
+  function makeDeviceOrVariationIndexTable(device) {
     if (!device)
       return null;
-    const d = [];
     if (device.type === "variationIndex") {
-      d.push(device.deltaSetOuterIndex >> 8 & 255, device.deltaSetOuterIndex & 255);
-      d.push(device.deltaSetInnerIndex >> 8 & 255, device.deltaSetInnerIndex & 255);
-      d.push(device.deltaFormat >> 8 & 255, device.deltaFormat & 255);
-    } else if (device.type === "device") {
-      d.push(device.startSize >> 8 & 255, device.startSize & 255);
-      d.push(device.endSize >> 8 & 255, device.endSize & 255);
-      d.push(device.deltaFormat >> 8 & 255, device.deltaFormat & 255);
-      const values = device.deltaValues || [];
-      const bitsPerValue = [0, 2, 4, 8][device.deltaFormat] || 2;
-      const valuesPerWord = 16 / bitsPerValue;
-      const mask = (1 << bitsPerValue) - 1;
-      for (let i = 0; i < values.length; i += valuesPerWord) {
-        let word = 0;
-        for (let j = 0; j < valuesPerWord && i + j < values.length; j++) {
-          let v = values[i + j];
-          if (v < 0)
-            v = v + (1 << bitsPerValue);
-          word |= (v & mask) << 16 - bitsPerValue * (j + 1);
-        }
-        d.push(word >> 8 & 255, word & 255);
-      }
+      return new table_default.Table("variationIndexTable", [
+        { name: "deltaSetOuterIndex", type: "USHORT", value: device.deltaSetOuterIndex || 0 },
+        { name: "deltaSetInnerIndex", type: "USHORT", value: device.deltaSetInnerIndex || 0 },
+        { name: "deltaFormat", type: "USHORT", value: device.deltaFormat || 0 }
+      ]);
     }
-    return d.length > 0 ? d : null;
+    if (device.type === "device") {
+      return new table_default.Table("deviceTable", [
+        { name: "startSize", type: "USHORT", value: device.startSize || 0 },
+        { name: "endSize", type: "USHORT", value: device.endSize || 0 },
+        { name: "deltaFormat", type: "USHORT", value: device.deltaFormat || 0 }
+      ].concat(packDeviceTableWords(device)));
+    }
+    check_default.assert(false, "Unsupported GPOS device table type " + device.type + ".");
+    return null;
   }
-  function pushShort(d, v) {
-    v = v || 0;
-    d.push(v >> 8 & 255, v & 255);
-  }
-  function pushUShort(d, v) {
-    v = v || 0;
-    d.push(v >> 8 & 255, v & 255);
-  }
-  function writeValueRecordBytes(d, value, valueFormat, devicePatches) {
-    if (valueFormat & 1)
-      pushShort(d, value == null ? void 0 : value.xPlacement);
-    if (valueFormat & 2)
-      pushShort(d, value == null ? void 0 : value.yPlacement);
-    if (valueFormat & 4)
-      pushShort(d, value == null ? void 0 : value.xAdvance);
-    if (valueFormat & 8)
-      pushShort(d, value == null ? void 0 : value.yAdvance);
-    if (valueFormat & 16) {
-      const pos = d.length;
-      d.push(0, 0);
-      const bytes = encodeDeviceTable(value == null ? void 0 : value.xPlaDevice);
-      if (bytes)
-        devicePatches.push({ bytePos: pos, deviceData: bytes });
+  function makePairSetTable(pairSet, valueFormat1, valueFormat2, pairSetIndex) {
+    const fields = [
+      { name: "pairValueCount", type: "USHORT", value: pairSet.length }
+    ];
+    for (let i = 0; i < pairSet.length; i++) {
+      const pair = pairSet[i] || {};
+      const prefix = "pairSet" + pairSetIndex + "Pair" + i + "_";
+      fields.push({ name: prefix + "secondGlyph", type: "USHORT", value: pair.secondGlyph || 0 });
+      fields.push(...valueRecordFields(prefix + "value1_", pair.value1, valueFormat1));
+      fields.push(...valueRecordFields(prefix + "value2_", pair.value2, valueFormat2));
     }
-    if (valueFormat & 32) {
-      const pos = d.length;
-      d.push(0, 0);
-      const bytes = encodeDeviceTable(value == null ? void 0 : value.yPlaDevice);
-      if (bytes)
-        devicePatches.push({ bytePos: pos, deviceData: bytes });
-    }
-    if (valueFormat & 64) {
-      const pos = d.length;
-      d.push(0, 0);
-      const bytes = encodeDeviceTable(value == null ? void 0 : value.xAdvDevice);
-      if (bytes)
-        devicePatches.push({ bytePos: pos, deviceData: bytes });
-    }
-    if (valueFormat & 128) {
-      const pos = d.length;
-      d.push(0, 0);
-      const bytes = encodeDeviceTable(value == null ? void 0 : value.yAdvDevice);
-      if (bytes)
-        devicePatches.push({ bytePos: pos, deviceData: bytes });
-    }
-  }
-  function finalizeDevicePatches(d, devicePatches, baseOffset) {
-    if (devicePatches.length === 0)
-      return;
-    const cache = /* @__PURE__ */ new Map();
-    for (const patch of devicePatches) {
-      const key = patch.deviceData.join(",");
-      let offset = cache.get(key);
-      if (offset === void 0) {
-        offset = d.length;
-        cache.set(key, offset);
-        for (let k = 0; k < patch.deviceData.length; k++) {
-          d.push(patch.deviceData[k]);
-        }
-      }
-      const relativeOffset = offset - baseOffset;
-      d[patch.bytePos] = relativeOffset >> 8 & 255;
-      d[patch.bytePos + 1] = relativeOffset & 255;
-    }
+    return new table_default.Table("pairSetTable", fields);
   }
   subtableMakers2[1] = function makeLookup12(subtable) {
     if (subtable.posFormat === 1) {
@@ -11457,182 +11483,49 @@ var opentype = (() => {
     );
     if (subtable.posFormat === 1) {
       const pairSets = subtable.pairSets || [];
-      const vf1 = subtable.valueFormat1 || 0;
-      const vf2 = subtable.valueFormat2 || 0;
-      const hasDeviceTables = (vf1 | vf2) & 240;
-      const pairSetRecords = [];
-      const pairSetDevicePatches = [];
+      const valueFormat1 = subtable.valueFormat1 || 0;
+      const valueFormat2 = subtable.valueFormat2 || 0;
+      const fields = [
+        { name: "posFormat", type: "USHORT", value: 1 },
+        { name: "coverage", type: "TABLE", value: new table_default.Coverage(subtable.coverage), appendPhase: 1 },
+        { name: "valueFormat1", type: "USHORT", value: valueFormat1 },
+        { name: "valueFormat2", type: "USHORT", value: valueFormat2 },
+        { name: "pairSetCount", type: "USHORT", value: pairSets.length }
+      ];
       for (let i = 0; i < pairSets.length; i++) {
-        const pairs = pairSets[i] || [];
-        const d2 = [];
-        const devicePatches = [];
-        pushUShort(d2, pairs.length);
-        for (let j = 0; j < pairs.length; j++) {
-          const pair = pairs[j];
-          pushUShort(d2, pair.secondGlyph);
-          writeValueRecordBytes(d2, pair.value1, vf1, devicePatches);
-          writeValueRecordBytes(d2, pair.value2, vf2, devicePatches);
-        }
-        pairSetRecords.push(d2);
-        pairSetDevicePatches.push(devicePatches);
+        fields.push({
+          name: "pairSet" + i,
+          type: "TABLE",
+          value: pairSets[i] ? makePairSetTable(pairSets[i], valueFormat1, valueFormat2, i) : null
+        });
       }
-      const pairSetKeyMap = /* @__PURE__ */ new Map();
-      const canonicalIndex = [];
-      const uniquePairSets = [];
-      for (let i = 0; i < pairSetRecords.length; i++) {
-        let key = pairSetRecords[i].join(",");
-        if (hasDeviceTables && pairSetDevicePatches[i].length > 0) {
-          key += "|" + pairSetDevicePatches[i].map(
-            (p) => p.bytePos + ":" + p.deviceData.join(",")
-          ).join(";");
-        }
-        let cidx = pairSetKeyMap.get(key);
-        if (cidx === void 0) {
-          cidx = uniquePairSets.length;
-          pairSetKeyMap.set(key, cidx);
-          uniquePairSets.push({
-            recordBytes: pairSetRecords[i],
-            devicePatches: pairSetDevicePatches[i],
-            originalIndex: i
-          });
-        }
-        canonicalIndex.push(cidx);
-      }
-      const coverageTable = new table_default.Coverage(subtable.coverage);
-      const coverageBytes = encode.TABLE(
-        /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */
-        /** @type {unknown} */
-        coverageTable
-      );
-      const headerSize = 10 + pairSets.length * 2;
-      let offset = headerSize;
-      const uniquePairSetPositions = [];
-      for (let i = 0; i < uniquePairSets.length; i++) {
-        uniquePairSetPositions.push(offset);
-        offset += uniquePairSets[i].recordBytes.length;
-      }
-      const pairSetOffsets = [];
-      for (let i = 0; i < pairSets.length; i++) {
-        pairSetOffsets.push(uniquePairSetPositions[canonicalIndex[i]]);
-      }
-      const deviceCache = /* @__PURE__ */ new Map();
-      const patchList = [];
-      if (hasDeviceTables) {
-        for (let u = 0; u < uniquePairSets.length; u++) {
-          const ups = uniquePairSets[u];
-          const pairSetStart = uniquePairSetPositions[u];
-          for (const patch of ups.devicePatches) {
-            const key = patch.deviceData.join(",");
-            let deviceAbsOffset = deviceCache.get(key);
-            if (deviceAbsOffset === void 0) {
-              deviceAbsOffset = offset;
-              deviceCache.set(key, deviceAbsOffset);
-              offset += patch.deviceData.length;
-            }
-            const relativeOffset = deviceAbsOffset - pairSetStart;
-            const absoluteBytePos = pairSetStart + patch.bytePos;
-            patchList.push({ absoluteBytePos, relativeOffset });
-          }
-        }
-      }
-      const coverageOffset = offset;
-      const d = [];
-      pushUShort(d, 1);
-      pushUShort(d, coverageOffset);
-      pushUShort(d, vf1);
-      pushUShort(d, vf2);
-      pushUShort(d, pairSets.length);
-      for (let i = 0; i < pairSetOffsets.length; i++) {
-        pushUShort(d, pairSetOffsets[i]);
-      }
-      for (let i = 0; i < uniquePairSets.length; i++) {
-        const bytes = uniquePairSets[i].recordBytes;
-        for (let j = 0; j < bytes.length; j++) {
-          d.push(bytes[j]);
-        }
-      }
-      if (hasDeviceTables) {
-        const written = /* @__PURE__ */ new Set();
-        for (let u = 0; u < uniquePairSets.length; u++) {
-          for (const patch of uniquePairSets[u].devicePatches) {
-            const key = patch.deviceData.join(",");
-            if (!written.has(key)) {
-              written.add(key);
-              for (let k = 0; k < patch.deviceData.length; k++) {
-                d.push(patch.deviceData[k]);
-              }
-            }
-          }
-        }
-        for (const p of patchList) {
-          d[p.absoluteBytePos] = p.relativeOffset >> 8 & 255;
-          d[p.absoluteBytePos + 1] = p.relativeOffset & 255;
-        }
-      }
-      for (let j = 0; j < coverageBytes.length; j++) {
-        d.push(coverageBytes[j]);
-      }
-      return new table_default.Table("pairPosFormat1", [
-        { name: "data", type: "LITERAL", value: d }
-      ]);
+      return new table_default.Table("pairPosFormat1", fields);
     } else {
-      const vf1 = subtable.valueFormat1 || 0;
-      const vf2 = subtable.valueFormat2 || 0;
+      const valueFormat1 = subtable.valueFormat1 || 0;
+      const valueFormat2 = subtable.valueFormat2 || 0;
       const class1Count = subtable.class1Count || 0;
       const class2Count = subtable.class2Count || 0;
       const classRecords = subtable.classRecords || [];
-      const coverageBytes = encode.TABLE(
-        /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */
-        /** @type {unknown} */
-        new table_default.Coverage(subtable.coverage)
-      );
-      const classDef1Bytes = subtable.classDef1 ? encode.TABLE(
-        /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */
-        /** @type {unknown} */
-        new table_default.ClassDef(subtable.classDef1)
-      ) : [];
-      const classDef2Bytes = subtable.classDef2 ? encode.TABLE(
-        /** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */
-        /** @type {unknown} */
-        new table_default.ClassDef(subtable.classDef2)
-      ) : [];
-      const d = [];
-      const devicePatches = [];
-      pushUShort(d, 2);
-      pushUShort(d, 0);
-      pushUShort(d, vf1);
-      pushUShort(d, vf2);
-      pushUShort(d, 0);
-      pushUShort(d, 0);
-      pushUShort(d, class1Count);
-      pushUShort(d, class2Count);
+      const fields = [
+        { name: "posFormat", type: "USHORT", value: 2 },
+        { name: "coverage", type: "TABLE", value: new table_default.Coverage(subtable.coverage) },
+        { name: "valueFormat1", type: "USHORT", value: valueFormat1 },
+        { name: "valueFormat2", type: "USHORT", value: valueFormat2 },
+        { name: "classDef1", type: "TABLE", value: subtable.classDef1 ? new table_default.ClassDef(subtable.classDef1) : null },
+        { name: "classDef2", type: "TABLE", value: subtable.classDef2 ? new table_default.ClassDef(subtable.classDef2) : null },
+        { name: "class1Count", type: "USHORT", value: class1Count },
+        { name: "class2Count", type: "USHORT", value: class2Count }
+      ];
       for (let i = 0; i < class1Count; i++) {
         const class2Records = classRecords[i] || [];
         for (let j = 0; j < class2Count; j++) {
-          const rec = class2Records[j] || {};
-          writeValueRecordBytes(d, rec.value1, vf1, devicePatches);
-          writeValueRecordBytes(d, rec.value2, vf2, devicePatches);
+          const record = class2Records[j] || {};
+          const prefix = "class1_" + i + "_class2_" + j + "_";
+          fields.push(...valueRecordFields(prefix + "value1_", record.value1, valueFormat1));
+          fields.push(...valueRecordFields(prefix + "value2_", record.value2, valueFormat2));
         }
       }
-      const coverageOffset = d.length;
-      for (let k = 0; k < coverageBytes.length; k++)
-        d.push(coverageBytes[k]);
-      const classDef1Offset = subtable.classDef1 ? d.length : 0;
-      for (let k = 0; k < classDef1Bytes.length; k++)
-        d.push(classDef1Bytes[k]);
-      const classDef2Offset = subtable.classDef2 ? d.length : 0;
-      for (let k = 0; k < classDef2Bytes.length; k++)
-        d.push(classDef2Bytes[k]);
-      finalizeDevicePatches(d, devicePatches, 0);
-      d[2] = coverageOffset >> 8 & 255;
-      d[3] = coverageOffset & 255;
-      d[8] = classDef1Offset >> 8 & 255;
-      d[9] = classDef1Offset & 255;
-      d[10] = classDef2Offset >> 8 & 255;
-      d[11] = classDef2Offset & 255;
-      return new table_default.Table("pairPosFormat2", [
-        { name: "data", type: "LITERAL", value: d }
-      ]);
+      return new table_default.Table("pairPosFormat2", fields);
     }
   };
   subtableMakers2[3] = function makeLookup32(subtable) {
@@ -12006,7 +11899,7 @@ var opentype = (() => {
     }
     check_default.assert(false, "GPOS lookup type 8 posFormat must be 1, 2 or 3.");
   };
-  subtableMakers2[9] = function makeLookup9(subtable, extensionData) {
+  subtableMakers2[9] = function makeLookup9(subtable) {
     if (!subtable || subtable.error || subtable.posFormat === void 0) {
       return new table_default.Table("extensionPosTable", [
         { name: "posFormat", type: "USHORT", value: 1 },
@@ -12022,31 +11915,10 @@ var opentype = (() => {
     const extSubtable = subtable.extensionSubtable || subtable.extension;
     if (extSubtable && !extSubtable.error) {
       const actualTable = actualMaker(extSubtable);
-      let actualBytes;
-      try {
-        actualBytes = actualTable.encode();
-      } catch (e) {
-        return new table_default.Table("extensionPosTable", [
-          { name: "posFormat", type: "USHORT", value: 1 },
-          { name: "extensionLookupType", type: "USHORT", value: extLookupType },
-          { name: "extensionOffset", type: "ULONG", value: 0 }
-        ]);
-      }
-      if (extensionData) {
-        const patchKey = "gpos-extension-offset-" + extensionData.actualData.length;
-        extensionData.actualData.push(actualBytes);
-        extensionData.patchKeys.push(patchKey);
-        return new table_default.Table("extensionPosTable", [
-          { name: "posFormat", type: "USHORT", value: 1 },
-          { name: "extensionLookupType", type: "USHORT", value: extLookupType },
-          { name: "extensionOffset", type: "ULONG", value: 0, patchKey }
-        ]);
-      }
       return new table_default.Table("extensionPosTable", [
         { name: "posFormat", type: "USHORT", value: 1 },
         { name: "extensionLookupType", type: "USHORT", value: extLookupType },
-        { name: "extensionOffset", type: "ULONG", value: 8 },
-        { name: "extensionData", type: "LITERAL", value: actualBytes }
+        { name: "extensionOffset", type: "OFFSET32", value: actualTable, targetScope: "root" }
       ]);
     }
     return new table_default.Table("extensionPosTable", [
@@ -12056,71 +11928,21 @@ var opentype = (() => {
     ]);
   };
   function makeGposTable(gpos) {
-    let hasExtensions = false;
-    for (const lookup of gpos.lookups) {
-      if (lookup.lookupType === 9) {
-        hasExtensions = true;
-        break;
-      }
-    }
-    if (!hasExtensions) {
-      return new table_default.Table("GPOS", [
-        { name: "version", type: "ULONG", value: 65536 },
-        { name: "scripts", type: "TABLE", value: new table_default.ScriptList(gpos.scripts) },
-        { name: "features", type: "TABLE", value: new table_default.FeatureList(gpos.features) },
-        { name: "lookups", type: "TABLE", value: new table_default.LookupList(gpos.lookups, subtableMakers2) }
-      ]);
-    }
-    const extensionData = {
-      actualData: [],
-      patchKeys: []
-    };
-    const makersWithExtension = Object.assign({}, subtableMakers2);
-    const originalMaker9 = subtableMakers2[9];
-    makersWithExtension[9] = function(subtable) {
-      return originalMaker9(subtable, extensionData);
-    };
-    const mainTable = new table_default.Table("GPOS", [
-      { name: "version", type: "ULONG", value: 65536 },
+    const hasFeatureVariations = gpos.variations && gpos.variations.length > 0;
+    const fields = [
+      { name: "version", type: "ULONG", value: hasFeatureVariations ? 65537 : 65536 },
       { name: "scripts", type: "TABLE", value: new table_default.ScriptList(gpos.scripts) },
       { name: "features", type: "TABLE", value: new table_default.FeatureList(gpos.features) },
-      { name: "lookups", type: "TABLE", value: new table_default.LookupList(gpos.lookups, makersWithExtension) }
-    ]);
-    const encodedMainTable = mainTable.encodeWithMarkers();
-    let mainBytes = encodedMainTable.bytes;
-    if (extensionData.actualData.length > 0) {
-      const extensionOffsetPositions = extensionData.patchKeys.map((patchKey) => {
-        const positions = encodedMainTable.trackedFields[patchKey];
-        check_default.assert(positions && positions.length === 1, "GPOS extension offset marker missing for " + patchKey);
-        return positions[0];
+      { name: "lookups", type: "TABLE", value: new table_default.LookupList(gpos.lookups, subtableMakers2) }
+    ];
+    if (hasFeatureVariations) {
+      fields.push({
+        name: "featureVariations",
+        type: "OFFSET32",
+        value: featurevariations_default.make(gpos.variations)
       });
-      const dataStartOffset = mainBytes.length;
-      const extDataBytes = [];
-      const dataOffsets = [];
-      let currentOffset = 0;
-      for (let i = 0; i < extensionData.actualData.length; i++) {
-        dataOffsets.push(dataStartOffset + currentOffset);
-        extDataBytes.push(...extensionData.actualData[i]);
-        currentOffset += extensionData.actualData[i].length;
-      }
-      for (let i = 0; i < extensionOffsetPositions.length; i++) {
-        const offsetPos = extensionOffsetPositions[i];
-        const headerStart = offsetPos - 4;
-        const relativeOffset = dataOffsets[i] - headerStart;
-        mainBytes[offsetPos] = relativeOffset >> 24 & 255;
-        mainBytes[offsetPos + 1] = relativeOffset >> 16 & 255;
-        mainBytes[offsetPos + 2] = relativeOffset >> 8 & 255;
-        mainBytes[offsetPos + 3] = relativeOffset & 255;
-      }
-      const finalBytes = new Uint8Array(mainBytes.length + extDataBytes.length);
-      finalBytes.set(mainBytes);
-      finalBytes.set(extDataBytes, mainBytes.length);
-      const finalBytesArray = Array.from(finalBytes);
-      return new table_default.Table("GPOS", [
-        { name: "data", type: "LITERAL", value: finalBytesArray }
-      ]);
     }
-    return mainTable;
+    return new table_default.Table("GPOS", fields);
   }
   var gpos_default = { parse: parseGposTable, make: makeGposTable };
 

@@ -1104,151 +1104,369 @@ sizeOf.OBJECT = function(v) {
 };
 
 /**
- * Convert a table object to bytes.
- * A table contains a list of fields containing the metadata (name, type and default value).
- * The table itself has the field values set as attributes.
- * When a field carries a `patchKey`, the encoder also records the emitted byte
- * position so callers can patch that exact field later without rescanning the
- * serialized byte stream.
- * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string}} table
- * @returns {{bytes: Array<number>, trackedFields: Record<string, number[]>}}
+ * @param {string} fieldType
+ * @returns {number}
  */
-function encodeTableWithMarkers(table) {
-    let d = [];
-    const length = (table.fields || []).length;
-    const subtables = [];
-    const subtableOffsets = [];
-    const subtableMarkers = [];
-    /** @type {Record<string, number[]>} */
-    const trackedFields = {};
-
-    /**
-     * @param {string | undefined} patchKey
-     * @param {number} position
-     */
-    function trackField(patchKey, position) {
-        if (!patchKey) return;
-        if (!trackedFields[patchKey]) trackedFields[patchKey] = [];
-        trackedFields[patchKey].push(position);
+function getOffsetFieldWidth(fieldType) {
+    if (fieldType === 'TABLE' || fieldType === 'OFFSET16') {
+        return 2;
     }
+    if (fieldType === 'OFFSET24') {
+        return 3;
+    }
+    if (fieldType === 'OFFSET32') {
+        return 4;
+    }
+    return 0;
+}
 
-    /**
-     * @param {Record<string, number[]>} source
-     * @param {number} baseOffset
-     */
-    function mergeTrackedFields(source, baseOffset) {
-        const keys = Object.keys(source);
-        for (let i = 0; i < keys.length; i += 1) {
-            const key = keys[i];
-            const positions = source[key];
-            if (!positions || positions.length === 0) continue;
-            if (!trackedFields[key]) trackedFields[key] = [];
-            for (let j = 0; j < positions.length; j += 1) {
-                trackedFields[key].push(positions[j] + baseOffset);
-            }
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isTableLike(value) {
+    return !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'fields');
+}
+
+/**
+ * @param {unknown} target
+ * @returns {{bytes: Array<number>, deferredForParent: Array<{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: any}>} }
+ */
+function encodeOffsetTarget(target) {
+    if (target === null || target === undefined) {
+        return { bytes: [], deferredForParent: [] };
+    }
+    if (isTableLike(target)) {
+        const tableTarget = /** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string}} */ (target);
+        if (tableTarget.fields === null) {
+            return { bytes: [], deferredForParent: [] };
+        }
+        return encodeTableNode(tableTarget);
+    }
+    if (Array.isArray(target) || target instanceof Uint8Array) {
+        return { bytes: Array.from(target), deferredForParent: [] };
+    }
+    if (typeof target === 'object' && target && 'type' in target && 'value' in target) {
+        return {
+            bytes: encode.OBJECT(/** @type {{type: string, value: unknown}|Array<{type: string, value: unknown}>} */ (target)),
+            deferredForParent: []
+        };
+    }
+    check.argument(false, 'Unsupported offset target type.');
+    return { bytes: [], deferredForParent: [] };
+}
+
+/**
+ * @param {unknown} target
+ * @returns {{size: number, deferredForParent: Array<{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: any}>} }
+ */
+function sizeOfOffsetTarget(target) {
+    if (target === null || target === undefined) {
+        return { size: 0, deferredForParent: [] };
+    }
+    if (isTableLike(target)) {
+        const tableTarget = /** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>}} */ (target);
+        if (tableTarget.fields === null) {
+            return { size: 0, deferredForParent: [] };
+        }
+        return sizeOfTableNode(tableTarget);
+    }
+    if (Array.isArray(target) || target instanceof Uint8Array) {
+        return { size: target.length, deferredForParent: [] };
+    }
+    if (typeof target === 'object' && target && 'type' in target && 'value' in target) {
+        return {
+            size: sizeOf.OBJECT(/** @type {{type: string, value: unknown}|Array<{type: string, value: unknown}>} */ (target)),
+            deferredForParent: []
+        };
+    }
+    check.argument(false, 'Unsupported offset target type.');
+    return { size: 0, deferredForParent: [] };
+}
+
+/**
+ * @param {Array<number>} bytes
+ * @param {number} position
+ * @param {number} width
+ * @param {number} value
+ */
+function writeOffset(bytes, position, width, value) {
+    if (width === 2) {
+        bytes[position] = (value >> 8) & 0xff;
+        bytes[position + 1] = value & 0xff;
+        return;
+    }
+    if (width === 3) {
+        bytes[position] = (value >> 16) & 0xff;
+        bytes[position + 1] = (value >> 8) & 0xff;
+        bytes[position + 2] = value & 0xff;
+        return;
+    }
+    if (width === 4) {
+        bytes[position] = (value >> 24) & 0xff;
+        bytes[position + 1] = (value >> 16) & 0xff;
+        bytes[position + 2] = (value >> 8) & 0xff;
+        bytes[position + 3] = value & 0xff;
+        return;
+    }
+    check.argument(false, 'Unsupported offset width ' + width + '.');
+}
+
+/**
+ * @param {Array<{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: unknown}>} targetEntries
+ * @param {Array<{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: unknown}>} sourceEntries
+ * @param {number} baseOffset
+ */
+function appendDeferredEntries(targetEntries, sourceEntries, baseOffset) {
+    for (let i = 0; i < sourceEntries.length; i += 1) {
+        const entry = sourceEntries[i];
+        targetEntries.push({
+            fieldName: entry.fieldName,
+            patchPos: baseOffset + entry.patchPos,
+            ownerStart: baseOffset + entry.ownerStart,
+            width: entry.width,
+            targetScope: entry.targetScope,
+            appendPhase: entry.appendPhase,
+            target: entry.target
+        });
+    }
+}
+
+/**
+ * @param {Array<{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: unknown}>} resolveNow
+ * @param {Array<{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: unknown}>} bubbleUp
+ * @param {Array<{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: unknown}>} sourceEntries
+ * @param {number} baseOffset
+ * @param {boolean} resolveRootScoped
+ */
+function routeDeferredEntries(resolveNow, bubbleUp, sourceEntries, baseOffset, resolveRootScoped) {
+    const adjustedEntries = [];
+    appendDeferredEntries(adjustedEntries, sourceEntries, baseOffset);
+    for (let i = 0; i < adjustedEntries.length; i += 1) {
+        const entry = adjustedEntries[i];
+        if (entry.targetScope === 'parent' || (resolveRootScoped && entry.targetScope === 'root')) {
+            resolveNow.push(entry);
+        } else {
+            bubbleUp.push(entry);
         }
     }
+}
+
+/**
+ * @param {Array<{appendPhase: number}>} queue
+ * @returns {number}
+ */
+function findNextAppendIndex(queue) {
+    let bestIndex = 0;
+    let bestPhase = queue[0].appendPhase;
+    for (let i = 1; i < queue.length; i += 1) {
+        if (queue[i].appendPhase < bestPhase) {
+            bestIndex = i;
+            bestPhase = queue[i].appendPhase;
+        }
+    }
+    return bestIndex;
+}
+
+/**
+ * @param {Record<string, unknown> & {width: number}} relocation
+ * @returns {number}
+ */
+function getMaxOffsetForRelocation(relocation) {
+    return relocation.width === 2 ? 0xFFFF : relocation.width === 3 ? 0xFFFFFF : 0xFFFFFFFF;
+}
+
+/**
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}>, tableName?: string}} table
+ * @returns {{bytes: Array<number>, deferredForParent: Array<{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: any}>} }
+ */
+function encodeTableNode(table) {
+    let d = [];
+    const length = (table.fields || []).length;
+    const currentScopeEntries = [];
+    const deferredForAncestor = [];
 
     for (let i = 0; i < length; i += 1) {
         const field = table.fields[i];
-        const encodingFunction = encode[field.type];
-        check.argument(encodingFunction !== undefined, 'No encoding function for field type ' + field.type + ' (' + field.name + ')');
         let value = table[field.name];
         if (value === undefined) {
             value = field.value;
         }
 
-        // Handle null/undefined table values gracefully
-        if (value === null || value === undefined) {
-            if (field.type === 'TABLE') {
-                trackField(field.patchKey, d.length);
-                d.push(...[0, 0]); // Offset 0 for null tables
-                continue;
+        const offsetWidth = getOffsetFieldWidth(field.type);
+        if (offsetWidth > 0) {
+            const patchPos = d.length;
+            for (let j = 0; j < offsetWidth; j += 1) {
+                d.push(0);
             }
+            if (value !== null && value !== undefined && !(isTableLike(value) && /** @type {{fields?: Array<unknown> | null}} */ (value).fields === null)) {
+                const relocation = {
+                    fieldName: field.name,
+                    patchPos,
+                    ownerStart: 0,
+                    width: offsetWidth,
+                    targetScope: field.targetScope || 'local',
+                    appendPhase: field.appendPhase || 0,
+                    target: encodeOffsetTarget(value)
+                };
+                if (relocation.targetScope === 'parent' || relocation.targetScope === 'root') {
+                    deferredForAncestor.push(relocation);
+                } else {
+                    currentScopeEntries.push(relocation);
+                }
+            }
+            continue;
         }
 
-        if (field.type === 'TABLE') {
-            const encodedSubtable = value && /** @type {Record<string, unknown>} */ (value).fields !== null
-                ? encodeTableWithMarkers(/** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string}} */ (value))
-                : null;
-            // If the table.fields are set to NULL, don't add it as subtable data,
-            // so the offset will be set to 0 but no table data will be added.
-            // This is required e.g. for classSeqRuleSetOffsets with no defined contexts.
-            if (encodedSubtable) {
-                subtableOffsets.push(d.length);
-                subtables.push(encodedSubtable.bytes);
-                subtableMarkers.push(encodedSubtable.trackedFields);
-            }
-            trackField(field.patchKey, d.length);
-            d.push(...[0, 0]);
-        } else {
-            const bytes = encodingFunction(value);
-            trackField(field.patchKey, d.length);
-            for (let j = 0; j < bytes.length; j++) {
-                d.push(bytes[j]);
-            }
+        const encodingFunction = encode[field.type];
+        check.argument(encodingFunction !== undefined, 'No encoding function for field type ' + field.type + ' (' + field.name + ')');
+        const bytes = encodingFunction(value);
+        for (let j = 0; j < bytes.length; j++) {
+            d.push(bytes[j]);
         }
     }
 
-    for (let i = 0; i < subtables.length; i += 1) {
-        const o = subtableOffsets[i];
+    while (currentScopeEntries.length > 0) {
+        const relocation = currentScopeEntries.splice(findNextAppendIndex(currentScopeEntries), 1)[0];
         const offset = d.length;
-        check.argument(offset < 65536, 'Table ' + table.tableName + ' too big.');
-        d[o] = offset >> 8;
-        d[o + 1] = offset & 0xff;
-        mergeTrackedFields(subtableMarkers[i], offset);
-        for (let j = 0; j < subtables[i].length; j++) {
-            d.push(subtables[i][j]);
+        const maxOffset = getMaxOffsetForRelocation(relocation);
+        check.argument(offset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        writeOffset(d, relocation.patchPos, relocation.width, offset);
+        for (let j = 0; j < relocation.target.bytes.length; j++) {
+            d.push(relocation.target.bytes[j]);
         }
+        routeDeferredEntries(currentScopeEntries, deferredForAncestor, relocation.target.deferredForParent, offset, false);
     }
 
-    return { bytes: d, trackedFields: trackedFields };
+    return { bytes: d, deferredForParent: deferredForAncestor };
 }
 
 /**
  * Convert a table object to bytes.
- * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, patchKey?: string}>, tableName?: string}} table
+ * A table contains a list of fields containing the metadata (name, type and default value).
+ * The table itself has the field values set as attributes.
+ * Offset-bearing fields (`TABLE`, `OFFSET16`, `OFFSET24`, `OFFSET32`) are laid
+ * out structurally as relocations within the containing table graph instead of
+ * being rediscovered and patched by ad hoc post-processing.
+ * By default, offset-bearing fields are laid out locally inside the current
+ * table, which matches the historical `TABLE` serializer behavior. Explicit
+ * `targetScope: 'parent'` or `targetScope: 'root'` defer the referenced bytes
+ * to an ancestor table when a format needs headers and payloads to live at
+ * different structural levels, as with GSUB/GPOS extension wrappers.
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}>, tableName?: string}} table
+ * @returns {Array}
+ */
+function encodeTable(table) {
+    const encoded = encodeTableNode(table);
+    const deferredForRoot = [];
+    const unresolved = [];
+    routeDeferredEntries(deferredForRoot, unresolved, encoded.deferredForParent, 0, true);
+
+    for (let i = 0; i < deferredForRoot.length; i += 1) {
+        const relocation = deferredForRoot[i];
+        const targetStart = encoded.bytes.length;
+        const relativeOffset = targetStart - relocation.ownerStart;
+        const maxOffset = getMaxOffsetForRelocation(relocation);
+        check.argument(relativeOffset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        writeOffset(encoded.bytes, relocation.patchPos, relocation.width, relativeOffset);
+        for (let j = 0; j < relocation.target.bytes.length; j++) {
+            encoded.bytes.push(relocation.target.bytes[j]);
+        }
+        routeDeferredEntries(deferredForRoot, unresolved, relocation.target.deferredForParent, targetStart, true);
+    }
+
+    check.argument(unresolved.length === 0, 'Table ' + table.tableName + ' has unresolved ancestor-scoped offsets.');
+    return encoded.bytes;
+}
+
+/**
+ * Convert a table object to bytes.
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string}} table
  * @returns {Array}
  */
 encode.TABLE = function(table) {
-    return encodeTableWithMarkers(table).bytes;
+    return encodeTable(table);
 };
 
-encode.TABLE_WITH_MARKERS = encodeTableWithMarkers;
+/**
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}>, tableName?: string}} table
+ * @returns {{size: number, deferredForParent: Array<{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: any}>} }
+ */
+function sizeOfTableNode(table) {
+    let numBytes = 0;
+    const length = (table.fields || []).length;
+    const currentScopeEntries = [];
+    const deferredForAncestor = [];
+
+    for (let i = 0; i < length; i += 1) {
+        const field = table.fields[i];
+        let value = table[field.name];
+        if (value === undefined) {
+            value = field.value;
+        }
+
+        const offsetWidth = getOffsetFieldWidth(field.type);
+        if (offsetWidth > 0) {
+            const patchPos = numBytes;
+            numBytes += offsetWidth;
+            if (value !== null && value !== undefined && !(isTableLike(value) && /** @type {{fields?: Array<unknown> | null}} */ (value).fields === null)) {
+                const relocation = {
+                    fieldName: field.name,
+                    patchPos,
+                    ownerStart: 0,
+                    width: offsetWidth,
+                    targetScope: field.targetScope || 'local',
+                    appendPhase: field.appendPhase || 0,
+                    target: sizeOfOffsetTarget(value)
+                };
+                if (relocation.targetScope === 'parent' || relocation.targetScope === 'root') {
+                    deferredForAncestor.push(relocation);
+                } else {
+                    currentScopeEntries.push(relocation);
+                }
+            }
+            continue;
+        }
+
+        const sizeOfFunction = sizeOf[field.type];
+        check.argument(sizeOfFunction !== undefined, 'No sizeOf function for field type ' + field.type + ' (' + field.name + ')');
+        numBytes += sizeOfFunction(value);
+    }
+
+    while (currentScopeEntries.length > 0) {
+        const relocation = currentScopeEntries.splice(findNextAppendIndex(currentScopeEntries), 1)[0];
+        const offset = numBytes;
+        const maxOffset = getMaxOffsetForRelocation(relocation);
+        check.argument(offset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        numBytes += relocation.target.size;
+        routeDeferredEntries(currentScopeEntries, deferredForAncestor, relocation.target.deferredForParent, offset, false);
+    }
+
+    return { size: numBytes, deferredForParent: deferredForAncestor };
+}
 
 /**
  * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>}} table
  * @returns {number}
  */
 sizeOf.TABLE = function(table) {
-    let numBytes = 0;
-    const length = (table.fields || []).length;
+    const sized = sizeOfTableNode(table);
+    let numBytes = sized.size;
+    const deferredForRoot = [];
+    const unresolved = [];
+    routeDeferredEntries(deferredForRoot, unresolved, sized.deferredForParent, 0, true);
 
-    for (let i = 0; i < length; i += 1) {
-        const field = table.fields[i];
-        const sizeOfFunction = sizeOf[field.type];
-        check.argument(sizeOfFunction !== undefined, 'No sizeOf function for field type ' + field.type + ' (' + field.name + ')');
-        let value = table[field.name];
-        if (value === undefined) {
-            value = field.value;
-        }
-
-        // Handle null/undefined table values gracefully (e.g., from errors)
-        if (value === null || value === undefined) {
-            if (field.type === 'TABLE') {
-                numBytes += 2; // Null TABLE still occupies a 2-byte offset placeholder (0x0000)
-                continue;
-            }
-        }
-
-        numBytes += sizeOfFunction(value);
-
-        // Subtables take 2 more bytes for offsets.
-        if (field.type === 'TABLE') {
-            numBytes += 2;
-        }
+    for (let i = 0; i < deferredForRoot.length; i += 1) {
+        const relocation = deferredForRoot[i];
+        const targetStart = numBytes;
+        const relativeOffset = targetStart - relocation.ownerStart;
+        const maxOffset = getMaxOffsetForRelocation(relocation);
+        check.argument(relativeOffset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        numBytes += relocation.target.size;
+        routeDeferredEntries(deferredForRoot, unresolved, relocation.target.deferredForParent, targetStart, true);
     }
 
+    check.argument(unresolved.length === 0, 'Table ' + table.tableName + ' has unresolved ancestor-scoped offsets.');
     return numBytes;
 };
 
