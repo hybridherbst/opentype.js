@@ -113,6 +113,14 @@ describe('font.js', function() {
             const os2 = font.toTables().tables.find(table => table.tableName === 'OS/2');
             assert.equal(os2.achVendID, 'TEST');
         });
+        it('explicit OS/2 x-height and cap-height survive serialization', function() {
+            font.tables.os2.sxHeight = 476;
+            font.tables.os2.sCapHeight = 702;
+
+            const reparsed = parse(font.toArrayBuffer());
+            assert.equal(reparsed.tables.os2.sxHeight, 476);
+            assert.equal(reparsed.tables.os2.sCapHeight, 702);
+        });
     });
 
     describe('stringToGlyphIndexes', function() {

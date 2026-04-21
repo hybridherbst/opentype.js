@@ -414,8 +414,8 @@ function fontToSfntTable(font, options = {}) {
 
     // OS/2 sTypo* metrics should match hhea to produce consistent linespacing
     // across Mac, GNU+Linux and Windows
-    // Note: We put font.tables.os2 FIRST so our calculated values override
-    // any existing values from the original font (e.g., sTypoLineGap must be 0)
+    // We still start from font.tables.os2 so explicit caller-provided values are
+    // preserved, then selectively override the fields we intentionally normalize.
     // Preserve original fsType if defined, otherwise default to Print & Preview (bit 4 = 0x0004)
     // Use !== undefined to also preserve fsType=0 (Installable embedding)
     const existingFsType = font.tables.os2 && font.tables.os2.fsType;
@@ -425,6 +425,12 @@ function fontToSfntTable(font, options = {}) {
     const typoLineGap = explicitOs2.sTypoLineGap !== undefined ? explicitOs2.sTypoLineGap : hheaLineGap;
     const winAscent = explicitOs2.usWinAscent !== undefined ? explicitOs2.usWinAscent : globals.yMax;
     const winDescent = explicitOs2.usWinDescent !== undefined ? explicitOs2.usWinDescent : Math.abs(globals.yMin);
+    const xHeight = explicitOs2.sxHeight !== undefined
+        ? explicitOs2.sxHeight
+        : metricsForChar(font, 'xyvw', {yMax: Math.round(globals.ascender / 2)}).yMax;
+    const capHeight = explicitOs2.sCapHeight !== undefined
+        ? explicitOs2.sCapHeight
+        : metricsForChar(font, 'HIKLEFJMNTZBDPRAGOQSUVWXY', globals).yMax;
     
     const os2Table = timeStep(timingSink, 'serializeOs2TableMs', () => os2.make(Object.assign({}, font.tables.os2, {
         xAvgCharWidth: Math.round(globals.advanceWidthAvg),
@@ -442,8 +448,8 @@ function fontToSfntTable(font, options = {}) {
         usWinDescent: winDescent,
         fsType: fsType, // Embedding permissions (Fontwerk requires bit 4)
         ulCodePageRange1: 1, // FIXME: hard-code Latin 1 support for now
-        sxHeight: metricsForChar(font, 'xyvw', {yMax: Math.round(globals.ascender / 2)}).yMax,
-        sCapHeight: metricsForChar(font, 'HIKLEFJMNTZBDPRAGOQSUVWXY', globals).yMax,
+        sxHeight: xHeight,
+        sCapHeight: capHeight,
         usDefaultChar: font.hasChar(' ') ? 32 : 0, // Use space as the default character, if available.
         usBreakChar: font.hasChar(' ') ? 32 : 0, // Use space as the break character, if available.
     })));

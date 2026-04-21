@@ -15264,6 +15264,8 @@ function fontToSfntTable(font, options = {}) {
   const typoLineGap = explicitOs2.sTypoLineGap !== void 0 ? explicitOs2.sTypoLineGap : hheaLineGap;
   const winAscent = explicitOs2.usWinAscent !== void 0 ? explicitOs2.usWinAscent : globals.yMax;
   const winDescent = explicitOs2.usWinDescent !== void 0 ? explicitOs2.usWinDescent : Math.abs(globals.yMin);
+  const xHeight = explicitOs2.sxHeight !== void 0 ? explicitOs2.sxHeight : metricsForChar(font, "xyvw", { yMax: Math.round(globals.ascender / 2) }).yMax;
+  const capHeight = explicitOs2.sCapHeight !== void 0 ? explicitOs2.sCapHeight : metricsForChar(font, "HIKLEFJMNTZBDPRAGOQSUVWXY", globals).yMax;
   const os2Table = timeStep(timingSink, "serializeOs2TableMs", () => os2_default.make(Object.assign({}, font.tables.os2, {
     xAvgCharWidth: Math.round(globals.advanceWidthAvg),
     usFirstCharIndex: firstCharIndex,
@@ -15282,8 +15284,8 @@ function fontToSfntTable(font, options = {}) {
     // Embedding permissions (Fontwerk requires bit 4)
     ulCodePageRange1: 1,
     // FIXME: hard-code Latin 1 support for now
-    sxHeight: metricsForChar(font, "xyvw", { yMax: Math.round(globals.ascender / 2) }).yMax,
-    sCapHeight: metricsForChar(font, "HIKLEFJMNTZBDPRAGOQSUVWXY", globals).yMax,
+    sxHeight: xHeight,
+    sCapHeight: capHeight,
     usDefaultChar: font.hasChar(" ") ? 32 : 0,
     // Use space as the default character, if available.
     usBreakChar: font.hasChar(" ") ? 32 : 0
