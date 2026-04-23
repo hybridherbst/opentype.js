@@ -126,6 +126,44 @@ declare class Substitution {
         by: number;
     }, script?: string, language?: string): void;
     /**
+     * Create a detached lookup table in the GSUB lookup list without attaching it to a feature.
+     * This is useful for helper lookups that are referenced only from chaining-context
+     * lookup records and should not be discovered as standalone feature lookups.
+     *
+     * @this {object}
+     * @param {number} lookupType
+     * @returns {{ lookupIndex: number, lookupTable: GsubLookupTable }}
+     */
+    createDetachedLookup(this: any, lookupType: number): {
+        lookupIndex: number;
+        lookupTable: GsubLookupTable;
+    };
+    /**
+     * Add a ligature record to an existing lookup table or lookup-list index.
+     * Unlike addLigature(), this does not attach the lookup to a feature.
+     *
+     * @this {object}
+     * @param {number|GsubLookupTable} lookup
+     * @param {{sub: number[], by: number}} ligature
+     */
+    addLigatureToLookup(this: any, lookup: number | GsubLookupTable, ligature: {
+        sub: number[];
+        by: number;
+    }): void;
+    /**
+     * Add a ligature record to an existing lookup table.
+     * Used by both feature-attached ligatures and detached helper lookups
+     * referenced from chaining-context rules.
+     *
+     * @this {object}
+     * @param {GsubLookupTable} lookupTable
+     * @param {{sub: number[], by: number}} ligature
+     */
+    _addLigatureToLookupTable(this: any, lookupTable: GsubLookupTable, ligature: {
+        sub: number[];
+        by: number;
+    }): void;
+    /**
      * Add a chaining context substitution (lookup type 6, format 3)
      * This creates a rule that matches glyphs in context and applies a substitution.
      *

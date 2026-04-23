@@ -407,9 +407,65 @@ Substitution.prototype.addAlternate = function(feature, substitution, script, la
  */
 Substitution.prototype.addLigature = function(feature, ligature, script, language) {
     const lookupTable = this.getLookupTables(script, language, feature, 4, true)[0];
+    this._addLigatureToLookupTable(lookupTable, ligature);
+};
+
+/**
+ * Create a detached lookup table in the GSUB lookup list without attaching it to a feature.
+ * This is useful for helper lookups that are referenced only from chaining-context
+ * lookup records and should not be discovered as standalone feature lookups.
+ *
+ * @this {object}
+ * @param {number} lookupType
+ * @returns {{ lookupIndex: number, lookupTable: GsubLookupTable }}
+ */
+Substitution.prototype.createDetachedLookup = function(lookupType) {
+    let gsub = this.font.tables.gsub;
+    if (!gsub) {
+        gsub = this.font.tables.gsub = this.createDefaultTable();
+    }
+    const lookupIndex = gsub.lookups.length;
+    /** @type {GsubLookupTable} */
+    const lookupTable = {
+        lookupType: lookupType,
+        lookupFlag: 0,
+        subtables: [],
+        markFilteringSet: undefined
+    };
+    gsub.lookups.push(lookupTable);
+    return { lookupIndex, lookupTable };
+};
+
+/**
+ * Add a ligature record to an existing lookup table or lookup-list index.
+ * Unlike addLigature(), this does not attach the lookup to a feature.
+ *
+ * @this {object}
+ * @param {number|GsubLookupTable} lookup
+ * @param {{sub: number[], by: number}} ligature
+ */
+Substitution.prototype.addLigatureToLookup = function(lookup, ligature) {
+    const gsub = this.font.tables.gsub;
+    check.assert(gsub, 'Ligature: GSUB table must exist before adding to a detached lookup');
+    const lookupTable = typeof lookup === 'number' ? gsub.lookups[lookup] : lookup;
+    check.assert(lookupTable, 'Ligature: lookup table not found');
+    this._addLigatureToLookupTable(lookupTable, ligature);
+};
+
+/**
+ * Add a ligature record to an existing lookup table.
+ * Used by both feature-attached ligatures and detached helper lookups
+ * referenced from chaining-context rules.
+ *
+ * @this {object}
+ * @param {GsubLookupTable} lookupTable
+ * @param {{sub: number[], by: number}} ligature
+ */
+Substitution.prototype._addLigatureToLookupTable = function(lookupTable, ligature) {
+    check.assert(lookupTable.lookupType === 4, 'Ligature: lookup table must be type 4');
     let subtable = lookupTable.subtables[0];
     if (!subtable) {
-        subtable = {                // lookup type 4 subtable, format 1, coverage format 1
+        subtable = {
             substFormat: 1,
             coverage: { format: 1, glyphs: [] },
             ligatureSets: []
@@ -425,18 +481,14 @@ Substitution.prototype.addLigature = function(feature, ligature, script, languag
     };
     let pos = this.binSearch(subtable.coverage.glyphs, coverageGlyph);
     if (pos >= 0) {
-        // ligatureSet already exists
         const ligatureSet = subtable.ligatureSets[pos];
         for (let i = 0; i < ligatureSet.length; i++) {
-            // If ligature already exists, return.
             if (arraysEqual(ligatureSet[i].components, ligComponents)) {
                 return;
             }
         }
-        // ligature does not exist: add it.
         ligatureSet.push(ligatureTable);
     } else {
-        // Create a new ligatureSet and add coverage for the first glyph.
         pos = -1 - pos;
         subtable.coverage.glyphs.splice(pos, 0, coverageGlyph);
         subtable.ligatureSets.splice(pos, 0, [ligatureTable]);

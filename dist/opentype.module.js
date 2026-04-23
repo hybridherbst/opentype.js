@@ -16306,10 +16306,35 @@ Substitution.prototype.addAlternate = function(feature, substitution, script, la
 };
 Substitution.prototype.addLigature = function(feature, ligature, script, language) {
   const lookupTable = this.getLookupTables(script, language, feature, 4, true)[0];
+  this._addLigatureToLookupTable(lookupTable, ligature);
+};
+Substitution.prototype.createDetachedLookup = function(lookupType) {
+  let gsub = this.font.tables.gsub;
+  if (!gsub) {
+    gsub = this.font.tables.gsub = this.createDefaultTable();
+  }
+  const lookupIndex = gsub.lookups.length;
+  const lookupTable = {
+    lookupType,
+    lookupFlag: 0,
+    subtables: [],
+    markFilteringSet: void 0
+  };
+  gsub.lookups.push(lookupTable);
+  return { lookupIndex, lookupTable };
+};
+Substitution.prototype.addLigatureToLookup = function(lookup, ligature) {
+  const gsub = this.font.tables.gsub;
+  check_default.assert(gsub, "Ligature: GSUB table must exist before adding to a detached lookup");
+  const lookupTable = typeof lookup === "number" ? gsub.lookups[lookup] : lookup;
+  check_default.assert(lookupTable, "Ligature: lookup table not found");
+  this._addLigatureToLookupTable(lookupTable, ligature);
+};
+Substitution.prototype._addLigatureToLookupTable = function(lookupTable, ligature) {
+  check_default.assert(lookupTable.lookupType === 4, "Ligature: lookup table must be type 4");
   let subtable = lookupTable.subtables[0];
   if (!subtable) {
     subtable = {
-      // lookup type 4 subtable, format 1, coverage format 1
       substFormat: 1,
       coverage: { format: 1, glyphs: [] },
       ligatureSets: []
@@ -18582,11 +18607,22 @@ var VariationManager = class {
       for (const item of deltaArray) {
         if (item.advanceWidthDelta !== void 0 && item.advanceWidthDelta !== 0) {
           const peak = item.peakTuple || defaultPeakTuple;
-          const tupleKey = peak.join(",");
+          const start = item.intermediateStartTuple ? [...item.intermediateStartTuple] : null;
+          const end = item.intermediateEndTuple ? [...item.intermediateEndTuple] : null;
+          const tupleKey = [
+            peak.join(","),
+            start ? start.join(",") : "",
+            end ? end.join(",") : ""
+          ].join("|");
           let tupleIdx = hvarTupleMap.get(tupleKey);
           if (tupleIdx === void 0) {
             tupleIdx = hvarTuples.length;
-            hvarTuples.push({ peakTuple: [...peak], deltas: [] });
+            hvarTuples.push({
+              peakTuple: [...peak],
+              ...start ? { intermediateStartTuple: start } : {},
+              ...end ? { intermediateEndTuple: end } : {},
+              deltas: []
+            });
             hvarTupleMap.set(tupleKey, tupleIdx);
           }
           while (hvarTuples[tupleIdx].deltas.length <= i) {
@@ -18610,6 +18646,12 @@ var VariationManager = class {
           deltasY: item.deltasY || [],
           privatePoints: item.privatePoints || []
         };
+        if (item.intermediateStartTuple) {
+          header.intermediateStartTuple = [...item.intermediateStartTuple];
+        }
+        if (item.intermediateEndTuple) {
+          header.intermediateEndTuple = [...item.intermediateEndTuple];
+        }
         gvar.glyphVariations[i].headers.push(header);
       }
     }
@@ -18626,7 +18668,11 @@ var VariationManager = class {
     minPeakTuple[axisIndex] = -1;
     gvar.sharedTuples.push([...minPeakTuple]);
     for (const tuple of hvarTuples) {
-      const key = tuple.peakTuple.join(",");
+      const key = [
+        tuple.peakTuple.join(","),
+        tuple.intermediateStartTuple ? tuple.intermediateStartTuple.join(",") : "",
+        tuple.intermediateEndTuple ? tuple.intermediateEndTuple.join(",") : ""
+      ].join("|");
       let existIdx = this._hvarTupleMap.get(key);
       if (existIdx !== void 0) {
         const existing = this._hvarTuples[existIdx];
@@ -18639,7 +18685,12 @@ var VariationManager = class {
         }
       } else {
         existIdx = this._hvarTuples.length;
-        this._hvarTuples.push({ peakTuple: [...tuple.peakTuple], deltas: [...tuple.deltas] });
+        this._hvarTuples.push({
+          peakTuple: [...tuple.peakTuple],
+          ...tuple.intermediateStartTuple ? { intermediateStartTuple: [...tuple.intermediateStartTuple] } : {},
+          ...tuple.intermediateEndTuple ? { intermediateEndTuple: [...tuple.intermediateEndTuple] } : {},
+          deltas: [...tuple.deltas]
+        });
         this._hvarTupleMap.set(key, existIdx);
       }
     }
@@ -18740,10 +18791,18 @@ var VariationManager = class {
     const regionIndexes = [];
     for (let r = 0; r < hvarTuples.length; r++) {
       const peak = hvarTuples[r].peakTuple;
+      const start = hvarTuples[r].intermediateStartTuple;
+      const end = hvarTuples[r].intermediateEndTuple;
       const regionAxes = [];
       for (let a = 0; a < axisCount; a++) {
         const p = peak[a] || 0;
-        if (p > 0) {
+        if (start && end) {
+          regionAxes.push({
+            startCoord: start[a] || 0,
+            peakCoord: p,
+            endCoord: end[a] || 0
+          });
+        } else if (p > 0) {
           regionAxes.push({ startCoord: 0, peakCoord: p, endCoord: p });
         } else if (p < 0) {
           regionAxes.push({ startCoord: p, peakCoord: p, endCoord: 0 });

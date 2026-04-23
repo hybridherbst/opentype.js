@@ -344,6 +344,36 @@ describe('substitution.js', function() {
             assert.deepEqual(rule.lookahead[0], [3]);
         });
 
+        it('can keep contextual ligature helper lookups detached from the feature', function() {
+            const detached = substitution.createDetachedLookup(4);
+            substitution.addLigatureToLookup(detached.lookupTable, {
+                sub: [1, 2],
+                by: 27
+            });
+            substitution.addChaining('ccmp', {
+                backtrack: [3],
+                input: [[1], [2]],
+                lookahead: [],
+                lookupRecords: [{
+                    sequenceIndex: 0,
+                    lookupListIndex: detached.lookupIndex
+                }]
+            });
+
+            const buffer = font.toArrayBuffer();
+            const reimported = parse(buffer);
+
+            const directLigatures = reimported.substitution.getLigatures('ccmp');
+            assert.equal(directLigatures.length, 0, 'Detached helper lookup must not appear as a direct feature ligature');
+
+            const rules = reimported.substitution.getChaining('ccmp');
+            assert.equal(rules.length, 1, 'Chaining rule should survive roundtrip');
+            assert.equal(rules[0].substitutions.length, 1, 'Chaining rule should still resolve one helper lookup');
+            assert.equal(rules[0].substitutions[0].lookupType, 4, 'Helper lookup should resolve as a ligature lookup');
+            assert.deepEqual(rules[0].substitutions[0].substitutions[0].sub, [1, 2], 'Resolved helper lookup should preserve ligature input');
+            assert.equal(rules[0].substitutions[0].substitutions[0].by, 27, 'Resolved helper lookup should preserve ligature output');
+        });
+
         it('should preserve complex backtrack/lookahead through roundtrip', function() {
             // Complex rule with multi-glyph backtrack and lookahead
             substitution.add('calt', {
@@ -367,4 +397,3 @@ describe('substitution.js', function() {
         });
     });
 });
-

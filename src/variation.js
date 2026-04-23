@@ -441,7 +441,7 @@ export class VariationManager {
         
         // Collect advance width deltas per peakTuple for multi-axis HVAR
         // Each unique peakTuple becomes a region in the ItemVariationStore
-        const hvarTuples = []; // Array of { peakTuple, deltas: number[] }
+        const hvarTuples = []; // Array of { peakTuple, intermediateStartTuple?, intermediateEndTuple?, deltas: number[] }
         const hvarTupleMap = new Map(); // peakTuple key -> index in hvarTuples
 
         // Generate deltas for each glyph
@@ -467,11 +467,22 @@ export class VariationManager {
                 if (item.advanceWidthDelta !== undefined && item.advanceWidthDelta !== 0) {
                     // Use provided peakTuple or construct default for this axis
                     const peak = item.peakTuple || defaultPeakTuple;
-                    const tupleKey = peak.join(',');
+                    const start = item.intermediateStartTuple ? [...item.intermediateStartTuple] : null;
+                    const end = item.intermediateEndTuple ? [...item.intermediateEndTuple] : null;
+                    const tupleKey = [
+                        peak.join(','),
+                        start ? start.join(',') : '',
+                        end ? end.join(',') : ''
+                    ].join('|');
                     let tupleIdx = hvarTupleMap.get(tupleKey);
                     if (tupleIdx === undefined) {
                         tupleIdx = hvarTuples.length;
-                        hvarTuples.push({ peakTuple: [...peak], deltas: [] });
+                        hvarTuples.push({
+                            peakTuple: [...peak],
+                            ...(start ? { intermediateStartTuple: start } : {}),
+                            ...(end ? { intermediateEndTuple: end } : {}),
+                            deltas: []
+                        });
                         hvarTupleMap.set(tupleKey, tupleIdx);
                     }
                     // Ensure deltas array is big enough
@@ -505,6 +516,12 @@ export class VariationManager {
                     deltasY: item.deltasY || [],
                     privatePoints: item.privatePoints || []
                 };
+                if (item.intermediateStartTuple) {
+                    header.intermediateStartTuple = [...item.intermediateStartTuple];
+                }
+                if (item.intermediateEndTuple) {
+                    header.intermediateEndTuple = [...item.intermediateEndTuple];
+                }
                 
                 gvar.glyphVariations[i].headers.push(header);
             }
@@ -531,7 +548,11 @@ export class VariationManager {
         
         // Accumulate HVAR tuples across addAxis calls
         for (const tuple of hvarTuples) {
-            const key = tuple.peakTuple.join(',');
+            const key = [
+                tuple.peakTuple.join(','),
+                tuple.intermediateStartTuple ? tuple.intermediateStartTuple.join(',') : '',
+                tuple.intermediateEndTuple ? tuple.intermediateEndTuple.join(',') : ''
+            ].join('|');
             let existIdx = this._hvarTupleMap.get(key);
             if (existIdx !== undefined) {
                 // Merge deltas into existing tuple
@@ -544,7 +565,12 @@ export class VariationManager {
                 }
             } else {
                 existIdx = this._hvarTuples.length;
-                this._hvarTuples.push({ peakTuple: [...tuple.peakTuple], deltas: [...tuple.deltas] });
+                this._hvarTuples.push({
+                    peakTuple: [...tuple.peakTuple],
+                    ...(tuple.intermediateStartTuple ? { intermediateStartTuple: [...tuple.intermediateStartTuple] } : {}),
+                    ...(tuple.intermediateEndTuple ? { intermediateEndTuple: [...tuple.intermediateEndTuple] } : {}),
+                    deltas: [...tuple.deltas]
+                });
                 this._hvarTupleMap.set(key, existIdx);
             }
         }
@@ -659,10 +685,18 @@ export class VariationManager {
         const regionIndexes = [];
         for (let r = 0; r < hvarTuples.length; r++) {
             const peak = hvarTuples[r].peakTuple;
+            const start = hvarTuples[r].intermediateStartTuple;
+            const end = hvarTuples[r].intermediateEndTuple;
             const regionAxes = [];
             for (let a = 0; a < axisCount; a++) {
                 const p = peak[a] || 0;
-                if (p > 0) {
+                if (start && end) {
+                    regionAxes.push({
+                        startCoord: start[a] || 0,
+                        peakCoord: p,
+                        endCoord: end[a] || 0
+                    });
+                } else if (p > 0) {
                     regionAxes.push({ startCoord: 0, peakCoord: p, endCoord: p });
                 } else if (p < 0) {
                     regionAxes.push({ startCoord: p, peakCoord: p, endCoord: 0 });

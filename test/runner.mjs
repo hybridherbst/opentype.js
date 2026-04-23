@@ -15,6 +15,7 @@ import './substitution.js';
 import './table.js';
 import './tokenizer.js';
 import './variation.js';
+import './variation-intermediate-tuples.js';
 import './variation-roundtrip.js';
 import './variation-canvas.js';
 import './snapping.js';
