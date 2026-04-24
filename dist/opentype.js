@@ -10469,12 +10469,14 @@ var opentype = (() => {
     }
     const version = hasItemVariationStore ? 1.3 : hasMarkGlyphSets ? 1.2 : 1;
     const encodedVersion = version >= 1.3 ? 65539 : version >= 1.2 ? 65538 : 65536;
+    const glyphClassDefTable = hasClassDef ? new table_default.ClassDef(gdef.classDef) : null;
+    const markAttachClassDefTable = hasMarkAttachClassDef ? new table_default.ClassDef(gdef.markAttachClassDef) : null;
     const fields = [
       { name: "version", type: "FIXED", value: encodedVersion },
-      { name: "glyphClassDefOffset", type: "USHORT", value: 0 },
+      { name: "glyphClassDef", type: "TABLE", value: glyphClassDefTable },
       { name: "attachListOffset", type: "USHORT", value: 0 },
       { name: "ligCaretListOffset", type: "USHORT", value: 0 },
-      { name: "markAttachClassDefOffset", type: "USHORT", value: 0 }
+      { name: "markAttachClassDef", type: "TABLE", value: markAttachClassDefTable }
     ];
     if (version >= 1.2) {
       fields.push({ name: "markGlyphSetsDefOffset", type: "USHORT", value: 0 });

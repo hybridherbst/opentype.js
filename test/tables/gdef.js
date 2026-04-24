@@ -77,4 +77,11 @@ describe('tables/gdef.js', function() {
     it('can parse a GDEF table', function() {
         assert.deepEqual(table, gdef.parse(unhex(data)));
     });
+
+    it('can make and reparse a GDEF table with glyph class definitions', function() {
+        const encoded = Uint8Array.from(gdef.make(table).encode());
+        const reparsed = gdef.parse(new DataView(encoded.buffer));
+        assert.deepEqual(reparsed.classDef, table.classDef);
+        assert.deepEqual(reparsed.markAttachClassDef, table.markAttachClassDef);
+    });
 });
