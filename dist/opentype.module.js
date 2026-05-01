@@ -16310,6 +16310,10 @@ Substitution.prototype.addLigature = function(feature, ligature, script, languag
   const lookupTable = this.getLookupTables(script, language, feature, 4, true)[0];
   this._addLigatureToLookupTable(lookupTable, ligature);
 };
+Substitution.prototype.addLigatures = function(feature, ligatures, script, language) {
+  const lookupTable = this.getLookupTables(script, language, feature, 4, true)[0];
+  this._addLigaturesToLookupTable(lookupTable, ligatures);
+};
 Substitution.prototype.createDetachedLookup = function(lookupType) {
   let gsub = this.font.tables.gsub;
   if (!gsub) {
@@ -16331,6 +16335,13 @@ Substitution.prototype.addLigatureToLookup = function(lookup, ligature) {
   const lookupTable = typeof lookup === "number" ? gsub.lookups[lookup] : lookup;
   check_default.assert(lookupTable, "Ligature: lookup table not found");
   this._addLigatureToLookupTable(lookupTable, ligature);
+};
+Substitution.prototype.addLigaturesToLookup = function(lookup, ligatures) {
+  const gsub = this.font.tables.gsub;
+  check_default.assert(gsub, "Ligature: GSUB table must exist before adding to a detached lookup");
+  const lookupTable = typeof lookup === "number" ? gsub.lookups[lookup] : lookup;
+  check_default.assert(lookupTable, "Ligature: lookup table not found");
+  this._addLigaturesToLookupTable(lookupTable, ligatures);
 };
 Substitution.prototype._addLigatureToLookupTable = function(lookupTable, ligature) {
   check_default.assert(lookupTable.lookupType === 4, "Ligature: lookup table must be type 4");
@@ -16364,6 +16375,62 @@ Substitution.prototype._addLigatureToLookupTable = function(lookupTable, ligatur
     subtable.coverage.glyphs.splice(pos, 0, coverageGlyph);
     subtable.ligatureSets.splice(pos, 0, [ligatureTable]);
   }
+};
+Substitution.prototype._addLigaturesToLookupTable = function(lookupTable, ligatures) {
+  check_default.assert(lookupTable.lookupType === 4, "Ligature: lookup table must be type 4");
+  if (!Array.isArray(ligatures) || ligatures.length === 0)
+    return;
+  let subtable = lookupTable.subtables[0];
+  if (!subtable) {
+    subtable = {
+      substFormat: 1,
+      coverage: { format: 1, glyphs: [] },
+      ligatureSets: []
+    };
+    lookupTable.subtables[0] = subtable;
+  }
+  check_default.assert(subtable.coverage.format === 1, "Ligature: unable to modify coverage table format " + subtable.coverage.format);
+  const setsByCoverage = /* @__PURE__ */ new Map();
+  const keysByCoverage = /* @__PURE__ */ new Map();
+  for (let i = 0; i < subtable.coverage.glyphs.length; i++) {
+    const coverageGlyph = subtable.coverage.glyphs[i];
+    const ligatureSet = subtable.ligatureSets[i] || [];
+    setsByCoverage.set(coverageGlyph, ligatureSet.map((ligatureTable, order2) => ({ ligatureTable, order: order2 })));
+    keysByCoverage.set(coverageGlyph, new Set(ligatureSet.map((ligatureTable) => ligatureTable.components.join(","))));
+  }
+  let order = subtable.ligatureSets.reduce((count, ligatureSet) => count + (ligatureSet ? ligatureSet.length : 0), 0);
+  for (const ligature of ligatures) {
+    if (!ligature || !Array.isArray(ligature.sub) || ligature.sub.length === 0)
+      continue;
+    const coverageGlyph = ligature.sub[0];
+    const ligComponents = ligature.sub.slice(1);
+    const key = ligComponents.join(",");
+    let keySet = keysByCoverage.get(coverageGlyph);
+    if (!keySet) {
+      keySet = /* @__PURE__ */ new Set();
+      keysByCoverage.set(coverageGlyph, keySet);
+    }
+    if (keySet.has(key))
+      continue;
+    keySet.add(key);
+    let ligatureSet = setsByCoverage.get(coverageGlyph);
+    if (!ligatureSet) {
+      ligatureSet = [];
+      setsByCoverage.set(coverageGlyph, ligatureSet);
+    }
+    ligatureSet.push({
+      ligatureTable: {
+        ligGlyph: ligature.by,
+        components: ligComponents
+      },
+      order: order++
+    });
+  }
+  const coverageGlyphs = Array.from(setsByCoverage.keys()).sort((a, b) => a - b);
+  subtable.coverage.glyphs = coverageGlyphs;
+  subtable.ligatureSets = coverageGlyphs.map(
+    (coverageGlyph) => (setsByCoverage.get(coverageGlyph) || []).sort((a, b) => b.ligatureTable.components.length - a.ligatureTable.components.length || a.order - b.order).map((entry) => entry.ligatureTable)
+  );
 };
 Substitution.prototype.addChaining = function(feature, rule, script, language) {
   check_default.assert(rule.input && rule.input.length > 0, "Chaining: input must have at least one glyph");

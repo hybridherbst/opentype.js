@@ -374,6 +374,42 @@ describe('substitution.js', function() {
             assert.equal(rules[0].substitutions[0].substitutions[0].by, 27, 'Resolved helper lookup should preserve ligature output');
         });
 
+        it('can add ligatures in bulk with stable coverage order and dedupe', function() {
+            substitution.addLigatures('liga', [
+                { sub: [2, 3], by: 27 },
+                { sub: [1, 2], by: 26 },
+                { sub: [1, 2, 3], by: 25 },
+                { sub: [1, 2], by: 26 }
+            ]);
+
+            const ligatures = substitution.getLigatures('liga');
+            assert.deepEqual(ligatures, [
+                { sub: [1, 2, 3], by: 25 },
+                { sub: [1, 2], by: 26 },
+                { sub: [2, 3], by: 27 }
+            ]);
+        });
+
+        it('can add detached ligature helper lookups in bulk', function() {
+            const detached = substitution.createDetachedLookup(4);
+            substitution.addLigaturesToLookup(detached.lookupTable, [
+                { sub: [1, 2], by: 26 },
+                { sub: [2, 3], by: 27 }
+            ]);
+            substitution.addChaining('ccmp', {
+                input: [[1], [2]],
+                lookupRecords: [{
+                    sequenceIndex: 0,
+                    lookupListIndex: detached.lookupIndex
+                }]
+            });
+
+            const buffer = font.toArrayBuffer();
+            const reimported = parse(buffer);
+            assert.equal(reimported.substitution.getLigatures('ccmp').length, 0);
+            assert.equal(reimported.substitution.getChaining('ccmp').length, 1);
+        });
+
         it('should preserve complex backtrack/lookahead through roundtrip', function() {
             // Complex rule with multi-glyph backtrack and lookahead
             substitution.add('calt', {

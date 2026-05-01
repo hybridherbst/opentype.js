@@ -9,6 +9,19 @@ import { arraysEqual } from './util.js';
 /** @typedef {import('./tables/gsub.js').GsubLookupTable} GsubLookupTable */
 
 /**
+ * @typedef {{
+ *   tables: { gsub?: GsubTable }
+ * }} SubstitutionFont
+ *
+ * @typedef {{
+ *   font: SubstitutionFont,
+ *   getLookupTables: (script: string|undefined, language: string|undefined, feature: string, lookupType: number, create?: boolean) => GsubLookupTable[],
+ *   createDefaultTable: () => GsubTable,
+ *   _addLigaturesToLookupTable: (lookupTable: GsubLookupTable, ligatures: Array<{sub: number[], by: number}>) => void
+ * }} SubstitutionContext
+ */
+
+/**
  * @exports opentype.Substitution
  * @class
  * @param {Record<string, unknown>} font
@@ -411,6 +424,20 @@ Substitution.prototype.addLigature = function(feature, ligature, script, languag
 };
 
 /**
+ * Add ligatures (lookup type 4) in bulk.
+ *
+ * @param {string} feature - 4-letter feature name ('liga', 'rlig', 'dlig'...)
+ * @this {SubstitutionContext}
+ * @param {Array<{sub: number[], by: number}>} ligatures - ligature records
+ * @param {string} [script='DFLT']
+ * @param {string} [language='dflt']
+ */
+Substitution.prototype.addLigatures = function(feature, ligatures, script, language) {
+    const lookupTable = this.getLookupTables(script, language, feature, 4, true)[0];
+    this._addLigaturesToLookupTable(lookupTable, ligatures);
+};
+
+/**
  * Create a detached lookup table in the GSUB lookup list without attaching it to a feature.
  * This is useful for helper lookups that are referenced only from chaining-context
  * lookup records and should not be discovered as standalone feature lookups.
@@ -450,6 +477,21 @@ Substitution.prototype.addLigatureToLookup = function(lookup, ligature) {
     const lookupTable = typeof lookup === 'number' ? gsub.lookups[lookup] : lookup;
     check.assert(lookupTable, 'Ligature: lookup table not found');
     this._addLigatureToLookupTable(lookupTable, ligature);
+};
+
+/**
+ * Add ligature records to an existing lookup table or lookup-list index in bulk.
+ *
+ * @this {SubstitutionContext}
+ * @param {number|GsubLookupTable} lookup
+ * @param {Array<{sub: number[], by: number}>} ligatures
+ */
+Substitution.prototype.addLigaturesToLookup = function(lookup, ligatures) {
+    const gsub = this.font.tables.gsub;
+    check.assert(gsub, 'Ligature: GSUB table must exist before adding to a detached lookup');
+    const lookupTable = typeof lookup === 'number' ? gsub.lookups[lookup] : lookup;
+    check.assert(lookupTable, 'Ligature: lookup table not found');
+    this._addLigaturesToLookupTable(lookupTable, ligatures);
 };
 
 /**
@@ -493,6 +535,72 @@ Substitution.prototype._addLigatureToLookupTable = function(lookupTable, ligatur
         subtable.coverage.glyphs.splice(pos, 0, coverageGlyph);
         subtable.ligatureSets.splice(pos, 0, [ligatureTable]);
     }
+};
+
+/**
+ * Add ligature records to an existing lookup table in bulk.
+ *
+ * @param {GsubLookupTable} lookupTable
+ * @param {Array<{sub: number[], by: number}>} ligatures
+ */
+Substitution.prototype._addLigaturesToLookupTable = function(lookupTable, ligatures) {
+    check.assert(lookupTable.lookupType === 4, 'Ligature: lookup table must be type 4');
+    if (!Array.isArray(ligatures) || ligatures.length === 0) return;
+    let subtable = lookupTable.subtables[0];
+    if (!subtable) {
+        subtable = {
+            substFormat: 1,
+            coverage: { format: 1, glyphs: [] },
+            ligatureSets: []
+        };
+        lookupTable.subtables[0] = subtable;
+    }
+    check.assert(subtable.coverage.format === 1, 'Ligature: unable to modify coverage table format ' + subtable.coverage.format);
+
+    const setsByCoverage = new Map();
+    const keysByCoverage = new Map();
+    for (let i = 0; i < subtable.coverage.glyphs.length; i++) {
+        const coverageGlyph = subtable.coverage.glyphs[i];
+        const ligatureSet = subtable.ligatureSets[i] || [];
+        setsByCoverage.set(coverageGlyph, ligatureSet.map((ligatureTable, order) => ({ ligatureTable, order })));
+        keysByCoverage.set(coverageGlyph, new Set(ligatureSet.map((ligatureTable) => ligatureTable.components.join(','))));
+    }
+
+    let order = subtable.ligatureSets.reduce((count, ligatureSet) => count + (ligatureSet ? ligatureSet.length : 0), 0);
+    for (const ligature of ligatures) {
+        if (!ligature || !Array.isArray(ligature.sub) || ligature.sub.length === 0) continue;
+        const coverageGlyph = ligature.sub[0];
+        const ligComponents = ligature.sub.slice(1);
+        const key = ligComponents.join(',');
+        let keySet = keysByCoverage.get(coverageGlyph);
+        if (!keySet) {
+            keySet = new Set();
+            keysByCoverage.set(coverageGlyph, keySet);
+        }
+        if (keySet.has(key)) continue;
+        keySet.add(key);
+
+        let ligatureSet = setsByCoverage.get(coverageGlyph);
+        if (!ligatureSet) {
+            ligatureSet = [];
+            setsByCoverage.set(coverageGlyph, ligatureSet);
+        }
+        ligatureSet.push({
+            ligatureTable: {
+                ligGlyph: ligature.by,
+                components: ligComponents
+            },
+            order: order++
+        });
+    }
+
+    const coverageGlyphs = Array.from(setsByCoverage.keys()).sort((a, b) => a - b);
+    subtable.coverage.glyphs = coverageGlyphs;
+    subtable.ligatureSets = coverageGlyphs.map((coverageGlyph) =>
+        (setsByCoverage.get(coverageGlyph) || [])
+            .sort((a, b) => b.ligatureTable.components.length - a.ligatureTable.components.length || a.order - b.order)
+            .map((entry) => entry.ligatureTable)
+    );
 };
 
 /**

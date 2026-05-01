@@ -1,8 +1,34 @@
 export default Substitution;
 export type GsubTable = import("./tables/gsub.js").GsubTable;
 export type GsubLookupTable = import("./tables/gsub.js").GsubLookupTable;
+export type SubstitutionFont = {
+    tables: {
+        gsub?: GsubTable;
+    };
+};
+export type SubstitutionContext = {
+    font: SubstitutionFont;
+    getLookupTables: (script: string | undefined, language: string | undefined, feature: string, lookupType: number, create?: boolean) => GsubLookupTable[];
+    createDefaultTable: () => GsubTable;
+    _addLigaturesToLookupTable: (lookupTable: GsubLookupTable, ligatures: Array<{
+        sub: number[];
+        by: number;
+    }>) => void;
+};
 /** @typedef {import('./tables/gsub.js').GsubTable} GsubTable */
 /** @typedef {import('./tables/gsub.js').GsubLookupTable} GsubLookupTable */
+/**
+ * @typedef {{
+ *   tables: { gsub?: GsubTable }
+ * }} SubstitutionFont
+ *
+ * @typedef {{
+ *   font: SubstitutionFont,
+ *   getLookupTables: (script: string|undefined, language: string|undefined, feature: string, lookupType: number, create?: boolean) => GsubLookupTable[],
+ *   createDefaultTable: () => GsubTable,
+ *   _addLigaturesToLookupTable: (lookupTable: GsubLookupTable, ligatures: Array<{sub: number[], by: number}>) => void
+ * }} SubstitutionContext
+ */
 /**
  * @exports opentype.Substitution
  * @class
@@ -13,6 +39,18 @@ declare function Substitution(font: Record<string, unknown>): void;
 declare class Substitution {
     /** @typedef {import('./tables/gsub.js').GsubTable} GsubTable */
     /** @typedef {import('./tables/gsub.js').GsubLookupTable} GsubLookupTable */
+    /**
+     * @typedef {{
+     *   tables: { gsub?: GsubTable }
+     * }} SubstitutionFont
+     *
+     * @typedef {{
+     *   font: SubstitutionFont,
+     *   getLookupTables: (script: string|undefined, language: string|undefined, feature: string, lookupType: number, create?: boolean) => GsubLookupTable[],
+     *   createDefaultTable: () => GsubTable,
+     *   _addLigaturesToLookupTable: (lookupTable: GsubLookupTable, ligatures: Array<{sub: number[], by: number}>) => void
+     * }} SubstitutionContext
+     */
     /**
      * @exports opentype.Substitution
      * @class
@@ -126,6 +164,19 @@ declare class Substitution {
         by: number;
     }, script?: string, language?: string): void;
     /**
+     * Add ligatures (lookup type 4) in bulk.
+     *
+     * @param {string} feature - 4-letter feature name ('liga', 'rlig', 'dlig'...)
+     * @this {SubstitutionContext}
+     * @param {Array<{sub: number[], by: number}>} ligatures - ligature records
+     * @param {string} [script='DFLT']
+     * @param {string} [language='dflt']
+     */
+    addLigatures(this: SubstitutionContext, feature: string, ligatures: Array<{
+        sub: number[];
+        by: number;
+    }>, script?: string, language?: string): void;
+    /**
      * Create a detached lookup table in the GSUB lookup list without attaching it to a feature.
      * This is useful for helper lookups that are referenced only from chaining-context
      * lookup records and should not be discovered as standalone feature lookups.
@@ -151,6 +202,17 @@ declare class Substitution {
         by: number;
     }): void;
     /**
+     * Add ligature records to an existing lookup table or lookup-list index in bulk.
+     *
+     * @this {SubstitutionContext}
+     * @param {number|GsubLookupTable} lookup
+     * @param {Array<{sub: number[], by: number}>} ligatures
+     */
+    addLigaturesToLookup(this: SubstitutionContext, lookup: number | GsubLookupTable, ligatures: Array<{
+        sub: number[];
+        by: number;
+    }>): void;
+    /**
      * Add a ligature record to an existing lookup table.
      * Used by both feature-attached ligatures and detached helper lookups
      * referenced from chaining-context rules.
@@ -163,6 +225,16 @@ declare class Substitution {
         sub: number[];
         by: number;
     }): void;
+    /**
+     * Add ligature records to an existing lookup table in bulk.
+     *
+     * @param {GsubLookupTable} lookupTable
+     * @param {Array<{sub: number[], by: number}>} ligatures
+     */
+    _addLigaturesToLookupTable(lookupTable: GsubLookupTable, ligatures: Array<{
+        sub: number[];
+        by: number;
+    }>): void;
     /**
      * Add a chaining context substitution (lookup type 6, format 3)
      * This creates a rule that matches glyphs in context and applies a substitution.
