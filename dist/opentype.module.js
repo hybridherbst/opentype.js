@@ -6918,28 +6918,50 @@ GlyphNames.prototype.nameToGlyphIndex = function(name) {
 GlyphNames.prototype.glyphIndexToName = function(gid) {
   return this.names[gid];
 };
+function getGlyphIndexMap(font) {
+  var _a;
+  const cmap = (
+    /** @type {{ glyphIndexMap?: Record<string, number> } | undefined} */
+    (_a = font.tables) == null ? void 0 : _a.cmap
+  );
+  return (cmap == null ? void 0 : cmap.glyphIndexMap) || null;
+}
+function fallbackGlyphName(gid) {
+  if (gid === 0) {
+    return ".notdef";
+  }
+  return `glyph${String(gid).padStart(5, "0")}`;
+}
 function addGlyphNamesAll(font) {
+  var _a;
   let glyph;
-  const glyphIndexMap = font.tables.cmap.glyphIndexMap;
-  const charCodes = Object.keys(glyphIndexMap);
-  for (let i = 0; i < charCodes.length; i += 1) {
-    const c = charCodes[i];
-    const glyphIndex = glyphIndexMap[c];
-    glyph = font.glyphs.get(glyphIndex);
-    glyph.addUnicode(parseInt(c));
+  const glyphIndexMap = getGlyphIndexMap(font);
+  if (glyphIndexMap) {
+    const charCodes = Object.keys(glyphIndexMap);
+    for (let i = 0; i < charCodes.length; i += 1) {
+      const c = charCodes[i];
+      const glyphIndex = glyphIndexMap[c];
+      glyph = font.glyphs.get(glyphIndex);
+      glyph.addUnicode(parseInt(c));
+    }
   }
   for (let i = 0; i < font.glyphs.length; i += 1) {
     glyph = font.glyphs.get(i);
     if (font.cffEncoding) {
       glyph.name = font.cffEncoding.charset[i];
-    } else if (font.glyphNames.names) {
+    } else if ((_a = font.glyphNames) == null ? void 0 : _a.names) {
       glyph.name = font.glyphNames.glyphIndexToName(i);
+    } else if (!glyph.name) {
+      glyph.name = fallbackGlyphName(i);
     }
   }
 }
 function addGlyphNamesToUnicodeMap(font) {
   font._IndexToUnicodeMap = {};
-  const glyphIndexMap = font.tables.cmap.glyphIndexMap;
+  const glyphIndexMap = getGlyphIndexMap(font);
+  if (!glyphIndexMap) {
+    return;
+  }
   const charCodes = Object.keys(glyphIndexMap);
   for (let i = 0; i < charCodes.length; i += 1) {
     const c = charCodes[i];
@@ -10396,7 +10418,7 @@ function makeGDEFTable(gdef, fvar) {
   const hasLigCaretList = !!gdef.ligCaretList;
   const hasMarkAttachClassDef = !!gdef.markAttachClassDef;
   const hasMarkGlyphSets = !!gdef.markGlyphSets;
-  const hasItemVariationStore = !!gdef.itemVariationStore;
+  const hasItemVariationStore = !!gdef.itemVariationStore && !!fvar;
   if (!hasClassDef && !hasAttachList && !hasLigCaretList && !hasMarkAttachClassDef && !hasMarkGlyphSets && !hasItemVariationStore) {
     return void 0;
   }
@@ -10415,27 +10437,23 @@ function makeGDEFTable(gdef, fvar) {
     fields.push({ name: "markGlyphSetsDefOffset", type: "USHORT", value: 0 });
   }
   if (version >= 1.3) {
-    fields.push({ name: "itemVariationStoreOffset", type: "ULONG", value: 0 });
+    fields.push({
+      name: "itemVariationStore",
+      type: "OFFSET32",
+      value: null,
+      appendPhase: 100
+    });
   }
   const result = new table_default.Table("GDEF", fields);
   if (version >= 1.3 && hasItemVariationStore) {
-    if (!fvar) {
-      throw new Error("GDEF ItemVariationStore requires fvar axes when writing variable positioning data.");
-    }
     const itemVariationStoreBytes = encodeItemVariationStore(gdef.itemVariationStore);
     if (itemVariationStoreBytes.length > 0) {
-      const headerSize = result.sizeOf();
       const rec = (
         /** @type {Record<string, unknown>} */
         /** @type {unknown} */
         result
       );
-      rec.itemVariationStoreOffset = headerSize;
-      result.fields.push({
-        name: "itemVariationStore",
-        type: "LITERAL",
-        value: itemVariationStoreBytes
-      });
+      rec.itemVariationStore = itemVariationStoreBytes;
     }
   }
   return result;
@@ -23923,6 +23941,9 @@ Font.prototype.instantiate = function(coordsOrName) {
   delete fTables.cvar;
   delete fTables.hvar;
   delete fTables.STAT;
+  if (fTables.gdef && typeof fTables.gdef === "object") {
+    delete fTables.gdef["itemVariationStore"];
+  }
   if (fTables.cff2) {
     delete fTables.cff2;
     f.options = Object.assign({}, this.options, { forceCFF1: true });
@@ -23985,8 +24006,10 @@ Font.prototype.nameToGlyph = function(name) {
   return glyph;
 };
 Font.prototype.glyphIndexToName = function(gid) {
-  if (!this.glyphNames.glyphIndexToName) {
-    return "";
+  var _a;
+  if (!((_a = this.glyphNames) == null ? void 0 : _a.glyphIndexToName)) {
+    const glyph = this.glyphs.get(gid);
+    return (glyph == null ? void 0 : glyph.name) || "";
   }
   return this.glyphNames.glyphIndexToName(gid);
 };

@@ -313,6 +313,9 @@ Font.prototype.instantiate = function(coordsOrName) {
     delete fTables.cvar;
     delete fTables.hvar;
     delete fTables.STAT;
+    if (fTables.gdef && typeof fTables.gdef === 'object') {
+        delete fTables.gdef['itemVariationStore'];
+    }
     if (fTables.cff2) {
         // Convert to CFF1 write by default when instantiating
         delete fTables.cff2;
@@ -434,8 +437,9 @@ Font.prototype.nameToGlyph = function(name) {
  * @return {String}
  */
 Font.prototype.glyphIndexToName = function(gid) {
-    if (!this.glyphNames.glyphIndexToName) {
-        return '';
+    if (!this.glyphNames?.glyphIndexToName) {
+        const glyph = this.glyphs.get(gid);
+        return glyph?.name || '';
     }
 
     return this.glyphNames.glyphIndexToName(gid);

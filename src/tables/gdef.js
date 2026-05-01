@@ -6,6 +6,10 @@ import { Parser } from '../parse.js';
 import table from '../table.js';
 import { encodeItemVariationStore } from './hvar.js';
 
+/**
+ * @typedef {{ name: string, type: string, value: number | null | InstanceType<typeof table.ClassDef>, appendPhase?: number }} GdefHeaderField
+ */
+
 var attachList = function() {
     return {
         coverage: this.parsePointer(Parser.coverage),
@@ -76,7 +80,7 @@ function makeGDEFTable(gdef, fvar) {
     const hasLigCaretList = !!gdef.ligCaretList;
     const hasMarkAttachClassDef = !!gdef.markAttachClassDef;
     const hasMarkGlyphSets = !!gdef.markGlyphSets;
-    const hasItemVariationStore = !!gdef.itemVariationStore;
+    const hasItemVariationStore = !!gdef.itemVariationStore && !!fvar;
 
     if (!hasClassDef &&
         !hasAttachList &&
@@ -91,6 +95,7 @@ function makeGDEFTable(gdef, fvar) {
     const encodedVersion = version >= 1.3 ? 0x00010003 : version >= 1.2 ? 0x00010002 : 0x00010000;
     const glyphClassDefTable = hasClassDef ? new table.ClassDef(gdef.classDef) : null;
     const markAttachClassDefTable = hasMarkAttachClassDef ? new table.ClassDef(gdef.markAttachClassDef) : null;
+    /** @type {GdefHeaderField[]} */
     const fields = [
         { name: 'version', type: 'FIXED', value: encodedVersion },
         { name: 'glyphClassDef', type: 'TABLE', value: glyphClassDefTable },
@@ -103,24 +108,20 @@ function makeGDEFTable(gdef, fvar) {
         fields.push({ name: 'markGlyphSetsDefOffset', type: 'USHORT', value: 0 });
     }
     if (version >= 1.3) {
-        fields.push({ name: 'itemVariationStoreOffset', type: 'ULONG', value: 0 });
+        fields.push({
+            name: 'itemVariationStore',
+            type: 'OFFSET32',
+            value: null,
+            appendPhase: 100
+        });
     }
 
     const result = new table.Table('GDEF', fields);
     if (version >= 1.3 && hasItemVariationStore) {
-        if (!fvar) {
-            throw new Error('GDEF ItemVariationStore requires fvar axes when writing variable positioning data.');
-        }
         const itemVariationStoreBytes = encodeItemVariationStore(gdef.itemVariationStore);
         if (itemVariationStoreBytes.length > 0) {
-            const headerSize = result.sizeOf();
             const rec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (result));
-            rec.itemVariationStoreOffset = headerSize;
-            result.fields.push({
-                name: 'itemVariationStore',
-                type: 'LITERAL',
-                value: itemVariationStoreBytes
-            });
+            rec.itemVariationStore = itemVariationStoreBytes;
         }
     }
 

@@ -308,24 +308,48 @@ GlyphNames.prototype.glyphIndexToName = function(gid) {
     return this.names[gid];
 };
 
+/**
+ * @param {import('./font.js').default} font
+ * @return {Record<string, number>|null}
+ */
+function getGlyphIndexMap(font) {
+    const cmap = /** @type {{ glyphIndexMap?: Record<string, number> } | undefined} */ (font.tables?.cmap);
+    return cmap?.glyphIndexMap || null;
+}
+
+/**
+ * @param {number} gid
+ * @return {string}
+ */
+function fallbackGlyphName(gid) {
+    if (gid === 0) {
+        return '.notdef';
+    }
+    return `glyph${String(gid).padStart(5, '0')}`;
+}
+
 function addGlyphNamesAll(font) {
     let glyph;
-    const glyphIndexMap = font.tables.cmap.glyphIndexMap;
-    const charCodes = Object.keys(glyphIndexMap);
+    const glyphIndexMap = getGlyphIndexMap(font);
+    if (glyphIndexMap) {
+        const charCodes = Object.keys(glyphIndexMap);
 
-    for (let i = 0; i < charCodes.length; i += 1) {
-        const c = charCodes[i];
-        const glyphIndex = glyphIndexMap[c];
-        glyph = font.glyphs.get(glyphIndex);
-        glyph.addUnicode(parseInt(c));
+        for (let i = 0; i < charCodes.length; i += 1) {
+            const c = charCodes[i];
+            const glyphIndex = glyphIndexMap[c];
+            glyph = font.glyphs.get(glyphIndex);
+            glyph.addUnicode(parseInt(c));
+        }
     }
 
     for (let i = 0; i < font.glyphs.length; i += 1) {
         glyph = font.glyphs.get(i);
         if (font.cffEncoding) {
             glyph.name = font.cffEncoding.charset[i];
-        } else if (font.glyphNames.names) {
+        } else if (font.glyphNames?.names) {
             glyph.name = font.glyphNames.glyphIndexToName(i);
+        } else if (!glyph.name) {
+            glyph.name = fallbackGlyphName(i);
         }
     }
 }
@@ -333,7 +357,11 @@ function addGlyphNamesAll(font) {
 function addGlyphNamesToUnicodeMap(font) {
     font._IndexToUnicodeMap = {};
 
-    const glyphIndexMap = font.tables.cmap.glyphIndexMap;
+    const glyphIndexMap = getGlyphIndexMap(font);
+    if (!glyphIndexMap) {
+        return;
+    }
+
     const charCodes = Object.keys(glyphIndexMap);
 
     for (let i = 0; i < charCodes.length; i += 1) {

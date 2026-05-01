@@ -1,5 +1,6 @@
 import assert from 'assert';
 import { Font, Glyph, Path, parse } from '../src/opentype.js';
+import { addGlyphNames } from '../src/encoding.js';
 import glyphset from '../src/glyphset.js';
 import { readFileSync } from 'fs';
 import * as util from './testutil.js';
@@ -178,6 +179,60 @@ describe('font.js', function() {
         });
     });
 
+    describe('subset fonts without cmap', function() {
+        it('addGlyphNames tolerates fonts without cmap data', function() {
+            const subsetGlyphs = [
+                new Glyph({name: '.notdef', path: new Path(), advanceWidth: 250}),
+                new Glyph({path: new Path(), advanceWidth: 500}),
+                new Glyph({path: new Path(), advanceWidth: 600})
+            ];
+            for (let i = 0; i < subsetGlyphs.length; i += 1) {
+                subsetGlyphs[i].index = i;
+            }
+
+            const subsetFont = new Font({
+                empty: true,
+                glyphs: subsetGlyphs
+            });
+            subsetFont.glyphNames = {
+                names: ['.notdef', 'glyph00001', 'glyph00002'],
+                glyphIndexToName(gid) {
+                    return this.names[gid];
+                }
+            };
+            subsetFont.tables = {};
+
+            addGlyphNames(subsetFont, {lowMemory: false});
+            assert.deepEqual(subsetFont.glyphs.get(1).unicodes, []);
+            assert.equal(subsetFont.glyphs.get(1).name, 'glyph00001');
+            assert.equal(subsetFont.glyphs.get(2).name, 'glyph00002');
+
+            addGlyphNames(subsetFont, {lowMemory: true});
+            assert.deepEqual(subsetFont._IndexToUnicodeMap, {});
+        });
+
+        it('synthesizes fallback glyph names when post data is missing', function() {
+            const subsetGlyphs = [
+                new Glyph({path: new Path(), advanceWidth: 250}),
+                new Glyph({path: new Path(), advanceWidth: 500}),
+            ];
+            for (let i = 0; i < subsetGlyphs.length; i += 1) {
+                subsetGlyphs[i].index = i;
+            }
+
+            const subsetFont = new Font({
+                empty: true,
+                glyphs: subsetGlyphs
+            });
+            subsetFont.tables = {};
+
+            addGlyphNames(subsetFont, {lowMemory: false});
+            assert.equal(subsetFont.glyphs.get(0).name, '.notdef');
+            assert.equal(subsetFont.glyphs.get(1).name, 'glyph00001');
+            assert.equal(subsetFont.glyphIndexToName(1), 'glyph00001');
+        });
+    });
+
     describe('toTables', function() {
         it('returns an sfnt font table', function() {
             const tables = font.toTables();
@@ -290,6 +345,7 @@ describe('glyphset.js', function() {
             
             assert.ok(!staticFont.tables.fvar, 'fvar should be removed');
             assert.ok(!staticFont.tables.gvar, 'gvar should be removed');
+            assert.ok(!staticFont.tables.gdef?.itemVariationStore, 'GDEF variation store should be removed');
         });
         
         it('should preserve names for export', function() {

@@ -1,1 +1,1 @@
-{"version":3,"file":"gdef.d.ts","sourceRoot":"","sources":["../../src/tables/gdef.js"],"names":[],"mappings":";;;;;AA6CA;;;;;;EAuBC;AAED,kFAyDC"}
+{"version":3,"file":"gdef.d.ts","sourceRoot":"","sources":["../../src/tables/gdef.js"],"names":[],"mappings":";;;;;8BASa;IAAE,IAAI,EAAE,MAAM,CAAC;IAAC,IAAI,EAAE,MAAM,CAAC;IAAC,KAAK,EAAE,MAAM,GAAG,IAAI,GAAG,YAAY,CAAC,OAAO,KAAK,CAAC,QAAQ,CAAC,CAAC;IAAC,WAAW,CAAC,EAAE,MAAM,CAAA;CAAE;AAwC7H;;;;;;EAuBC;AAED,kFAsDC;kBA3HiB,aAAa"}
