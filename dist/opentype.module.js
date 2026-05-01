@@ -7085,10 +7085,20 @@ function glyphLoader(font, index) {
 function ttfGlyphLoader(font, index, parseGlyph2, data, position, buildPath2) {
   return function() {
     const glyph = new glyph_default({ index, font });
+    let parsed = false;
+    const loadRawGlyph = function() {
+      if (!parsed) {
+        parseGlyph2(glyph, data, position);
+        parsed = true;
+      }
+      return glyph;
+    };
+    /** @type {Glyph & {loadRawGlyph?: () => Glyph}} */
+    glyph.loadRawGlyph = loadRawGlyph;
     /** @type {Record<string, unknown>} */
     /** @type {unknown} */
     glyph.path = function() {
-      parseGlyph2(glyph, data, position);
+      loadRawGlyph();
       const path = buildPath2(font.glyphs, glyph);
       path.unitsPerEm = font.unitsPerEm;
       return path;

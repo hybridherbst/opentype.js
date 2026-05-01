@@ -143,9 +143,20 @@ function glyphLoader(font, index) {
 function ttfGlyphLoader(font, index, parseGlyph, data, position, buildPath) {
     return function() {
         const glyph = new Glyph({index: index, font: font});
+        let parsed = false;
+
+        const loadRawGlyph = function() {
+            if (!parsed) {
+                parseGlyph(glyph, data, position);
+                parsed = true;
+            }
+            return glyph;
+        };
+
+        (/** @type {Glyph & {loadRawGlyph?: () => Glyph}} */ (glyph)).loadRawGlyph = loadRawGlyph;
 
         (/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (glyph))).path = function() {
-            parseGlyph(glyph, data, position);
+            loadRawGlyph();
             const path = buildPath(font.glyphs, glyph);
             path.unitsPerEm = font.unitsPerEm;
             return path;
