@@ -2,9 +2,56 @@ import assert from 'assert';
 import { unhex } from '../testutil.js';
 import { Parser } from '../../src/parse.js';
 import cmapTable, { parseCmapTableFormat14, parseCmapTableFormat0 } from '../../src/tables/cmap.js';
-import { parse } from '../../src/opentype.js';
+import { Font, Glyph, Path, parse } from '../../src/opentype.js';
 import { readFileSync } from 'fs';
 const loadSync = (url, opt) => parse(readFileSync(url), opt);
+
+function cmapRecords(buffer) {
+    const data = buffer instanceof ArrayBuffer ? new DataView(buffer) : new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    const numTables = data.getUint16(4);
+    let cmapOffset = -1;
+    for (let i = 0; i < numTables; i++) {
+        const offset = 12 + i * 16;
+        const tag = String.fromCharCode(
+            data.getUint8(offset),
+            data.getUint8(offset + 1),
+            data.getUint8(offset + 2),
+            data.getUint8(offset + 3)
+        );
+        if (tag === 'cmap') {
+            cmapOffset = data.getUint32(offset + 8);
+            break;
+        }
+    }
+    assert.notEqual(cmapOffset, -1, 'expected cmap table');
+    const numCmapTables = data.getUint16(cmapOffset + 2);
+    const records = [];
+    for (let i = 0; i < numCmapTables; i++) {
+        const recordOffset = cmapOffset + 4 + i * 8;
+        const subtableOffset = data.getUint32(recordOffset + 4);
+        const subtableStart = cmapOffset + subtableOffset;
+        const format = data.getUint16(subtableStart);
+        records.push({
+            platformID: data.getUint16(recordOffset),
+            encodingID: data.getUint16(recordOffset + 2),
+            format,
+            length: format === 4 ? data.getUint16(subtableStart + 2) : data.getUint32(subtableStart + 4),
+            groups: format === 12 || format === 13 ? data.getUint32(subtableStart + 12) : undefined
+        });
+    }
+    return records;
+}
+
+function makeFont(glyphs) {
+    return new Font({
+        familyName: 'Cmap Test',
+        styleName: 'Regular',
+        unitsPerEm: 1000,
+        ascender: 800,
+        descender: -200,
+        glyphs
+    });
+}
 
 describe('tables/cmap.js', function() {
 
@@ -97,5 +144,35 @@ describe('tables/cmap.js', function() {
         assert.equal(cmap.glyphIndexMap[0x00], 2);
         assert.equal(cmap.glyphIndexMap[0x41], 2);
         assert.equal(cmap.glyphIndexMap[0x7f], 2);
+    });
+
+    it('writes format 13 for contiguous many-to-one full Unicode mappings', function() {
+        const font = makeFont([
+            new Glyph({ name: '.notdef', advanceWidth: 500, path: new Path() }),
+            new Glyph({ name: 'fallback', unicodes: [0x10000, 0x10001, 0x10002, 0x10003], advanceWidth: 500, path: new Path() })
+        ]);
+        const buffer = font.toArrayBuffer();
+        const records = cmapRecords(buffer);
+        const fullRecord = records.find((record) => record.format === 13);
+
+        assert.ok(fullRecord, 'expected a format 13 full Unicode subtable');
+        assert.equal(fullRecord.groups, 1);
+        assert.equal(parse(buffer).tables.cmap.glyphIndexMap[0x10002], 1);
+    });
+
+    it('writes compact format 12 groups for contiguous sequential full Unicode mappings', function() {
+        const font = makeFont([
+            new Glyph({ name: '.notdef', advanceWidth: 500, path: new Path() }),
+            new Glyph({ name: 'u10000', unicode: 0x10000, advanceWidth: 500, path: new Path() }),
+            new Glyph({ name: 'u10001', unicode: 0x10001, advanceWidth: 500, path: new Path() }),
+            new Glyph({ name: 'u10002', unicode: 0x10002, advanceWidth: 500, path: new Path() })
+        ]);
+        const buffer = font.toArrayBuffer();
+        const records = cmapRecords(buffer);
+        const fullRecord = records.find((record) => record.format === 12);
+
+        assert.ok(fullRecord, 'expected a format 12 full Unicode subtable');
+        assert.equal(fullRecord.groups, 1);
+        assert.equal(parse(buffer).tables.cmap.glyphIndexMap[0x10002], 3);
     });
 });

@@ -291,185 +291,192 @@ function parseCmapTable(data, start) {
     return cmap;
 }
 
-function addSegment(t, code, glyphIndex) {
-    t.segments.push({
-        end: code,
-        start: code,
-        delta: -(code - glyphIndex),
-        offset: 0,
-        glyphIndex: glyphIndex
-    });
-}
-
-function addTerminatorSegment(t) {
-    t.segments.push({
-        end: 0xFFFF,
-        start: 0xFFFF,
-        delta: 1,
-        offset: 0
-    });
-}
-
-// Make cmap table, format 4 by default, 12 if needed only
-function makeCmapTable(glyphs) {
-    // Plan 0 is the base Unicode Plan but emojis, for example are on another plan, and needs cmap 12 format (with 32bit)
-    let isPlan0Only = true;
-    let i;
-
-    // Check if we need to add cmap format 12 or if format 4 only is fine
-    for (i = glyphs.length - 1; i > 0; i -= 1) {
-        const g = glyphs.get(i);
-        if (g.unicode > 65535) {
-            // console.log('Adding CMAP format 12 (needed!)');
-            isPlan0Only = false;
-            break;
+function collectUnicodeMappings(glyphs) {
+    const byCodePoint = new Map();
+    for (let i = 0; i < glyphs.length; i += 1) {
+        const glyph = glyphs.get(i);
+        const unicodes = Array.isArray(glyph.unicodes) ? glyph.unicodes : [];
+        for (let j = 0; j < unicodes.length; j += 1) {
+            const codePoint = unicodes[j];
+            if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10FFFF) continue;
+            if (!byCodePoint.has(codePoint)) {
+                byCodePoint.set(codePoint, i);
+            }
         }
     }
+    return Array.from(byCodePoint, ([codePoint, glyphIndex]) => ({ codePoint, glyphIndex }))
+        .sort((a, b) => a.codePoint - b.codePoint);
+}
 
-    let cmapTable = [
+function buildFormat12Groups(mappings) {
+    const groups = [];
+    for (const mapping of mappings) {
+        const previous = groups[groups.length - 1];
+        const expectedGlyphIndex = previous ? previous.startGlyphID + (mapping.codePoint - previous.startCharCode) : -1;
+        if (previous && mapping.codePoint === previous.endCharCode + 1 && mapping.glyphIndex === expectedGlyphIndex) {
+            previous.endCharCode = mapping.codePoint;
+        } else {
+            groups.push({
+                startCharCode: mapping.codePoint,
+                endCharCode: mapping.codePoint,
+                startGlyphID: mapping.glyphIndex
+            });
+        }
+    }
+    return groups;
+}
+
+function buildFormat13Groups(mappings) {
+    const groups = [];
+    for (const mapping of mappings) {
+        const previous = groups[groups.length - 1];
+        if (previous && mapping.codePoint === previous.endCharCode + 1 && mapping.glyphIndex === previous.glyphID) {
+            previous.endCharCode = mapping.codePoint;
+        } else {
+            groups.push({
+                startCharCode: mapping.codePoint,
+                endCharCode: mapping.codePoint,
+                glyphID: mapping.glyphIndex
+            });
+        }
+    }
+    return groups;
+}
+
+function buildFormat4Segments(mappings) {
+    const segments = [];
+    for (const mapping of mappings) {
+        if (mapping.codePoint > 0xFFFF || mapping.codePoint === 0xFFFF) continue;
+        const delta = (mapping.glyphIndex - mapping.codePoint) & 0xFFFF;
+        const signedDelta = delta > 0x7FFF ? delta - 0x10000 : delta;
+        const previous = segments[segments.length - 1];
+        if (previous && mapping.codePoint === previous.end + 1 && signedDelta === previous.delta) {
+            previous.end = mapping.codePoint;
+        } else {
+            segments.push({
+                start: mapping.codePoint,
+                end: mapping.codePoint,
+                delta: signedDelta
+            });
+        }
+    }
+    segments.push({
+        start: 0xFFFF,
+        end: 0xFFFF,
+        delta: 1
+    });
+    return segments;
+}
+
+function format4LengthForSegments(segments) {
+    return 14 + segments.length * 8 + 2;
+}
+
+function makeFormat4Fields(segments) {
+    const segCount = segments.length;
+    const segCountX2 = segCount * 2;
+    const searchRange = Math.pow(2, Math.floor(Math.log(segCount) / Math.log(2))) * 2;
+    const entrySelector = Math.log(searchRange / 2) / Math.log(2);
+    const fields = [
+        {name: 'format', type: 'USHORT', value: 4},
+        {name: 'cmap4Length', type: 'USHORT', value: format4LengthForSegments(segments)},
+        {name: 'language', type: 'USHORT', value: 0},
+        {name: 'segCountX2', type: 'USHORT', value: segCountX2},
+        {name: 'searchRange', type: 'USHORT', value: searchRange},
+        {name: 'entrySelector', type: 'USHORT', value: entrySelector},
+        {name: 'rangeShift', type: 'USHORT', value: segCountX2 - searchRange}
+    ];
+    for (let i = 0; i < segments.length; i++) {
+        fields.push({name: 'end_' + i, type: 'USHORT', value: segments[i].end});
+    }
+    fields.push({name: 'reservedPad', type: 'USHORT', value: 0});
+    for (let i = 0; i < segments.length; i++) {
+        fields.push({name: 'start_' + i, type: 'USHORT', value: segments[i].start});
+    }
+    for (let i = 0; i < segments.length; i++) {
+        fields.push({name: 'idDelta_' + i, type: 'SHORT', value: segments[i].delta});
+    }
+    for (let i = 0; i < segments.length; i++) {
+        fields.push({name: 'idRangeOffset_' + i, type: 'USHORT', value: 0});
+    }
+    return fields;
+}
+
+function makeFormat12or13Fields(format, groups) {
+    const fields = [
+        {name: 'cmap' + format + 'Format', type: 'USHORT', value: format},
+        {name: 'cmap' + format + 'Reserved', type: 'USHORT', value: 0},
+        {name: 'cmap' + format + 'Length', type: 'ULONG', value: 16 + groups.length * 12},
+        {name: 'cmap' + format + 'Language', type: 'ULONG', value: 0},
+        {name: 'cmap' + format + 'nGroups', type: 'ULONG', value: groups.length}
+    ];
+    for (let i = 0; i < groups.length; i++) {
+        const group = groups[i];
+        fields.push({name: 'cmap' + format + 'Start_' + i, type: 'ULONG', value: group.startCharCode});
+        fields.push({name: 'cmap' + format + 'End_' + i, type: 'ULONG', value: group.endCharCode});
+        fields.push({
+            name: 'cmap' + format + 'Glyph_' + i,
+            type: 'ULONG',
+            value: format === 13 ? group.glyphID : group.startGlyphID
+        });
+    }
+    return fields;
+}
+
+function appendFields(target, fields) {
+    for (let i = 0; i < fields.length; i++) {
+        target.push(fields[i]);
+    }
+}
+
+// Make a Unicode cmap table. Format 4 is emitted for BMP compatibility when it
+// fits; format 12 is used for sequential full-Unicode runs, and format 13 is
+// used for many-to-one ranges such as LastResort-style fonts.
+function makeCmapTable(glyphs) {
+    const mappings = collectUnicodeMappings(glyphs);
+    const hasNonBmpMapping = mappings.some((mapping) => mapping.codePoint > 0xFFFF);
+    const hasFFFFMapping = mappings.some((mapping) => mapping.codePoint === 0xFFFF);
+    const format12Groups = buildFormat12Groups(mappings);
+    const format13Groups = buildFormat13Groups(mappings);
+    const format12Length = 16 + format12Groups.length * 12;
+    const format13Length = 16 + format13Groups.length * 12;
+    const fullFormat = format13Length < format12Length ? 13 : 12;
+    const fullGroups = fullFormat === 13 ? format13Groups : format12Groups;
+
+    let format4Segments = buildFormat4Segments(mappings);
+    let format4Length = format4LengthForSegments(format4Segments);
+    const needsFullSubtable = hasNonBmpMapping || hasFFFFMapping || format4Length > 0xFFFF;
+    if (needsFullSubtable && format4Length > 0xFFFF) {
+        format4Segments = [{ start: 0xFFFF, end: 0xFFFF, delta: 1 }];
+        format4Length = format4LengthForSegments(format4Segments);
+    }
+
+    const numTables = needsFullSubtable ? 2 : 1;
+    const format4Offset = 4 + numTables * 8;
+    const fullOffset = format4Offset + format4Length;
+    const cmapTable = [
         {name: 'version', type: 'USHORT', value: 0},
-        {name: 'numTables', type: 'USHORT', value: isPlan0Only ? 1 : 2},
-
-        // CMAP 4 header
+        {name: 'numTables', type: 'USHORT', value: numTables},
         {name: 'platformID', type: 'USHORT', value: 3},
         {name: 'encodingID', type: 'USHORT', value: 1},
-        {name: 'offset', type: 'ULONG', value: isPlan0Only ? 12 : (12 + 8)}
+        {name: 'offset', type: 'ULONG', value: format4Offset}
     ];
 
-    if (!isPlan0Only)
-        cmapTable.push(...[
-            // CMAP 12 header
-            {name: 'cmap12PlatformID', type: 'USHORT', value: 3}, // We encode only for PlatformID = 3 (Windows) because it is supported everywhere
-            {name: 'cmap12EncodingID', type: 'USHORT', value: 10},
-            {name: 'cmap12Offset', type: 'ULONG', value: 0}
-        ]);
-
-    cmapTable.push(...[
-        // CMAP 4 Subtable
-        {name: 'format', type: 'USHORT', value: 4},
-        {name: 'cmap4Length', type: 'USHORT', value: 0},
-        {name: 'language', type: 'USHORT', value: 0},
-        {name: 'segCountX2', type: 'USHORT', value: 0},
-        {name: 'searchRange', type: 'USHORT', value: 0},
-        {name: 'entrySelector', type: 'USHORT', value: 0},
-        {name: 'rangeShift', type: 'USHORT', value: 0}
-    ]);
-
-    const t = new table.Table('cmap', cmapTable);
-    const tRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (t));
-
-    tRec.segments = [];
-    for (i = 0; i < glyphs.length; i += 1) {
-        const glyph = glyphs.get(i);
-        for (let j = 0; j < glyph.unicodes.length; j += 1) {
-            addSegment(tRec, glyph.unicodes[j], i);
-        }
-    }
-    /** @type {Array<{start: number, end: number, delta: number, offset: number, glyphIndex?: number, glyphId?: number}>} */ (tRec.segments).sort(function (a, b) {
-        return a.start - b.start;
-    });
-
-    addTerminatorSegment(tRec);
-
-    const segCount = /** @type {Array} */ (tRec.segments).length;
-    let segCountToRemove = 0;
-
-    // CMAP 4
-    // Set up parallel segment arrays.
-    let endCounts = [];
-    let startCounts = [];
-    let idDeltas = [];
-    let idRangeOffsets = [];
-    let glyphIds = [];
-
-    // CMAP 12
-    let cmap12Groups = [];
-
-    // Reminder this loop is not following the specification at 100%
-    // The specification -> find suites of characters and make a group
-    // Here we're doing one group for each letter
-    // Doing as the spec can save 8 times (or more) space
-    for (i = 0; i < segCount; i += 1) {
-        const segment = /** @type {Array<{start: number, end: number, delta: number, offset: number, glyphIndex?: number, glyphId?: number}>} */ (tRec.segments)[i];
-
-        // CMAP 4
-        if (segment.end <= 65535 && segment.start <= 65535) {
-            endCounts.push({name: 'end_' + i, type: 'USHORT', value: segment.end});
-            startCounts.push({name: 'start_' + i, type: 'USHORT', value: segment.start});
-            idDeltas.push({name: 'idDelta_' + i, type: 'SHORT', value: segment.delta});
-            idRangeOffsets.push({name: 'idRangeOffset_' + i, type: 'USHORT', value: segment.offset});
-            if (segment.glyphId !== undefined) {
-                glyphIds.push({name: 'glyph_' + i, type: 'USHORT', value: segment.glyphId});
-            }
-        } else {
-            // Skip Unicode > 65535 (16bit unsigned max) for CMAP 4, will be added in CMAP 12
-            segCountToRemove += 1;
-        }
-
-        // CMAP 12
-        // Skip Terminator Segment
-        if (!isPlan0Only && segment.glyphIndex !== undefined) {
-            cmap12Groups.push({name: 'cmap12Start_' + i, type: 'ULONG', value: segment.start});
-            cmap12Groups.push({name: 'cmap12End_' + i, type: 'ULONG', value: segment.end});
-            cmap12Groups.push({name: 'cmap12Glyph_' + i, type: 'ULONG', value: segment.glyphIndex});
-        }
+    if (needsFullSubtable) {
+        cmapTable.push(
+            {name: 'fullPlatformID', type: 'USHORT', value: fullFormat === 13 ? 0 : 3},
+            {name: 'fullEncodingID', type: 'USHORT', value: fullFormat === 13 ? 6 : 10},
+            {name: 'fullOffset', type: 'ULONG', value: fullOffset}
+        );
     }
 
-    // CMAP 4 Subtable
-    const segCountX2 = (segCount - segCountToRemove) * 2;
-    tRec.segCountX2 = segCountX2;
-    const searchRange = Math.pow(2, Math.floor(Math.log((segCount - segCountToRemove)) / Math.log(2))) * 2;
-    tRec.searchRange = searchRange;
-    tRec.entrySelector = Math.log(searchRange / 2) / Math.log(2);
-    tRec.rangeShift = segCountX2 - searchRange;
+    appendFields(cmapTable, makeFormat4Fields(format4Segments));
 
-    for (let i = 0; i < endCounts.length; i++) {
-        t.fields.push(endCounts[i]);
-    }
-    t.fields.push({name: 'reservedPad', type: 'USHORT', value: 0});
-    for (let i = 0; i < startCounts.length; i++) {
-        t.fields.push(startCounts[i]);
-    }
-    for (let i = 0; i < idDeltas.length; i++) {
-        t.fields.push(idDeltas[i]);
-    }
-    for (let i = 0; i < idRangeOffsets.length; i++) {
-        t.fields.push(idRangeOffsets[i]);
-    }
-    for (let i = 0; i < glyphIds.length; i++) {
-        t.fields.push(glyphIds[i]);
+    if (needsFullSubtable) {
+        appendFields(cmapTable, makeFormat12or13Fields(fullFormat, fullGroups));
     }
 
-    const cmap4Length = 14 + // Subtable header
-        endCounts.length * 2 +
-        2 + // reservedPad
-        startCounts.length * 2 +
-        idDeltas.length * 2 +
-        idRangeOffsets.length * 2 +
-        glyphIds.length * 2;
-    tRec.cmap4Length = cmap4Length;
-
-    if (!isPlan0Only) {
-        // CMAP 12 Subtable
-        const cmap12Length = 16 + // Subtable header
-            cmap12Groups.length * 4;
-
-        tRec.cmap12Offset = 12 + (2 * 2) + 4 + cmap4Length;
-        t.fields.push(...[
-            {name: 'cmap12Format', type: 'USHORT', value: 12},
-            {name: 'cmap12Reserved', type: 'USHORT', value: 0},
-            {name: 'cmap12Length', type: 'ULONG', value: cmap12Length},
-            {name: 'cmap12Language', type: 'ULONG', value: 0},
-            {name: 'cmap12nGroups', type: 'ULONG', value: cmap12Groups.length / 3}
-        ]);
-
-        for (let i = 0; i < cmap12Groups.length; i++) {
-            t.fields.push(cmap12Groups[i]);
-        }
-
-    }
-
-    return t;
+    return new table.Table('cmap', cmapTable);
 }
 
 export default { parse: parseCmapTable, make: makeCmapTable };

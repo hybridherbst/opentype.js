@@ -5140,151 +5140,176 @@ var opentype = (() => {
     }
     return cmap;
   }
-  function addSegment(t, code, glyphIndex) {
-    t.segments.push({
-      end: code,
-      start: code,
-      delta: -(code - glyphIndex),
-      offset: 0,
-      glyphIndex
-    });
+  function collectUnicodeMappings(glyphs) {
+    const byCodePoint = /* @__PURE__ */ new Map();
+    for (let i = 0; i < glyphs.length; i += 1) {
+      const glyph = glyphs.get(i);
+      const unicodes = Array.isArray(glyph.unicodes) ? glyph.unicodes : [];
+      for (let j = 0; j < unicodes.length; j += 1) {
+        const codePoint = unicodes[j];
+        if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 1114111)
+          continue;
+        if (!byCodePoint.has(codePoint)) {
+          byCodePoint.set(codePoint, i);
+        }
+      }
+    }
+    return Array.from(byCodePoint, ([codePoint, glyphIndex]) => ({ codePoint, glyphIndex })).sort((a, b) => a.codePoint - b.codePoint);
   }
-  function addTerminatorSegment(t) {
-    t.segments.push({
-      end: 65535,
+  function buildFormat12Groups(mappings) {
+    const groups = [];
+    for (const mapping of mappings) {
+      const previous = groups[groups.length - 1];
+      const expectedGlyphIndex = previous ? previous.startGlyphID + (mapping.codePoint - previous.startCharCode) : -1;
+      if (previous && mapping.codePoint === previous.endCharCode + 1 && mapping.glyphIndex === expectedGlyphIndex) {
+        previous.endCharCode = mapping.codePoint;
+      } else {
+        groups.push({
+          startCharCode: mapping.codePoint,
+          endCharCode: mapping.codePoint,
+          startGlyphID: mapping.glyphIndex
+        });
+      }
+    }
+    return groups;
+  }
+  function buildFormat13Groups(mappings) {
+    const groups = [];
+    for (const mapping of mappings) {
+      const previous = groups[groups.length - 1];
+      if (previous && mapping.codePoint === previous.endCharCode + 1 && mapping.glyphIndex === previous.glyphID) {
+        previous.endCharCode = mapping.codePoint;
+      } else {
+        groups.push({
+          startCharCode: mapping.codePoint,
+          endCharCode: mapping.codePoint,
+          glyphID: mapping.glyphIndex
+        });
+      }
+    }
+    return groups;
+  }
+  function buildFormat4Segments(mappings) {
+    const segments = [];
+    for (const mapping of mappings) {
+      if (mapping.codePoint > 65535 || mapping.codePoint === 65535)
+        continue;
+      const delta = mapping.glyphIndex - mapping.codePoint & 65535;
+      const signedDelta = delta > 32767 ? delta - 65536 : delta;
+      const previous = segments[segments.length - 1];
+      if (previous && mapping.codePoint === previous.end + 1 && signedDelta === previous.delta) {
+        previous.end = mapping.codePoint;
+      } else {
+        segments.push({
+          start: mapping.codePoint,
+          end: mapping.codePoint,
+          delta: signedDelta
+        });
+      }
+    }
+    segments.push({
       start: 65535,
-      delta: 1,
-      offset: 0
+      end: 65535,
+      delta: 1
     });
+    return segments;
+  }
+  function format4LengthForSegments(segments) {
+    return 14 + segments.length * 8 + 2;
+  }
+  function makeFormat4Fields(segments) {
+    const segCount = segments.length;
+    const segCountX2 = segCount * 2;
+    const searchRange2 = Math.pow(2, Math.floor(Math.log(segCount) / Math.log(2))) * 2;
+    const entrySelector = Math.log(searchRange2 / 2) / Math.log(2);
+    const fields = [
+      { name: "format", type: "USHORT", value: 4 },
+      { name: "cmap4Length", type: "USHORT", value: format4LengthForSegments(segments) },
+      { name: "language", type: "USHORT", value: 0 },
+      { name: "segCountX2", type: "USHORT", value: segCountX2 },
+      { name: "searchRange", type: "USHORT", value: searchRange2 },
+      { name: "entrySelector", type: "USHORT", value: entrySelector },
+      { name: "rangeShift", type: "USHORT", value: segCountX2 - searchRange2 }
+    ];
+    for (let i = 0; i < segments.length; i++) {
+      fields.push({ name: "end_" + i, type: "USHORT", value: segments[i].end });
+    }
+    fields.push({ name: "reservedPad", type: "USHORT", value: 0 });
+    for (let i = 0; i < segments.length; i++) {
+      fields.push({ name: "start_" + i, type: "USHORT", value: segments[i].start });
+    }
+    for (let i = 0; i < segments.length; i++) {
+      fields.push({ name: "idDelta_" + i, type: "SHORT", value: segments[i].delta });
+    }
+    for (let i = 0; i < segments.length; i++) {
+      fields.push({ name: "idRangeOffset_" + i, type: "USHORT", value: 0 });
+    }
+    return fields;
+  }
+  function makeFormat12or13Fields(format, groups) {
+    const fields = [
+      { name: "cmap" + format + "Format", type: "USHORT", value: format },
+      { name: "cmap" + format + "Reserved", type: "USHORT", value: 0 },
+      { name: "cmap" + format + "Length", type: "ULONG", value: 16 + groups.length * 12 },
+      { name: "cmap" + format + "Language", type: "ULONG", value: 0 },
+      { name: "cmap" + format + "nGroups", type: "ULONG", value: groups.length }
+    ];
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i];
+      fields.push({ name: "cmap" + format + "Start_" + i, type: "ULONG", value: group.startCharCode });
+      fields.push({ name: "cmap" + format + "End_" + i, type: "ULONG", value: group.endCharCode });
+      fields.push({
+        name: "cmap" + format + "Glyph_" + i,
+        type: "ULONG",
+        value: format === 13 ? group.glyphID : group.startGlyphID
+      });
+    }
+    return fields;
+  }
+  function appendFields(target, fields) {
+    for (let i = 0; i < fields.length; i++) {
+      target.push(fields[i]);
+    }
   }
   function makeCmapTable(glyphs) {
-    let isPlan0Only = true;
-    let i;
-    for (i = glyphs.length - 1; i > 0; i -= 1) {
-      const g = glyphs.get(i);
-      if (g.unicode > 65535) {
-        isPlan0Only = false;
-        break;
-      }
+    const mappings = collectUnicodeMappings(glyphs);
+    const hasNonBmpMapping = mappings.some((mapping) => mapping.codePoint > 65535);
+    const hasFFFFMapping = mappings.some((mapping) => mapping.codePoint === 65535);
+    const format12Groups = buildFormat12Groups(mappings);
+    const format13Groups = buildFormat13Groups(mappings);
+    const format12Length = 16 + format12Groups.length * 12;
+    const format13Length = 16 + format13Groups.length * 12;
+    const fullFormat = format13Length < format12Length ? 13 : 12;
+    const fullGroups = fullFormat === 13 ? format13Groups : format12Groups;
+    let format4Segments = buildFormat4Segments(mappings);
+    let format4Length = format4LengthForSegments(format4Segments);
+    const needsFullSubtable = hasNonBmpMapping || hasFFFFMapping || format4Length > 65535;
+    if (needsFullSubtable && format4Length > 65535) {
+      format4Segments = [{ start: 65535, end: 65535, delta: 1 }];
+      format4Length = format4LengthForSegments(format4Segments);
     }
-    let cmapTable = [
+    const numTables = needsFullSubtable ? 2 : 1;
+    const format4Offset = 4 + numTables * 8;
+    const fullOffset = format4Offset + format4Length;
+    const cmapTable = [
       { name: "version", type: "USHORT", value: 0 },
-      { name: "numTables", type: "USHORT", value: isPlan0Only ? 1 : 2 },
-      // CMAP 4 header
+      { name: "numTables", type: "USHORT", value: numTables },
       { name: "platformID", type: "USHORT", value: 3 },
       { name: "encodingID", type: "USHORT", value: 1 },
-      { name: "offset", type: "ULONG", value: isPlan0Only ? 12 : 12 + 8 }
+      { name: "offset", type: "ULONG", value: format4Offset }
     ];
-    if (!isPlan0Only)
-      cmapTable.push(...[
-        // CMAP 12 header
-        { name: "cmap12PlatformID", type: "USHORT", value: 3 },
-        // We encode only for PlatformID = 3 (Windows) because it is supported everywhere
-        { name: "cmap12EncodingID", type: "USHORT", value: 10 },
-        { name: "cmap12Offset", type: "ULONG", value: 0 }
-      ]);
-    cmapTable.push(...[
-      // CMAP 4 Subtable
-      { name: "format", type: "USHORT", value: 4 },
-      { name: "cmap4Length", type: "USHORT", value: 0 },
-      { name: "language", type: "USHORT", value: 0 },
-      { name: "segCountX2", type: "USHORT", value: 0 },
-      { name: "searchRange", type: "USHORT", value: 0 },
-      { name: "entrySelector", type: "USHORT", value: 0 },
-      { name: "rangeShift", type: "USHORT", value: 0 }
-    ]);
-    const t = new table_default.Table("cmap", cmapTable);
-    const tRec = (
-      /** @type {Record<string, unknown>} */
-      /** @type {unknown} */
-      t
-    );
-    tRec.segments = [];
-    for (i = 0; i < glyphs.length; i += 1) {
-      const glyph = glyphs.get(i);
-      for (let j = 0; j < glyph.unicodes.length; j += 1) {
-        addSegment(tRec, glyph.unicodes[j], i);
-      }
-    }
-    tRec.segments.sort(function(a, b) {
-      return a.start - b.start;
-    });
-    addTerminatorSegment(tRec);
-    const segCount = (
-      /** @type {Array} */
-      tRec.segments.length
-    );
-    let segCountToRemove = 0;
-    let endCounts = [];
-    let startCounts = [];
-    let idDeltas = [];
-    let idRangeOffsets = [];
-    let glyphIds = [];
-    let cmap12Groups = [];
-    for (i = 0; i < segCount; i += 1) {
-      const segment = (
-        /** @type {Array<{start: number, end: number, delta: number, offset: number, glyphIndex?: number, glyphId?: number}>} */
-        tRec.segments[i]
+    if (needsFullSubtable) {
+      cmapTable.push(
+        { name: "fullPlatformID", type: "USHORT", value: fullFormat === 13 ? 0 : 3 },
+        { name: "fullEncodingID", type: "USHORT", value: fullFormat === 13 ? 6 : 10 },
+        { name: "fullOffset", type: "ULONG", value: fullOffset }
       );
-      if (segment.end <= 65535 && segment.start <= 65535) {
-        endCounts.push({ name: "end_" + i, type: "USHORT", value: segment.end });
-        startCounts.push({ name: "start_" + i, type: "USHORT", value: segment.start });
-        idDeltas.push({ name: "idDelta_" + i, type: "SHORT", value: segment.delta });
-        idRangeOffsets.push({ name: "idRangeOffset_" + i, type: "USHORT", value: segment.offset });
-        if (segment.glyphId !== void 0) {
-          glyphIds.push({ name: "glyph_" + i, type: "USHORT", value: segment.glyphId });
-        }
-      } else {
-        segCountToRemove += 1;
-      }
-      if (!isPlan0Only && segment.glyphIndex !== void 0) {
-        cmap12Groups.push({ name: "cmap12Start_" + i, type: "ULONG", value: segment.start });
-        cmap12Groups.push({ name: "cmap12End_" + i, type: "ULONG", value: segment.end });
-        cmap12Groups.push({ name: "cmap12Glyph_" + i, type: "ULONG", value: segment.glyphIndex });
-      }
     }
-    const segCountX2 = (segCount - segCountToRemove) * 2;
-    tRec.segCountX2 = segCountX2;
-    const searchRange2 = Math.pow(2, Math.floor(Math.log(segCount - segCountToRemove) / Math.log(2))) * 2;
-    tRec.searchRange = searchRange2;
-    tRec.entrySelector = Math.log(searchRange2 / 2) / Math.log(2);
-    tRec.rangeShift = segCountX2 - searchRange2;
-    for (let i2 = 0; i2 < endCounts.length; i2++) {
-      t.fields.push(endCounts[i2]);
+    appendFields(cmapTable, makeFormat4Fields(format4Segments));
+    if (needsFullSubtable) {
+      appendFields(cmapTable, makeFormat12or13Fields(fullFormat, fullGroups));
     }
-    t.fields.push({ name: "reservedPad", type: "USHORT", value: 0 });
-    for (let i2 = 0; i2 < startCounts.length; i2++) {
-      t.fields.push(startCounts[i2]);
-    }
-    for (let i2 = 0; i2 < idDeltas.length; i2++) {
-      t.fields.push(idDeltas[i2]);
-    }
-    for (let i2 = 0; i2 < idRangeOffsets.length; i2++) {
-      t.fields.push(idRangeOffsets[i2]);
-    }
-    for (let i2 = 0; i2 < glyphIds.length; i2++) {
-      t.fields.push(glyphIds[i2]);
-    }
-    const cmap4Length = 14 + // Subtable header
-    endCounts.length * 2 + 2 + // reservedPad
-    startCounts.length * 2 + idDeltas.length * 2 + idRangeOffsets.length * 2 + glyphIds.length * 2;
-    tRec.cmap4Length = cmap4Length;
-    if (!isPlan0Only) {
-      const cmap12Length = 16 + // Subtable header
-      cmap12Groups.length * 4;
-      tRec.cmap12Offset = 12 + 2 * 2 + 4 + cmap4Length;
-      t.fields.push(...[
-        { name: "cmap12Format", type: "USHORT", value: 12 },
-        { name: "cmap12Reserved", type: "USHORT", value: 0 },
-        { name: "cmap12Length", type: "ULONG", value: cmap12Length },
-        { name: "cmap12Language", type: "ULONG", value: 0 },
-        { name: "cmap12nGroups", type: "ULONG", value: cmap12Groups.length / 3 }
-      ]);
-      for (let i2 = 0; i2 < cmap12Groups.length; i2++) {
-        t.fields.push(cmap12Groups[i2]);
-      }
-    }
-    return t;
+    return new table_default.Table("cmap", cmapTable);
   }
   var cmap_default = { parse: parseCmapTable, make: makeCmapTable };
 
