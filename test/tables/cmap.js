@@ -1,7 +1,7 @@
 import assert from 'assert';
 import { unhex } from '../testutil.js';
 import { Parser } from '../../src/parse.js';
-import { parseCmapTableFormat14, parseCmapTableFormat0 } from '../../src/tables/cmap.js';
+import cmapTable, { parseCmapTableFormat14, parseCmapTableFormat0 } from '../../src/tables/cmap.js';
 import { parse } from '../../src/opentype.js';
 import { readFileSync } from 'fs';
 const loadSync = (url, opt) => parse(readFileSync(url), opt);
@@ -81,5 +81,21 @@ describe('tables/cmap.js', function() {
         const glyphIds = font.stringToGlyphIndexes(testString);
         const expectedGlyphIds = [1,2,3,4];
         assert.deepEqual(glyphIds, expectedGlyphIds);
+    });
+
+    it('prefers a Unicode format 13 cmap over an empty Windows BMP fallback', function() {
+        const cmapData =
+            '0000 0002' +
+            '0000 0006 00000014' +
+            '0003 0001 00000030' +
+            '000D 0000 0000001C 00000000 00000001' +
+            '00000000 0000007F 00000002' +
+            '0004 0018 0000 0002 0002 0000 0000 FFFF 0000 FFFF 0001 0000';
+        const cmap = cmapTable.parse(unhex(cmapData), 0);
+
+        assert.equal(cmap.format, 13);
+        assert.equal(cmap.glyphIndexMap[0x00], 2);
+        assert.equal(cmap.glyphIndexMap[0x41], 2);
+        assert.equal(cmap.glyphIndexMap[0x7f], 2);
     });
 });

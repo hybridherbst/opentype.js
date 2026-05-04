@@ -5062,6 +5062,30 @@ var opentype = (() => {
     }
     cmap.varSelectorList = varSelectorList;
   }
+  function getSupportedCmapSubtableScore(platformId, encodingId, format) {
+    if (format === 14)
+      return -1;
+    const isUnicodePlatform = platformId === 0 && [0, 1, 2, 3, 4, 6].includes(encodingId);
+    const isWindowsUnicode = platformId === 3 && [0, 1, 10].includes(encodingId);
+    const isLegacyMacRoman = platformId === 1 && encodingId === 0;
+    if (!isUnicodePlatform && !isWindowsUnicode && !isLegacyMacRoman)
+      return -1;
+    let formatScore = -1;
+    if (format === 13) {
+      formatScore = 500;
+    } else if (format === 12) {
+      formatScore = 450;
+    } else if (format === 4) {
+      formatScore = 300;
+    } else if (format === 0 && isLegacyMacRoman) {
+      formatScore = 100;
+    } else {
+      return -1;
+    }
+    const platformScore = isUnicodePlatform ? 30 : isWindowsUnicode ? 20 : 10;
+    const encodingScore = platformId === 3 && encodingId === 10 ? 6 : platformId === 0 && encodingId === 6 ? 5 : platformId === 0 && encodingId === 4 ? 4 : platformId === 3 && encodingId === 1 ? 3 : platformId === 0 && encodingId === 3 ? 2 : 1;
+    return formatScore + platformScore + encodingScore;
+  }
   function parseCmapTable(data, start) {
     const cmap = {};
     cmap.version = parse_default.getUShort(data, start);
@@ -5072,27 +5096,27 @@ var opentype = (() => {
     let offset = -1;
     let platformId = null;
     let encodingId = null;
-    const platform0Encodings = [0, 1, 2, 3, 4, 6];
-    const platform3Encodings = [0, 1, 10];
-    for (let i = cmap.numTables - 1; i >= 0; i -= 1) {
-      platformId = parse_default.getUShort(data, start + 4 + i * 8);
-      encodingId = parse_default.getUShort(data, start + 4 + i * 8 + 2);
-      if (platformId === 3 && platform3Encodings.includes(encodingId) || platformId === 0 && platform0Encodings.includes(encodingId) || platformId === 1 && encodingId === 0) {
-        if (offset > 0)
-          continue;
-        offset = parse_default.getULong(data, start + 4 + i * 8 + 4);
-        if (format14Parser) {
-          break;
-        }
-      } else if (platformId === 0 && encodingId === 5) {
-        format14offset = parse_default.getULong(data, start + 4 + i * 8 + 4);
+    let bestScore = -1;
+    for (let i = 0; i < cmap.numTables; i += 1) {
+      const candidatePlatformId = parse_default.getUShort(data, start + 4 + i * 8);
+      const candidateEncodingId = parse_default.getUShort(data, start + 4 + i * 8 + 2);
+      const candidateOffset = parse_default.getULong(data, start + 4 + i * 8 + 4);
+      const candidateFormat = parse_default.getUShort(data, start + candidateOffset);
+      if (candidatePlatformId === 0 && candidateEncodingId === 5) {
+        format14offset = candidateOffset;
         format14Parser = new parse_default.Parser(data, start + format14offset);
         if (format14Parser.parseUShort() !== 14) {
           format14offset = -1;
           format14Parser = null;
-        } else if (offset > 0) {
-          break;
         }
+        continue;
+      }
+      const candidateScore = getSupportedCmapSubtableScore(candidatePlatformId, candidateEncodingId, candidateFormat);
+      if (candidateScore > bestScore) {
+        bestScore = candidateScore;
+        offset = candidateOffset;
+        platformId = candidatePlatformId;
+        encodingId = candidateEncodingId;
       }
     }
     if (offset === -1) {

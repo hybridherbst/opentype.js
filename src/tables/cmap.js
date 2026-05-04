@@ -188,6 +188,37 @@ function parseCmapTableFormat14(cmap, p) {
     cmap.varSelectorList = varSelectorList;
 }
 
+function getSupportedCmapSubtableScore(platformId, encodingId, format) {
+    if (format === 14) return -1;
+
+    const isUnicodePlatform = platformId === 0 && [0, 1, 2, 3, 4, 6].includes(encodingId);
+    const isWindowsUnicode = platformId === 3 && [0, 1, 10].includes(encodingId);
+    const isLegacyMacRoman = platformId === 1 && encodingId === 0;
+    if (!isUnicodePlatform && !isWindowsUnicode && !isLegacyMacRoman) return -1;
+
+    let formatScore = -1;
+    if (format === 13) {
+        formatScore = 500;
+    } else if (format === 12) {
+        formatScore = 450;
+    } else if (format === 4) {
+        formatScore = 300;
+    } else if (format === 0 && isLegacyMacRoman) {
+        formatScore = 100;
+    } else {
+        return -1;
+    }
+
+    const platformScore = isUnicodePlatform ? 30 : isWindowsUnicode ? 20 : 10;
+    const encodingScore = platformId === 3 && encodingId === 10 ? 6 :
+        platformId === 0 && encodingId === 6 ? 5 :
+        platformId === 0 && encodingId === 4 ? 4 :
+        platformId === 3 && encodingId === 1 ? 3 :
+        platformId === 0 && encodingId === 3 ? 2 :
+        1;
+    return formatScore + platformScore + encodingScore;
+}
+
 // Parse the `cmap` table. This table stores the mappings from characters to glyphs.
 // There are many available formats, but we only support the Windows format 4 and 12, and format 14 as a supplement if available.
 // This function returns a `CmapEncoding` object or null if no supported format could be found.
@@ -205,32 +236,29 @@ function parseCmapTable(data, start) {
     let offset = -1;
     let platformId = null;
     let encodingId = null;
-    const platform0Encodings = [0,1,2,3,4,6];
-    const platform3Encodings = [0,1,10];
-    for (let i = cmap.numTables - 1; i >= 0; i -= 1) {
-        platformId = parse.getUShort(data, start + 4 + (i * 8));
-        encodingId = parse.getUShort(data, start + 4 + (i * 8) + 2);
-        if ((platformId === 3 && platform3Encodings.includes(encodingId)) ||
-            (platformId === 0 && platform0Encodings.includes(encodingId)) ||
-            (platformId === 1 && encodingId === 0) // MacOS <= 9
-        ) {
-            // only use the first supported table
-            if (offset > 0) continue;
-            offset = parse.getULong(data, start + 4 + (i * 8) + 4);
-            // allow for early break
-            if (format14Parser) {
-                break;
-            }
-        } else if (platformId === 0 && encodingId === 5) {
-            format14offset = parse.getULong(data, start + 4 + (i * 8) + 4);
+    let bestScore = -1;
+    for (let i = 0; i < cmap.numTables; i += 1) {
+        const candidatePlatformId = parse.getUShort(data, start + 4 + (i * 8));
+        const candidateEncodingId = parse.getUShort(data, start + 4 + (i * 8) + 2);
+        const candidateOffset = parse.getULong(data, start + 4 + (i * 8) + 4);
+        const candidateFormat = parse.getUShort(data, start + candidateOffset);
+
+        if (candidatePlatformId === 0 && candidateEncodingId === 5) {
+            format14offset = candidateOffset;
             format14Parser = new parse.Parser(data, start + format14offset);
             if (format14Parser.parseUShort() !== 14) {
                 format14offset = -1;
                 format14Parser = null;
-            } else if (offset > 0) {
-                // we already got the regular table, early break
-                break;
             }
+            continue;
+        }
+
+        const candidateScore = getSupportedCmapSubtableScore(candidatePlatformId, candidateEncodingId, candidateFormat);
+        if (candidateScore > bestScore) {
+            bestScore = candidateScore;
+            offset = candidateOffset;
+            platformId = candidatePlatformId;
+            encodingId = candidateEncodingId;
         }
     }
 
