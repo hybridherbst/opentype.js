@@ -47,6 +47,78 @@ function getSubstFormat(lookupTable, format, defaultSubtable) {
     return undefined;
 }
 
+const MAX_LIGATURE_SUBTABLE_BYTES = 60000;
+
+function estimateLigatureTableBytes(ligatureTable) {
+    return 4 + ligatureTable.components.length * 2;
+}
+
+function estimateLigatureSetBytes(ligatureSet) {
+    let size = 2 + ligatureSet.length * 2;
+    for (const ligatureTable of ligatureSet) {
+        size += estimateLigatureTableBytes(ligatureTable);
+    }
+    return size;
+}
+
+function estimateLigatureSubtableBytes(coverageGlyphCount, ligatureSets) {
+    let size = 6 + coverageGlyphCount * 2;
+    size += 4 + coverageGlyphCount * 2;
+    for (const ligatureSet of ligatureSets) {
+        size += estimateLigatureSetBytes(ligatureSet);
+    }
+    return size;
+}
+
+function makeLigatureSubtable(coverageEntries) {
+    return {
+        substFormat: 1,
+        coverage: { format: 1, glyphs: coverageEntries.map((entry) => entry.coverageGlyph) },
+        ligatureSets: coverageEntries.map((entry) => entry.ligatureSet)
+    };
+}
+
+function partitionLigatureCoverageEntries(coverageEntries) {
+    const subtables = [];
+    let current = [];
+    for (const entry of coverageEntries) {
+        const tentative = current.concat(entry);
+        if (
+            current.length > 0 &&
+            estimateLigatureSubtableBytes(tentative.length, tentative.map((candidate) => candidate.ligatureSet)) > MAX_LIGATURE_SUBTABLE_BYTES
+        ) {
+            subtables.push(makeLigatureSubtable(current));
+            current = [];
+        }
+
+        if (estimateLigatureSubtableBytes(1, [entry.ligatureSet]) <= MAX_LIGATURE_SUBTABLE_BYTES) {
+            current.push(entry);
+            continue;
+        }
+
+        let chunk = [];
+        for (const ligatureTable of entry.ligatureSet) {
+            const tentativeChunk = chunk.concat(ligatureTable);
+            if (
+                chunk.length > 0 &&
+                estimateLigatureSubtableBytes(1, [tentativeChunk]) > MAX_LIGATURE_SUBTABLE_BYTES
+            ) {
+                subtables.push(makeLigatureSubtable([{ coverageGlyph: entry.coverageGlyph, ligatureSet: chunk }]));
+                chunk = [];
+            }
+            chunk.push(ligatureTable);
+        }
+        if (chunk.length > 0) {
+            current.push({ coverageGlyph: entry.coverageGlyph, ligatureSet: chunk });
+        }
+    }
+
+    if (current.length > 0) {
+        subtables.push(makeLigatureSubtable(current));
+    }
+    return subtables;
+}
+
 Substitution.prototype = Layout.prototype;
 
 /**
@@ -546,27 +618,36 @@ Substitution.prototype._addLigatureToLookupTable = function(lookupTable, ligatur
 Substitution.prototype._addLigaturesToLookupTable = function(lookupTable, ligatures) {
     check.assert(lookupTable.lookupType === 4, 'Ligature: lookup table must be type 4');
     if (!Array.isArray(ligatures) || ligatures.length === 0) return;
-    let subtable = lookupTable.subtables[0];
-    if (!subtable) {
-        subtable = {
-            substFormat: 1,
-            coverage: { format: 1, glyphs: [] },
-            ligatureSets: []
-        };
-        lookupTable.subtables[0] = subtable;
-    }
-    check.assert(subtable.coverage.format === 1, 'Ligature: unable to modify coverage table format ' + subtable.coverage.format);
 
     const setsByCoverage = new Map();
     const keysByCoverage = new Map();
-    for (let i = 0; i < subtable.coverage.glyphs.length; i++) {
-        const coverageGlyph = subtable.coverage.glyphs[i];
-        const ligatureSet = subtable.ligatureSets[i] || [];
-        setsByCoverage.set(coverageGlyph, ligatureSet.map((ligatureTable, order) => ({ ligatureTable, order })));
-        keysByCoverage.set(coverageGlyph, new Set(ligatureSet.map((ligatureTable) => ligatureTable.components.join(','))));
+    let order = 0;
+    for (const subtable of lookupTable.subtables || []) {
+        if (!subtable) continue;
+        check.assert(subtable.substFormat === 1, 'Ligature: unable to modify substFormat ' + subtable.substFormat);
+        check.assert(subtable.coverage.format === 1, 'Ligature: unable to modify coverage table format ' + subtable.coverage.format);
+        for (let i = 0; i < subtable.coverage.glyphs.length; i++) {
+            const coverageGlyph = subtable.coverage.glyphs[i];
+            const ligatureSet = subtable.ligatureSets[i] || [];
+            let entries = setsByCoverage.get(coverageGlyph);
+            if (!entries) {
+                entries = [];
+                setsByCoverage.set(coverageGlyph, entries);
+            }
+            let keySet = keysByCoverage.get(coverageGlyph);
+            if (!keySet) {
+                keySet = new Set();
+                keysByCoverage.set(coverageGlyph, keySet);
+            }
+            for (const ligatureTable of ligatureSet) {
+                const key = ligatureTable.components.join(',');
+                if (keySet.has(key)) continue;
+                keySet.add(key);
+                entries.push({ ligatureTable, order: order++ });
+            }
+        }
     }
 
-    let order = subtable.ligatureSets.reduce((count, ligatureSet) => count + (ligatureSet ? ligatureSet.length : 0), 0);
     for (const ligature of ligatures) {
         if (!ligature || !Array.isArray(ligature.sub) || ligature.sub.length === 0) continue;
         const coverageGlyph = ligature.sub[0];
@@ -595,12 +676,13 @@ Substitution.prototype._addLigaturesToLookupTable = function(lookupTable, ligatu
     }
 
     const coverageGlyphs = Array.from(setsByCoverage.keys()).sort((a, b) => a - b);
-    subtable.coverage.glyphs = coverageGlyphs;
-    subtable.ligatureSets = coverageGlyphs.map((coverageGlyph) =>
-        (setsByCoverage.get(coverageGlyph) || [])
+    const coverageEntries = coverageGlyphs.map((coverageGlyph) => ({
+        coverageGlyph,
+        ligatureSet: (setsByCoverage.get(coverageGlyph) || [])
             .sort((a, b) => b.ligatureTable.components.length - a.ligatureTable.components.length || a.order - b.order)
             .map((entry) => entry.ligatureTable)
-    );
+    }));
+    lookupTable.subtables = partitionLigatureCoverageEntries(coverageEntries);
 };
 
 /**

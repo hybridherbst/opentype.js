@@ -410,6 +410,25 @@ describe('substitution.js', function() {
             assert.equal(reimported.substitution.getChaining('ccmp').length, 1);
         });
 
+        it('partitions oversized bulk ligature lookups into valid subtables', function() {
+            const records = [];
+            for (let i = 0; i < 6500; i++) {
+                records.push({ sub: [1 + (i % 300), 400 + i, 13000 + i], by: 26000 + i });
+            }
+
+            substitution.addLigatures('ccmp', records);
+
+            const lookup = font.tables.gsub.lookups.find((candidate) => candidate.lookupType === 4);
+            assert.ok(lookup, 'expected a ligature lookup');
+            assert.ok(lookup.subtables.length > 1, 'expected oversized ligatures to be partitioned');
+
+            const buffer = font.toArrayBuffer();
+            const reimported = parse(buffer);
+            const ligatures = reimported.substitution.getLigatures('ccmp');
+            assert.equal(ligatures.length, records.length);
+            assert.deepEqual(ligatures[0].sub, [1, 400, 13000]);
+        });
+
         it('should preserve complex backtrack/lookahead through roundtrip', function() {
             // Complex rule with multi-glyph backtrack and lookahead
             substitution.add('calt', {
