@@ -33,10 +33,9 @@ function constant(v) {
 }
 
 // OpenType data types //////////////////////////////////////////////////////
-
 /**
  * Convert an 8-bit unsigned integer to a list of 1 byte.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.BYTE = function(v) {
@@ -45,13 +44,13 @@ encode.BYTE = function(v) {
 };
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.BYTE = constant(1);
 
 /**
  * Convert a 8-bit signed integer to a list of 1 byte.
- * @param {string}
+ * @param {string} v
  * @returns {Array}
  */
 encode.CHAR = function(v) {
@@ -60,13 +59,13 @@ encode.CHAR = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.CHAR = constant(1);
 
 /**
  * Convert an ASCII string to a list of bytes.
- * @param {string}
+ * @param {string} v
  * @returns {Array}
  */
 encode.CHARARRAY = function(v) {
@@ -83,7 +82,7 @@ encode.CHARARRAY = function(v) {
 };
 
 /**
- * @param {Array}
+ * @param {Array} v
  * @returns {number}
  */
 sizeOf.CHARARRAY = function(v) {
@@ -95,7 +94,7 @@ sizeOf.CHARARRAY = function(v) {
 
 /**
  * Convert a 16-bit unsigned integer to a list of 2 bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.USHORT = function(v) {
@@ -104,13 +103,13 @@ encode.USHORT = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.USHORT = constant(2);
 
 /**
  * Convert a 16-bit signed integer to a list of 2 bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.SHORT = function(v) {
@@ -124,13 +123,13 @@ encode.SHORT = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.SHORT = constant(2);
 
 /**
  * Convert a 24-bit unsigned integer to a list of 3 bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.UINT24 = function(v) {
@@ -139,13 +138,13 @@ encode.UINT24 = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.UINT24 = constant(3);
 
 /**
  * Convert a 32-bit unsigned integer to a list of 4 bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.ULONG = function(v) {
@@ -154,13 +153,13 @@ encode.ULONG = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.ULONG = constant(4);
 
 /**
  * Convert a 32-bit unsigned integer to a list of 4 bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.LONG = function(v) {
@@ -174,7 +173,7 @@ encode.LONG = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.LONG = constant(4);
 
@@ -206,7 +205,7 @@ sizeOf.F2DOT14 = sizeOf.USHORT;
 
 /**
  * Convert a 32-bit Apple Mac timestamp integer to a list of 8 bytes, 64-bit timestamp.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.LONGDATETIME = function(v) {
@@ -216,13 +215,13 @@ encode.LONGDATETIME = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.LONGDATETIME = constant(8);
 
 /**
  * Convert a 4-char tag to a list of 4 bytes.
- * @param {string}
+ * @param {string} v
  * @returns {Array}
  */
 encode.TAG = function(v) {
@@ -235,7 +234,7 @@ encode.TAG = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.TAG = constant(4);
 
@@ -256,7 +255,7 @@ sizeOf.SID = sizeOf.USHORT;
 // Convert a numeric operand or charstring number to a variable-size list of bytes.
 /**
  * Convert a numeric operand or charstring number to a variable-size list of bytes.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.NUMBER = function(v) {
@@ -276,7 +275,7 @@ encode.NUMBER = function(v) {
 };
 
 /**
- * @param {number}
+ * @param {number} v
  * @returns {number}
  */
 sizeOf.NUMBER = function(v) {
@@ -286,7 +285,7 @@ sizeOf.NUMBER = function(v) {
 /**
  * Convert a signed number between -32768 and +32767 to a three-byte value.
  * This ensures we always use three bytes, but is not the most compact format.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.NUMBER16 = function(v) {
@@ -295,7 +294,7 @@ encode.NUMBER16 = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.NUMBER16 = constant(3);
 
@@ -303,7 +302,7 @@ sizeOf.NUMBER16 = constant(3);
  * Convert a signed number between -(2^31) and +(2^31-1) to a five-byte value.
  * This is useful if you want to be sure you always use four bytes,
  * at the expense of wasting a few bytes for smaller numbers.
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.NUMBER32 = function(v) {
@@ -312,19 +311,18 @@ encode.NUMBER32 = function(v) {
 
 /**
  * @constant
- * @type {number}
+ * @type {function(): number}
  */
 sizeOf.NUMBER32 = constant(5);
 
 /**
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.REAL = function(v) {
     let value = v.toString();
 
-    // Some numbers use an epsilon to encode the value. (e.g. JavaScript will store 0.0000001 as 1e-7)
-    // This code converts it back to a number without the epsilon.
+    // Normalize numbers with epsilon notation (e.g., 1e-7) to fixed form when possible
     const m = /\.(\d*?)(?:9{5,20}|0{5,20})\d{0,2}(?:e(.+)|$)/.exec(value);
     if (m) {
         const epsilon = parseFloat('1e' + ((m[2] ? +m[2] : 0) + m[1].length));
@@ -332,30 +330,47 @@ encode.REAL = function(v) {
     }
 
     let nibbles = '';
+    let hasDigit = false;
+    let seenDot = false;
     for (let i = 0, ii = value.length; i < ii; i += 1) {
         const c = value[i];
-        if (c === 'e') {
-            nibbles += value[++i] === '-' ? 'c' : 'b';
+        if (c === 'e' || c === 'E') {
+            nibbles += (value[i + 1] === '-') ? 'c' : 'b';
+            i += (value[i + 1] === '-' || value[i + 1] === '+') ? 1 : 0;
+            hasDigit = true;
         } else if (c === '.') {
+            // If dot appears before any digit, insert a leading zero nibble
+            if (!hasDigit) nibbles += '0';
             nibbles += 'a';
+            seenDot = true;
         } else if (c === '-') {
             nibbles += 'e';
-        } else {
-            nibbles += c;
+        } else if (c >= '0' && c <= '9') {
+            // Keep leading zeros after a decimal point; otherwise skip until a non-zero digit
+            if (hasDigit || c !== '0' || seenDot) {
+                nibbles += c;
+                if (c !== '0' || !seenDot) hasDigit = true;
+            }
         }
     }
 
+    // If we didn't emit any digit (e.g., value was 0), emit a single zero digit.
+    if (nibbles.length === 0) {
+        nibbles = '0';
+        hasDigit = true; // for completeness
+    }
+
+    // Terminator nibble: append 'f' if odd length, else 'ff'.
     nibbles += (nibbles.length & 1) ? 'f' : 'ff';
     const out = [30];
     for (let i = 0, ii = nibbles.length; i < ii; i += 2) {
         out.push(parseInt(nibbles.substr(i, 2), 16));
     }
-
     return out;
 };
 
 /**
- * @param {number}
+ * @param {number} v
  * @returns {number}
  */
 sizeOf.REAL = function(v) {
@@ -402,7 +417,7 @@ decode.UTF16 = function(data, offset, numBytes) {
 
 /**
  * Convert a JavaScript string to UTF16-BE.
- * @param {string}
+ * @param {string} v
  * @returns {Array}
  */
 encode.UTF16 = function(v) {
@@ -417,7 +432,7 @@ encode.UTF16 = function(v) {
 };
 
 /**
- * @param {string}
+ * @param {string} v
  * @returns {number}
  */
 sizeOf.UTF16 = function(v) {
@@ -700,7 +715,7 @@ function encodeVarDeltaRunAsWords(deltas, offset, result) {
  *
  * @see https://www.microsoft.com/typography/otspec/gvar.htm
  * @see https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6gvar.html
- * @param {Array}
+ * @param {Array} deltas
  * @return {Array}
  */
 encode.VARDELTAS = function(deltas) {
@@ -719,13 +734,106 @@ encode.VARDELTAS = function(deltas) {
     return result;
 };
 
+/**
+ * Encode a list of packed point numbers for variation tables (gvar/cvar).
+ *
+ * Packed point numbers are used in 'gvar' and 'cvar' tables to specify
+ * which points have explicit deltas. Point numbers are stored as deltas 
+ * from the previous value.
+ *
+ * If points is an empty array or all points are included, a special encoding is used.
+ *
+ * @see https://learn.microsoft.com/en-us/typography/opentype/spec/otvarcommonformats#packed-point-numbers
+ * @param {Array<number>} points - Array of point numbers (must be sorted in ascending order)
+ * @param {boolean} [allPoints=false] - If true, encode as "all points" (count = 0)
+ * @return {Array<number>} Encoded bytes
+ */
+encode.PACKEDPOINTS = function(points, allPoints = false) {
+    const result = [];
+    
+    // Special case: all points - encode as count = 0
+    if (allPoints || !points || points.length === 0) {
+        result.push(0);
+        return result;
+    }
+    
+    const count = points.length;
+    
+    // Encode count: if <= 127, use 1 byte; otherwise use 2 bytes with high bit set
+    if (count <= 127) {
+        result.push(count);
+    } else {
+        // High bit set indicates 2-byte count
+        result.push(0x80 | ((count >> 8) & 0x7F));
+        result.push(count & 0xFF);
+    }
+    
+    // Convert point numbers to deltas
+    const deltas = [];
+    let lastPoint = 0;
+    for (let i = 0; i < points.length; i++) {
+        deltas.push(points[i] - lastPoint);
+        lastPoint = points[i];
+    }
+    
+    // Encode deltas as runs
+    let pos = 0;
+    while (pos < deltas.length) {
+        // Determine if this run should use words (16-bit) or bytes (8-bit)
+        // A run can have at most 128 elements (0x7F + 1)
+        let runLength = 0;
+        let useWords = deltas[pos] > 255;
+        
+        // Count run length with same encoding type
+        while (pos + runLength < deltas.length && runLength < 128) {
+            const delta = deltas[pos + runLength];
+            if (useWords) {
+                // Check if we should switch to byte encoding
+                if (delta <= 255 && pos + runLength + 1 < deltas.length && deltas[pos + runLength + 1] <= 255) {
+                    break;
+                }
+            } else {
+                // Check if we need to switch to word encoding
+                if (delta > 255) {
+                    break;
+                }
+            }
+            runLength++;
+        }
+        
+        if (runLength === 0) {
+            runLength = 1;
+        }
+        
+        // Write control byte: high bit = word flag, low 7 bits = count - 1
+        const controlByte = (useWords ? 0x80 : 0) | (runLength - 1);
+        result.push(controlByte);
+        
+        // Write the delta values
+        for (let i = 0; i < runLength; i++) {
+            const delta = deltas[pos + i];
+            if (useWords) {
+                result.push((delta >> 8) & 0xFF);
+                result.push(delta & 0xFF);
+            } else {
+                result.push(delta & 0xFF);
+            }
+        }
+        
+        pos += runLength;
+    }
+    
+    return result;
+};
+
 // Convert a list of values to a CFF INDEX structure.
 // The values should be objects containing name / type / value.
 /**
  * @param {Array} l
+ * @param {string} [countEncoder] - encoder for the array count, defaults to 'Card16'
  * @returns {Array}
  */
-encode.INDEX = function(l) {
+encode.INDEX = function(l, countEncoder = 'Card16') {
     //var offset, offsets, offsetEncoder, encodedOffsets, encodedOffset, data,
     //    i, v;
     // Because we have to know which data type to use to encode the offsets,
@@ -742,7 +850,7 @@ encode.INDEX = function(l) {
     }
 
     if (data.length === 0) {
-        return [0, 0];
+        return Array(sizeOf[countEncoder]()).fill(0);
     }
 
     const encodedOffsets = [];
@@ -753,14 +861,14 @@ encode.INDEX = function(l) {
         Array.prototype.push.apply(encodedOffsets, encodedOffset);
     }
 
-    return Array.prototype.concat(encode.Card16(l.length),
+    return Array.prototype.concat(encode[countEncoder](l.length),
         encode.OffSize(offSize),
         encodedOffsets,
         data);
 };
 
 /**
- * @param {Array}
+ * @param {Array} v
  * @returns {number}
  */
 sizeOf.INDEX = function(v) {
@@ -768,10 +876,26 @@ sizeOf.INDEX = function(v) {
 };
 
 /**
+ * @param {Array} l
+ * @returns {Array}
+ */
+encode.INDEX32 = function(l) {
+    return encode.INDEX(l, 'ULONG');
+};
+
+/**
+ * @param {Array} v
+ * @returns {number}
+ */
+sizeOf.INDEX32 = function(v) {
+    return encode.INDEX(v, 'ULONG').length;
+};
+
+/**
  * Convert an object to a CFF DICT structure.
  * The keys should be numeric.
  * The values should be objects containing name / type / value.
- * @param {Object} m
+ * @param {Record<number, {type: string, value: unknown, blend?: unknown}>} m
  * @returns {Array}
  */
 encode.DICT = function(m) {
@@ -783,22 +907,29 @@ encode.DICT = function(m) {
         // Object.keys() return string keys, but our keys are always numeric.
         const k = parseInt(keys[i], 0);
         const v = m[k];
+        // Build operands without mutating v.value (important when size/encode is called repeatedly)
+        const operandValue = v.blend ? (Array.isArray(v.value) ? v.value.concat([v.blend]) : [v.value, v.blend]) : v.value;
         // Value comes before the key.
-        const enc1 = encode.OPERAND(v.value, v.type);
+        const enc1 = encode.OPERAND(/** @type {Array} */ (/** @type {unknown} */ (operandValue)), v.type);
         const enc2 = encode.OPERATOR(k);
         for (let j = 0; j < enc1.length; j++) {
             d.push(enc1[j]);
         }
+        if(v.blend) {
+            d.push(0x17);
+        }
         for (let j = 0; j < enc2.length; j++) {
             d.push(enc2[j]);
         }
+        
     }
+
 
     return d;
 };
 
 /**
- * @param {Object}
+ * @param {Record<number, {type: string, value: unknown, blend?: unknown}>} m
  * @returns {number}
  */
 sizeOf.DICT = function(m) {
@@ -806,7 +937,7 @@ sizeOf.DICT = function(m) {
 };
 
 /**
- * @param {number}
+ * @param {number} v
  * @returns {Array}
  */
 encode.OPERATOR = function(v) {
@@ -819,7 +950,7 @@ encode.OPERATOR = function(v) {
 
 /**
  * @param {Array} v
- * @param {string}
+ * @param {string} type
  * @returns {Array}
  */
 encode.OPERAND = function(v, type) {
@@ -832,6 +963,16 @@ encode.OPERAND = function(v, type) {
                 d.push(enc1[j]);
             }
         }
+    } else if (Array.isArray(v)) {
+        for (let i = 0; i < v.length; i++) {
+            const n = encode.OPERAND(v[i], type);
+            for (let j = 0; j < n.length; j++) {
+                d.push(n[j]);
+            }
+        }
+    } else if (v === undefined || v === null) {
+        // Skip undefined/null values - they shouldn't be in the DICT
+        throw new Error('Cannot encode undefined/null value for type ' + type);
     } else {
         if (type === 'SID') {
             const enc1 = encode.NUMBER(v);
@@ -841,22 +982,33 @@ encode.OPERAND = function(v, type) {
         } else if (type === 'offset') {
             // We make it easy for ourselves and always encode offsets as
             // 4 bytes. This makes offset calculation for the top dict easier.
+            // For CFF2 an in order to save space, we use the 'varoffset' type
             const enc1 = encode.NUMBER32(v);
             for (let j = 0; j < enc1.length; j++) {
                 d.push(enc1[j]);
             }
-        } else if (type === 'number') {
+        } else if (
+            type === 'varoffset' ||
+            ((type === 'number' || type === 'delta') && Number.isInteger(v))
+        ) {
             const enc1 = encode.NUMBER(v);
             for (let j = 0; j < enc1.length; j++) {
                 d.push(enc1[j]);
             }
-        } else if (type === 'real') {
+        } else if (type === 'real' || ((type === 'number' || type === 'delta') && typeof v === 'number' && !Number.isInteger(v))) {
+            // Handle real type or number/delta with float values
+            const enc1 = encode.REAL(v);
+            for (let j = 0; j < enc1.length; j++) {
+                d.push(enc1[j]);
+            }
+        } else if (typeof v === 'number' && !Number.isInteger(v)) {
+            // Fallback for float values without explicit type
             const enc1 = encode.REAL(v);
             for (let j = 0; j < enc1.length; j++) {
                 d.push(enc1[j]);
             }
         } else {
-            throw new Error('Unknown operand type ' + type);
+            throw new Error('Unknown operand type ' + type + ' for value ' + v + ' (typeof: ' + typeof v + ')');
             // FIXME Add support for booleans
         }
     }
@@ -872,7 +1024,7 @@ const wmm = typeof WeakMap === 'function' && new WeakMap();
 
 /**
  * Convert a list of CharString operations to bytes.
- * @param {Array}
+ * @param {Array} ops
  * @returns {Array}
  */
 encode.CHARSTRING = function(ops) {
@@ -903,7 +1055,7 @@ encode.CHARSTRING = function(ops) {
 };
 
 /**
- * @param {Array}
+ * @param {Array} ops
  * @returns {number}
  */
 sizeOf.CHARSTRING = function(ops) {
@@ -914,104 +1066,408 @@ sizeOf.CHARSTRING = function(ops) {
 
 /**
  * Convert an object containing name / type / value to bytes.
- * @param {Object}
+ * @param {{type: string, value: unknown}|Array<{type: string, value: unknown}>} v
  * @returns {Array}
  */
 encode.OBJECT = function(v) {
+    if(Array.isArray(v)) {
+        const encoded = [];
+        for(let o of v) {
+            encoded.push(sizeOf.OBJECT(o));
+        }
+        return encoded;
+    }
     const encodingFunction = encode[v.type];
     check.argument(encodingFunction !== undefined, 'No encoding function for type ' + v.type);
     return encodingFunction(v.value);
 };
 
 /**
- * @param {Object}
+ * @param {{type: string, value: unknown}|Array<{type: string, value: unknown}>} v
  * @returns {number}
  */
 sizeOf.OBJECT = function(v) {
+    if(Array.isArray(v)) {
+        let size = 0;
+        for(let o of v) {
+            size += sizeOf.OBJECT(o);
+        }
+        return size;
+    }
     const sizeOfFunction = sizeOf[v.type];
     check.argument(sizeOfFunction !== undefined, 'No sizeOf function for type ' + v.type);
     return sizeOfFunction(v.value);
 };
 
 /**
+ * @param {string} fieldType
+ * @returns {number}
+ */
+function getOffsetFieldWidth(fieldType) {
+    if (fieldType === 'TABLE' || fieldType === 'OFFSET16') {
+        return 2;
+    }
+    if (fieldType === 'OFFSET24') {
+        return 3;
+    }
+    if (fieldType === 'OFFSET32') {
+        return 4;
+    }
+    return 0;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isTableLike(value) {
+    return !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'fields');
+}
+
+/**
+ * @typedef {{bytes?: Array<number>, size?: number, deferredForParent: OffsetRelocation[]}} OffsetTarget
+ * @typedef {{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: OffsetTarget}} OffsetRelocation
+ */
+
+/**
+ * @param {unknown} target
+ * @returns {{bytes: Array<number>, deferredForParent: OffsetRelocation[]}}
+ */
+function encodeOffsetTarget(target) {
+    if (target === null || target === undefined) {
+        return { bytes: [], deferredForParent: [] };
+    }
+    if (isTableLike(target)) {
+        const tableTarget = /** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string}} */ (target);
+        if (tableTarget.fields === null) {
+            return { bytes: [], deferredForParent: [] };
+        }
+        return encodeTableNode(tableTarget);
+    }
+    if (Array.isArray(target) || target instanceof Uint8Array) {
+        return { bytes: Array.from(target), deferredForParent: [] };
+    }
+    if (typeof target === 'object' && target && 'type' in target && 'value' in target) {
+        return {
+            bytes: encode.OBJECT(/** @type {{type: string, value: unknown}|Array<{type: string, value: unknown}>} */ (target)),
+            deferredForParent: []
+        };
+    }
+    check.argument(false, 'Unsupported offset target type.');
+    return { bytes: [], deferredForParent: [] };
+}
+
+/**
+ * @param {unknown} target
+ * @returns {{size: number, deferredForParent: OffsetRelocation[]}}
+ */
+function sizeOfOffsetTarget(target) {
+    if (target === null || target === undefined) {
+        return { size: 0, deferredForParent: [] };
+    }
+    if (isTableLike(target)) {
+        const tableTarget = /** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>}} */ (target);
+        if (tableTarget.fields === null) {
+            return { size: 0, deferredForParent: [] };
+        }
+        return sizeOfTableNode(tableTarget);
+    }
+    if (Array.isArray(target) || target instanceof Uint8Array) {
+        return { size: target.length, deferredForParent: [] };
+    }
+    if (typeof target === 'object' && target && 'type' in target && 'value' in target) {
+        return {
+            size: sizeOf.OBJECT(/** @type {{type: string, value: unknown}|Array<{type: string, value: unknown}>} */ (target)),
+            deferredForParent: []
+        };
+    }
+    check.argument(false, 'Unsupported offset target type.');
+    return { size: 0, deferredForParent: [] };
+}
+
+/**
+ * @param {Array<number>} bytes
+ * @param {number} position
+ * @param {number} width
+ * @param {number} value
+ */
+function writeOffset(bytes, position, width, value) {
+    if (width === 2) {
+        bytes[position] = (value >> 8) & 0xff;
+        bytes[position + 1] = value & 0xff;
+        return;
+    }
+    if (width === 3) {
+        bytes[position] = (value >> 16) & 0xff;
+        bytes[position + 1] = (value >> 8) & 0xff;
+        bytes[position + 2] = value & 0xff;
+        return;
+    }
+    if (width === 4) {
+        bytes[position] = (value >> 24) & 0xff;
+        bytes[position + 1] = (value >> 16) & 0xff;
+        bytes[position + 2] = (value >> 8) & 0xff;
+        bytes[position + 3] = value & 0xff;
+        return;
+    }
+    check.argument(false, 'Unsupported offset width ' + width + '.');
+}
+
+/**
+ * @param {OffsetRelocation[]} targetEntries
+ * @param {OffsetRelocation[]} sourceEntries
+ * @param {number} baseOffset
+ */
+function appendDeferredEntries(targetEntries, sourceEntries, baseOffset) {
+    for (let i = 0; i < sourceEntries.length; i += 1) {
+        const entry = sourceEntries[i];
+        targetEntries.push({
+            fieldName: entry.fieldName,
+            patchPos: baseOffset + entry.patchPos,
+            ownerStart: baseOffset + entry.ownerStart,
+            width: entry.width,
+            targetScope: entry.targetScope,
+            appendPhase: entry.appendPhase,
+            target: entry.target
+        });
+    }
+}
+
+/**
+ * @param {OffsetRelocation[]} resolveNow
+ * @param {OffsetRelocation[]} bubbleUp
+ * @param {OffsetRelocation[]} sourceEntries
+ * @param {number} baseOffset
+ * @param {boolean} resolveRootScoped
+ */
+function routeDeferredEntries(resolveNow, bubbleUp, sourceEntries, baseOffset, resolveRootScoped) {
+    const adjustedEntries = [];
+    appendDeferredEntries(adjustedEntries, sourceEntries, baseOffset);
+    for (let i = 0; i < adjustedEntries.length; i += 1) {
+        const entry = adjustedEntries[i];
+        if (entry.targetScope === 'parent' || (resolveRootScoped && entry.targetScope === 'root')) {
+            resolveNow.push(entry);
+        } else {
+            bubbleUp.push(entry);
+        }
+    }
+}
+
+/**
+ * @param {Array<{appendPhase: number}>} queue
+ * @returns {number}
+ */
+function findNextAppendIndex(queue) {
+    let bestIndex = 0;
+    let bestPhase = queue[0].appendPhase;
+    for (let i = 1; i < queue.length; i += 1) {
+        if (queue[i].appendPhase < bestPhase) {
+            bestIndex = i;
+            bestPhase = queue[i].appendPhase;
+        }
+    }
+    return bestIndex;
+}
+
+/**
+ * @param {Record<string, unknown> & {width: number}} relocation
+ * @returns {number}
+ */
+function getMaxOffsetForRelocation(relocation) {
+    return relocation.width === 2 ? 0xFFFF : relocation.width === 3 ? 0xFFFFFF : 0xFFFFFFFF;
+}
+
+/**
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}>, tableName?: string}} table
+ * @returns {{bytes: Array<number>, deferredForParent: OffsetRelocation[]}}
+ */
+function encodeTableNode(table) {
+    let d = [];
+    const length = (table.fields || []).length;
+    const currentScopeEntries = [];
+    const deferredForAncestor = [];
+
+    for (let i = 0; i < length; i += 1) {
+        const field = table.fields[i];
+        let value = table[field.name];
+        if (value === undefined) {
+            value = field.value;
+        }
+
+        const offsetWidth = getOffsetFieldWidth(field.type);
+        if (offsetWidth > 0) {
+            const patchPos = d.length;
+            for (let j = 0; j < offsetWidth; j += 1) {
+                d.push(0);
+            }
+            if (value !== null && value !== undefined && !(isTableLike(value) && /** @type {{fields?: Array<unknown> | null}} */ (value).fields === null)) {
+                const relocation = {
+                    fieldName: field.name,
+                    patchPos,
+                    ownerStart: 0,
+                    width: offsetWidth,
+                    targetScope: field.targetScope || 'local',
+                    appendPhase: field.appendPhase || 0,
+                    target: encodeOffsetTarget(value)
+                };
+                if (relocation.targetScope === 'parent' || relocation.targetScope === 'root') {
+                    deferredForAncestor.push(relocation);
+                } else {
+                    currentScopeEntries.push(relocation);
+                }
+            }
+            continue;
+        }
+
+        const encodingFunction = encode[field.type];
+        check.argument(encodingFunction !== undefined, 'No encoding function for field type ' + field.type + ' (' + field.name + ')');
+        const bytes = encodingFunction(value);
+        for (let j = 0; j < bytes.length; j++) {
+            d.push(bytes[j]);
+        }
+    }
+
+    while (currentScopeEntries.length > 0) {
+        const relocation = currentScopeEntries.splice(findNextAppendIndex(currentScopeEntries), 1)[0];
+        const offset = d.length;
+        const maxOffset = getMaxOffsetForRelocation(relocation);
+        check.argument(offset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        writeOffset(d, relocation.patchPos, relocation.width, offset);
+        for (let j = 0; j < relocation.target.bytes.length; j++) {
+            d.push(relocation.target.bytes[j]);
+        }
+        routeDeferredEntries(currentScopeEntries, deferredForAncestor, relocation.target.deferredForParent, offset, false);
+    }
+
+    return { bytes: d, deferredForParent: deferredForAncestor };
+}
+
+/**
  * Convert a table object to bytes.
  * A table contains a list of fields containing the metadata (name, type and default value).
  * The table itself has the field values set as attributes.
- * @param {opentype.Table}
+ * Offset-bearing fields (`TABLE`, `OFFSET16`, `OFFSET24`, `OFFSET32`) are laid
+ * out structurally as relocations within the containing table graph instead of
+ * being rediscovered and patched by ad hoc post-processing.
+ * By default, offset-bearing fields are laid out locally inside the current
+ * table, which matches the historical `TABLE` serializer behavior. Explicit
+ * `targetScope: 'parent'` or `targetScope: 'root'` defer the referenced bytes
+ * to an ancestor table when a format needs headers and payloads to live at
+ * different structural levels, as with GSUB/GPOS extension wrappers.
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}>, tableName?: string}} table
+ * @returns {Array}
+ */
+function encodeTable(table) {
+    const encoded = encodeTableNode(table);
+    const deferredForRoot = [];
+    const unresolved = [];
+    routeDeferredEntries(deferredForRoot, unresolved, encoded.deferredForParent, 0, true);
+
+    for (let i = 0; i < deferredForRoot.length; i += 1) {
+        const relocation = deferredForRoot[i];
+        const targetStart = encoded.bytes.length;
+        const relativeOffset = targetStart - relocation.ownerStart;
+        const maxOffset = getMaxOffsetForRelocation(relocation);
+        check.argument(relativeOffset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        writeOffset(encoded.bytes, relocation.patchPos, relocation.width, relativeOffset);
+        for (let j = 0; j < relocation.target.bytes.length; j++) {
+            encoded.bytes.push(relocation.target.bytes[j]);
+        }
+        routeDeferredEntries(deferredForRoot, unresolved, relocation.target.deferredForParent, targetStart, true);
+    }
+
+    check.argument(unresolved.length === 0, 'Table ' + table.tableName + ' has unresolved ancestor-scoped offsets.');
+    return encoded.bytes;
+}
+
+/**
+ * Convert a table object to bytes.
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string}} table
  * @returns {Array}
  */
 encode.TABLE = function(table) {
-    let d = [];
-    const length = (table.fields || []).length;
-    const subtables = [];
-    const subtableOffsets = [];
-
-    for (let i = 0; i < length; i += 1) {
-        const field = table.fields[i];
-        const encodingFunction = encode[field.type];
-        check.argument(encodingFunction !== undefined, 'No encoding function for field type ' + field.type + ' (' + field.name + ')');
-        let value = table[field.name];
-        if (value === undefined) {
-            value = field.value;
-        }
-
-        const bytes = encodingFunction(value);
-
-        if (field.type === 'TABLE') {
-            // If the table.fields are set to NULL, don't add it as subtable data,
-            // so the offset will be set to 0 but no table data will be added.
-            // This is required e.g. for classSeqRuleSetOffsets with no defined contexts.
-            if (value.fields !== null) {
-                subtableOffsets.push(d.length);
-                subtables.push(bytes);
-            }
-            d.push(...[0, 0]);
-        } else {
-            for (let j = 0; j < bytes.length; j++) {
-                d.push(bytes[j]);
-            }
-        }
-    }
-
-    for (let i = 0; i < subtables.length; i += 1) {
-        const o = subtableOffsets[i];
-        const offset = d.length;
-        check.argument(offset < 65536, 'Table ' + table.tableName + ' too big.');
-        d[o] = offset >> 8;
-        d[o + 1] = offset & 0xff;
-        for (let j = 0; j < subtables[i].length; j++) {
-            d.push(subtables[i][j]);
-        }
-    }
-
-    return d;
+    return encodeTable(table);
 };
 
 /**
- * @param {opentype.Table}
- * @returns {number}
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}>, tableName?: string}} table
+ * @returns {{size: number, deferredForParent: OffsetRelocation[]}}
  */
-sizeOf.TABLE = function(table) {
+function sizeOfTableNode(table) {
     let numBytes = 0;
     const length = (table.fields || []).length;
+    const currentScopeEntries = [];
+    const deferredForAncestor = [];
 
     for (let i = 0; i < length; i += 1) {
         const field = table.fields[i];
-        const sizeOfFunction = sizeOf[field.type];
-        check.argument(sizeOfFunction !== undefined, 'No sizeOf function for field type ' + field.type + ' (' + field.name + ')');
         let value = table[field.name];
         if (value === undefined) {
             value = field.value;
         }
 
-        numBytes += sizeOfFunction(value);
-
-        // Subtables take 2 more bytes for offsets.
-        if (field.type === 'TABLE') {
-            numBytes += 2;
+        const offsetWidth = getOffsetFieldWidth(field.type);
+        if (offsetWidth > 0) {
+            const patchPos = numBytes;
+            numBytes += offsetWidth;
+            if (value !== null && value !== undefined && !(isTableLike(value) && /** @type {{fields?: Array<unknown> | null}} */ (value).fields === null)) {
+                const relocation = {
+                    fieldName: field.name,
+                    patchPos,
+                    ownerStart: 0,
+                    width: offsetWidth,
+                    targetScope: field.targetScope || 'local',
+                    appendPhase: field.appendPhase || 0,
+                    target: sizeOfOffsetTarget(value)
+                };
+                if (relocation.targetScope === 'parent' || relocation.targetScope === 'root') {
+                    deferredForAncestor.push(relocation);
+                } else {
+                    currentScopeEntries.push(relocation);
+                }
+            }
+            continue;
         }
+
+        const sizeOfFunction = sizeOf[field.type];
+        check.argument(sizeOfFunction !== undefined, 'No sizeOf function for field type ' + field.type + ' (' + field.name + ')');
+        numBytes += sizeOfFunction(value);
     }
 
+    while (currentScopeEntries.length > 0) {
+        const relocation = currentScopeEntries.splice(findNextAppendIndex(currentScopeEntries), 1)[0];
+        const offset = numBytes;
+        const maxOffset = getMaxOffsetForRelocation(relocation);
+        check.argument(offset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        numBytes += relocation.target.size;
+        routeDeferredEntries(currentScopeEntries, deferredForAncestor, relocation.target.deferredForParent, offset, false);
+    }
+
+    return { size: numBytes, deferredForParent: deferredForAncestor };
+}
+
+/**
+ * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>}} table
+ * @returns {number}
+ */
+sizeOf.TABLE = function(table) {
+    const sized = sizeOfTableNode(table);
+    let numBytes = sized.size;
+    const deferredForRoot = [];
+    const unresolved = [];
+    routeDeferredEntries(deferredForRoot, unresolved, sized.deferredForParent, 0, true);
+
+    for (let i = 0; i < deferredForRoot.length; i += 1) {
+        const relocation = deferredForRoot[i];
+        const targetStart = numBytes;
+        const relativeOffset = targetStart - relocation.ownerStart;
+        const maxOffset = getMaxOffsetForRelocation(relocation);
+        check.argument(relativeOffset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        numBytes += relocation.target.size;
+        routeDeferredEntries(deferredForRoot, unresolved, relocation.target.deferredForParent, targetStart, true);
+    }
+
+    check.argument(unresolved.length === 0, 'Table ' + table.tableName + ' has unresolved ancestor-scoped offsets.');
     return numBytes;
 };
 

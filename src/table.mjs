@@ -8,7 +8,7 @@ import { encode, sizeOf } from './types.mjs';
  * @class
  * @param {string} tableName
  * @param {Array} fields
- * @param {Object} options
+ * @param {Record<string, unknown>} [options]
  * @constructor
  */
 function Table(tableName, fields, options) {
@@ -38,7 +38,7 @@ function Table(tableName, fields, options) {
  * @return {Array}
  */
 Table.prototype.encode = function() {
-    return encode.TABLE(this);
+    return encode.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string }} */ (/** @type {unknown} */ (this)));
 };
 
 /**
@@ -46,7 +46,7 @@ Table.prototype.encode = function() {
  * @return {number}
  */
 Table.prototype.sizeOf = function() {
-    return sizeOf.TABLE(this);
+    return sizeOf.TABLE(/** @type {Record<string, unknown> & { fields?: Array<{name: string, type: string, value?: unknown}> }} */ (/** @type {unknown} */ (this)));
 };
 
 /**
@@ -95,9 +95,8 @@ function recordList(itemName, records, itemCallback) {
 /**
  * @exports opentype.Coverage
  * @class
- * @param {opentype.Table}
+ * @param {Record<string, unknown>} coverageTable
  * @constructor
- * @extends opentype.Table
  */
 function Coverage(coverageTable) {
     if (coverageTable.format === 1) {
@@ -156,9 +155,8 @@ ScriptList.prototype.constructor = ScriptList;
 /**
  * @exports opentype.FeatureList
  * @class
- * @param {opentype.Table}
+ * @param {Array<{tag: string, feature: {featureParams: number, lookupListIndexes: number[]}}>} featureListTable
  * @constructor
- * @extends opentype.Table
  */
 function FeatureList(featureListTable) {
     Table.call(this, 'featureListTable',
@@ -179,10 +177,9 @@ FeatureList.prototype.constructor = FeatureList;
 /**
  * @exports opentype.LookupList
  * @class
- * @param {opentype.Table}
- * @param {Object}
+ * @param {Array<{lookupType: number, lookupFlag: number, subtables: unknown[], markFilteringSet?: number}>} lookupListTable
+ * @param {Record<number, Function>} subtableMakers
  * @constructor
- * @extends opentype.Table
  */
 function LookupList(lookupListTable, subtableMakers) {
     Table.call(this, 'lookupListTable', tableList('lookup', lookupListTable, function(lookupTable) {
@@ -200,10 +197,8 @@ LookupList.prototype.constructor = LookupList;
 /**
  * @exports opentype.ClassDef
  * @class
- * @param {opentype.Table}
- * @param {Object}
+ * @param {Record<string, unknown>} classDefTable
  * @constructor
- * @extends opentype.Table
  *
  * @see https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2#class-definition-table
  */
@@ -236,6 +231,9 @@ ClassDef.prototype.constructor = ClassDef;
 
 // Record = same as Table, but inlined (a Table has an offset and its data is further in the stream)
 // Don't use offsets inside Records (probable bug), only in Tables.
+export { Table };
+// Also export Record as an alias for Table
+export const Record = Table;
 export default {
     Table,
     Record: Table,

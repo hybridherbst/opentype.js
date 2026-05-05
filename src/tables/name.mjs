@@ -29,7 +29,10 @@ export const nameTableNames = [
     'sampleText',             // 19
     'postScriptFindFontName', // 20
     'wwsFamily',              // 21
-    'wwsSubfamily'            // 22
+    'wwsSubfamily',           // 22
+    'lightBackgroundPalette', // 23
+    'darkBackgroundPalette',  // 24
+    'variationsPostScriptNamePrefix' // 25 (required for variable fonts)
 ];
 
 const macLanguages = {
@@ -729,8 +732,8 @@ function findSubArray(needle, haystack) {
     return -1;
 }
 
-function addStringToPool(s, pool) {
-    let offset = findSubArray(s, pool);
+function addStringToPool(s, pool, noDedup = false) {
+    let offset = noDedup ? -1 : findSubArray(s, pool);
     if (offset < 0) {
         offset = pool.length;
         let i = 0;
@@ -744,15 +747,32 @@ function addStringToPool(s, pool) {
     return offset;
 }
 
-function makeNameTable(names, ltag) {
+function makeNameTable(names, ltag, options = {}) {
     const platformNameIds = reverseDict(platforms);
     const macLanguageIds = reverseDict(macLanguages);
     const windowsLanguageIds = reverseDict(windowsLanguages);
+    
+    // Skip Mac platform if requested (modern fonts don't need it per fontspector no_mac_entries)
+    // Also skip unicode platform (0) since it requires ltag table for language tags,
+    // and ltag is an Apple AAT table that fontspector flags as unwanted_aat_tables
+    const skipMacPlatform = options.skipMacPlatform === true;
+    
+    // Disable string deduplication for Apple compatibility
+    // Apple's ftxvalidator complains about overlapping name entries when strings are shared
+    const noStringDedup = options.noStringDedup === true;
 
     const nameRecords = [];
     const stringPool = [];
 
     for (let platform in names) {
+        // Skip macintosh platform entries if requested
+        if (skipMacPlatform && platform === 'macintosh') {
+            continue;
+        }
+        // Skip unicode platform if skipping Mac entries (unicode/platform 0 requires ltag table)
+        if (skipMacPlatform && platform === 'unicode') {
+            continue;
+        }
         let nameID;
         const nameIDs = [];
 
@@ -814,7 +834,7 @@ function makeNameTable(names, ltag) {
                     }
 
                     if (macName !== undefined) {
-                        const macNameOffset = addStringToPool(macName, stringPool);
+                        const macNameOffset = addStringToPool(macName, stringPool, noStringDedup);
                         nameRecords.push(makeNameRecord(platformID, macScript,
                             macLanguage, nameID, macName.length, macNameOffset));
                     }
@@ -824,7 +844,7 @@ function makeNameTable(names, ltag) {
                     const winLanguage = windowsLanguageIds[lang];
                     if (winLanguage !== undefined) {
                         const winName = encode.UTF16(text);
-                        const winNameOffset = addStringToPool(winName, stringPool);
+                        const winNameOffset = addStringToPool(winName, stringPool, noStringDedup);
                         nameRecords.push(makeNameRecord(3, 1, winLanguage,
                             nameID, winName.length, winNameOffset));
                     }
@@ -834,10 +854,12 @@ function makeNameTable(names, ltag) {
     }
 
     nameRecords.sort(function(a, b) {
-        return ((a.platformID - b.platformID) ||
-                (a.encodingID - b.encodingID) ||
-                (a.languageID - b.languageID) ||
-                (a.nameID - b.nameID));
+        const ar = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (a));
+        const br = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (b));
+        return ((/** @type {number} */ (ar.platformID) - /** @type {number} */ (br.platformID)) ||
+                (/** @type {number} */ (ar.encodingID) - /** @type {number} */ (br.encodingID)) ||
+                (/** @type {number} */ (ar.languageID) - /** @type {number} */ (br.languageID)) ||
+                (/** @type {number} */ (ar.nameID) - /** @type {number} */ (br.nameID)));
     });
 
     const t = new table.Table('name', [

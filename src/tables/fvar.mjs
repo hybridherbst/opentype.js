@@ -6,12 +6,38 @@ import parse from '../parse.mjs';
 import table from '../table.mjs';
 import { getNameByID } from './name.mjs';
 
-function makeFvarAxis(n, axis) {
+/**
+ * @typedef {object} FvarAxis
+ * @property {string} tag - Four-character axis tag (e.g. 'wght', 'wdth')
+ * @property {number} minValue - Minimum value for this axis
+ * @property {number} defaultValue - Default value for this axis
+ * @property {number} maxValue - Maximum value for this axis
+ * @property {number} axisNameID - Name ID for the axis name in the 'name' table
+ * @property {string} name - Human-readable axis name resolved from the 'name' table
+ */
+
+/**
+ * @typedef {object} FvarInstance
+ * @property {number} subfamilyNameID - Name ID for the instance subfamily name in the 'name' table
+ * @property {string} name - Human-readable instance name resolved from the 'name' table
+ * @property {Record<string, number>} coordinates - Map of axis tag to coordinate value for this instance
+ * @property {number|undefined} postScriptNameID - Optional name ID for the PostScript name (undefined if absent)
+ * @property {string|undefined} postScriptName - Optional PostScript name resolved from the 'name' table
+ */
+
+/**
+ * @typedef {object} FvarTable
+ * @property {FvarAxis[]} axes - Array of variation axes defined in the font
+ * @property {FvarInstance[]} instances - Array of named variation instances
+ */
+
+// eslint-disable-next-line no-unused-vars
+function makeFvarAxis(n, axis, _names) {
     return [
         {name: 'tag_' + n, type: 'TAG', value: axis.tag},
-        {name: 'minValue_' + n, type: 'FIXED', value: axis.minValue << 16},
-        {name: 'defaultValue_' + n, type: 'FIXED', value: axis.defaultValue << 16},
-        {name: 'maxValue_' + n, type: 'FIXED', value: axis.maxValue << 16},
+        {name: 'minValue_' + n, type: 'FLOAT', value: axis.minValue},
+        {name: 'defaultValue_' + n, type: 'FLOAT', value: axis.defaultValue},
+        {name: 'maxValue_' + n, type: 'FLOAT', value: axis.maxValue},
         {name: 'flags_' + n, type: 'USHORT', value: 0},
         {name: 'nameID_' + n, type: 'USHORT', value: axis.axisNameID}
     ];
@@ -41,8 +67,8 @@ function makeFvarInstance(n, inst, axes, optionalFields = {}) {
         const axisTag = axes[i].tag;
         fields.push({
             name: 'axis_' + n + ' ' + axisTag,
-            type: 'FIXED',
-            value: inst.coordinates[axisTag] << 16
+            type: 'FLOAT',
+            value: inst.coordinates[axisTag]
         });
     }
 
@@ -84,7 +110,7 @@ function parseFvarInstance(data, start, axes, names, instanceSize) {
 }
 
 function makeFvarTable(fvar, names) {
-    
+
     const result = new table.Table('fvar', [
         {name: 'version', type: 'ULONG', value: 0x10000},
         {name: 'offsetToData', type: 'USHORT', value: 0},
@@ -94,10 +120,11 @@ function makeFvarTable(fvar, names) {
         {name: 'instanceCount', type: 'USHORT', value: fvar.instances.length},
         {name: 'instanceSize', type: 'USHORT', value: 4 + fvar.axes.length * 4}
     ]);
-    result.offsetToData = result.sizeOf();
+    const resultRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (result));
+    resultRec.offsetToData = result.sizeOf();
 
     for (let i = 0; i < fvar.axes.length; i++) {
-        result.fields = result.fields.concat(makeFvarAxis(i, fvar.axes[i], names));
+        resultRec.fields = /** @type {Array} */ (resultRec.fields).concat(makeFvarAxis(i, fvar.axes[i], names));
     }
 
     const optionalFields = {};
@@ -105,7 +132,8 @@ function makeFvarTable(fvar, names) {
     // first loop over instances: find out if at least one has postScriptNameID defined
     for (let j = 0; j < fvar.instances.length; j++) {
         if(fvar.instances[j].postScriptNameID !== undefined) {
-            result.instanceSize += 2;
+            /** @type {number} */ (resultRec.instanceSize);
+            resultRec.instanceSize = /** @type {number} */ (resultRec.instanceSize) + 2;
             optionalFields.postScriptNameID = true;
             break;
         }
@@ -113,7 +141,7 @@ function makeFvarTable(fvar, names) {
 
     // second loop over instances: find out if at least one has postScriptNameID defined
     for (let j = 0; j < fvar.instances.length; j++) {
-        result.fields = result.fields.concat(makeFvarInstance(
+        resultRec.fields = /** @type {Array} */ (resultRec.fields).concat(makeFvarInstance(
             j,
             fvar.instances[j],
             fvar.axes,

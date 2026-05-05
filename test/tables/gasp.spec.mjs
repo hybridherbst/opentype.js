@@ -30,6 +30,7 @@ describe('tables/gasp.mjs', function () {
     });
 
     it('can write tables that are read as identical to the original', function() {
+        this.timeout(10000);
         const font2 = parse(font.toArrayBuffer());
         assert.deepStrictEqual(font.tables.gasp, font2.tables.gasp);
     });

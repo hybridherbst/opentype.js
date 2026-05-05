@@ -14,8 +14,19 @@ function Path() {
     this.fill = 'black';
     this.stroke = null;
     this.strokeWidth = 1;
-    // the _layer property is only set on computed paths during glyph rendering
-    // this._layers = [];
+    // the _layers property is only set on computed paths during glyph rendering
+    /** @type {Path[]|undefined} */
+    this._layers = undefined;
+    // the _image property is only set on SVG glyphs
+    /** @type {{image: CanvasImageSource, x: number, y: number, width: number, height: number}|undefined} */
+    this._image = undefined;
+    // COLRv1 paint data (optional, only set on color glyph layers)
+    /** @type {unknown} */
+    this._paint = undefined;
+    /** @type {number|undefined} */
+    this._alpha = undefined;
+    /** @type {unknown} */
+    this._transform = undefined;
 }
 
 const decimalRoundingCache = {};
@@ -33,7 +44,7 @@ function roundDecimal(float, places) {
         return integerPart + roundedDecimalPart;
     }
     
-    const roundedDecimalPart = +(Math.round(decimalPart + 'e+' + places) + 'e-' + places);
+    const roundedDecimalPart = +(Math.round(/** @type {number} */ (/** @type {unknown} */ (decimalPart + 'e+' + places))) + 'e-' + places);
     decimalRoundingCache[places][decimalPart] = roundedDecimalPart;
 
     return integerPart + roundedDecimalPart;
@@ -56,7 +67,7 @@ function optimizeCommands(commands) {
         if (cmd.type === 'M') {
             startX = cmd.x;
             startY = cmd.y;
-        } else if (cmd.type === 'L' && (!nextCommand || nextCommand.type === 'Z')) {
+        } else if (cmd.type === 'L' && (!nextCommand || nextCommand.command === 'Z')) {
             if(!(Math.abs(cmd.x - startX) > 1 || Math.abs(cmd.y - startY) > 1)) {
                 subpath.pop();
             }
@@ -128,8 +139,8 @@ function createSVGOutputOptions(options) {
 
 /**
  * Sets the path data from an SVG path element or path notation
- * @param  {string|SVGPathElement}
- * @param  {object}
+ * @param  {string|SVGPathElement} pathData
+ * @param  {object} options
  */
 Path.prototype.fromSVG = function(pathData, options = {}) {
     if (typeof SVGPathElement !== 'undefined' && pathData instanceof SVGPathElement) {
@@ -242,8 +253,9 @@ Path.prototype.fromSVG = function(pathData, options = {}) {
         }
     }
 
-    for (let i = 0; i < pathData.length; i++) {
-        const token = pathData.charAt(i);
+    const /** @type {string} */ pathStr = /** @type {string} */ (pathData);
+    for (let i = 0; i < pathStr.length; i++) {
+        const token = pathStr.charAt(i);
         const lastBuffer = buffer[buffer.length - 1];
         if (number.indexOf(token) > -1) {
             buffer[buffer.length - 1] += token;
@@ -322,8 +334,8 @@ Path.prototype.fromSVG = function(pathData, options = {}) {
 
 /**
  * Generates a new Path() from an SVG path element or path notation
- * @param  {string|SVGPathElement}
- * @param  {object}
+ * @param  {string|SVGPathElement} path
+ * @param  {object} options
  */
 Path.fromSVG = function(path, options) {
     const newPath = new Path();
@@ -442,11 +454,11 @@ Path.prototype.close = Path.prototype.closePath = function() {
 
 /**
  * Add the given path or list of commands to the commands of this path.
- * @param  {Array} pathOrCommands - another opentype.Path, an opentype.BoundingBox, or an array of commands.
+ * @param  {Path|BoundingBox|Array<object>} pathOrCommands - another opentype.Path, an opentype.BoundingBox, or an array of commands.
  */
 Path.prototype.extend = function(pathOrCommands) {
-    if (pathOrCommands.commands) {
-        pathOrCommands = pathOrCommands.commands;
+    if (/** @type {Path} */ (pathOrCommands).commands) {
+        pathOrCommands = /** @type {Path} */ (pathOrCommands).commands;
     } else if (pathOrCommands instanceof BoundingBox) {
         const box = pathOrCommands;
         this.moveTo(box.x1, box.y1);
@@ -462,7 +474,7 @@ Path.prototype.extend = function(pathOrCommands) {
 
 /**
  * Calculate the bounding box of the path.
- * @returns {opentype.BoundingBox}
+ * @returns {BoundingBox}
  */
 Path.prototype.getBoundingBox = function() {
     const box = new BoundingBox();
@@ -510,6 +522,7 @@ Path.prototype.getBoundingBox = function() {
 
 /**
  * Draw the path to a 2D context.
+ * @this {Path}
  * @param {CanvasRenderingContext2D} ctx - A 2D drawing context.
  */
 Path.prototype.draw = function(ctx) {
@@ -642,17 +655,20 @@ Path.prototype.toPathData = function(options) {
 
 /**
  * Convert the path to an SVG <path> element, as a string.
+ * @this {Path}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
- * @param  {string} - will be calculated automatically, but can be provided from Glyph's wrapper function
+ * @param  {string} [pathData] - will be calculated automatically, but can be provided from Glyph's wrapper function
  * @return {string}
  */
 Path.prototype.toSVG = function(options, pathData) {
     if (this._layers && this._layers.length) {
-        /** @TODO: implement SVG output for colr fonts
-         * Is there a standardized way?
-         * @see https://github.com/unicode-org/text-rendering-tests/issues/95
-        */
-        console.warn('toSVG() does not support colr font layers yet');
+        // Render color font layers as a <g> containing multiple colored <path> elements
+        let svg = '<g>';
+        for (let l = 0; l < this._layers.length; l++) {
+            svg += this._layers[l].toSVG(options);
+        }
+        svg += '</g>';
+        return svg;
     }
     if (this._image) {
         /**
@@ -686,24 +702,27 @@ Path.prototype.toSVG = function(options, pathData) {
 
 /**
  * Convert the path to a DOM element.
+ * @this {Path}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
- * @param  {string} [pathData] - will be calculated automatically, but can be provided from Glyph's wrapper functions
+ * @param  {string} [pathData] - will be calculated automatically, but can be provided from Glyph's wrapper function
  * @return {SVGPathElement}
  */
 Path.prototype.toDOMElement = function(options, pathData) {
     if(this._layers && this._layers.length) {
-        /** @TODO: implement SVG output for colr fonts
-         * Is there a standardized way?
-         * @see https://github.com/unicode-org/text-rendering-tests/issues/95
-        */
-        console.warn('toDOMElement() does not support colr font layers yet');
+        // Render color font layers as a <g> containing multiple colored <path> elements
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        for (let l = 0; l < this._layers.length; l++) {
+            group.appendChild(this._layers[l].toDOMElement(options));
+        }
+        return /** @type {SVGPathElement} */ (/** @type {unknown} */ (group));
     }
     if (!pathData) {
         pathData = this.toPathData(options);
     }
+    const temporaryPath = pathData;
     const newPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
 
-    newPath.setAttribute('d', pathData);
+    newPath.setAttribute('d', temporaryPath);
 
     if (this.fill !== undefined && this.fill !== 'black') {
         if (this.fill === null) {
@@ -715,10 +734,41 @@ Path.prototype.toDOMElement = function(options, pathData) {
     
     if (this.stroke) {
         newPath.setAttribute('stroke', this.stroke);
-        newPath.setAttribute('stroke-width', this.strokeWidth);
+        newPath.setAttribute('stroke-width', String(this.strokeWidth));
     }
 
     return newPath;
+};
+
+/**
+ * Get structured color path data for COLR font layers.
+ * Returns an array of {d: string, fill: string} objects for each color layer,
+ * or null if no color layers exist (regular monochrome path).
+ * @this {Path}
+ * @param  {object|number} [options={decimalPlaces:2, optimize:true}] - Options for path data generation
+ * @return {Array<{d: string, fill: string}>|null}
+ */
+Path.prototype.toColorPaths = function(options) {
+    if (!this._layers || !this._layers.length) {
+        return null;
+    }
+    const result = [];
+    for (let l = 0; l < this._layers.length; l++) {
+        const layer = this._layers[l];
+        const d = layer.toPathData(options);
+        if (d) {
+            const entry = {
+                d: d,
+                fill: layer.fill || 'black'
+            };
+            // Carry over COLRv1 paint data if present
+            if (layer._paint) entry.paint = layer._paint;
+            if (layer._alpha !== undefined) entry.alpha = layer._alpha;
+            if (layer._transform) entry.transform = layer._transform;
+            result.push(entry);
+        }
+    }
+    return result.length > 0 ? result : null;
 };
 
 export default Path;

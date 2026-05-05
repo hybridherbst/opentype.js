@@ -4,7 +4,7 @@
 
 /**
  * Apply unicode variation squences to a context range
- * @param {ContextRange} range a range of tokens
+ * @param {unknown} range a range of tokens
  * 
  * @TODO: We could incorporate the data from
  * https://www.unicode.org/Public/UCD/latest/ucd/StandardizedVariants.txt

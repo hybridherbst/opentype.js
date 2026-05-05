@@ -5,6 +5,27 @@ import check from '../check.mjs';
 import parse from '../parse.mjs';
 import table from '../table.mjs';
 
+/**
+ * @typedef {object} HeadTable
+ * @property {number} version - Table version number (Fixed 16.16)
+ * @property {number} fontRevision - Set by font manufacturer (Fixed 16.16)
+ * @property {number} checkSumAdjustment - To compute: set to 0, sum the entire font as ULong, then store 0xB1B0AFBA - sum
+ * @property {number} magicNumber - Set to 0x5F0F3CF5
+ * @property {number} flags - Bit flag field
+ * @property {number} unitsPerEm - Valid range is from 16 to 16384
+ * @property {number} created - Number of seconds since 12:00 midnight that started January 1st 1904
+ * @property {number} modified - Number of seconds since 12:00 midnight that started January 1st 1904
+ * @property {number} xMin - For all glyph bounding boxes
+ * @property {number} yMin - For all glyph bounding boxes
+ * @property {number} xMax - For all glyph bounding boxes
+ * @property {number} yMax - For all glyph bounding boxes
+ * @property {number} macStyle - Bit field for style flags (bold, italic, etc.)
+ * @property {number} lowestRecPPEM - Smallest readable size in pixels
+ * @property {number} fontDirectionHint - Deprecated, set to 2
+ * @property {number} indexToLocFormat - 0 for short offsets, 1 for long
+ * @property {number} glyphDataFormat - 0 for current format
+ */
+
 // Parse the header `head` table
 function parseHeadTable(data, start) {
     const head = {};

@@ -4,7 +4,9 @@
 import check from '../check.mjs';
 import { Parser } from '../parse.mjs';
 import table from '../table.mjs';
+import featureVariationsTable from './featurevariations.mjs';
 
+/** @type {Array<(this: Parser) => unknown>} */
 const subtableParsers = new Array(9);         // subtableParsers[0] is unused
 
 // https://www.microsoft.com/typography/OTSPEC/GSUB.htm#SS
@@ -162,14 +164,43 @@ subtableParsers[6] = function parseLookup6() {
 // https://www.microsoft.com/typography/OTSPEC/GSUB.htm#ES
 subtableParsers[7] = function parseLookup7() {
     // Extension Substitution subtable
-    const substFormat = this.parseUShort();
-    check.argument(substFormat === 1, 'GSUB Extension Substitution subtable identifier-format must be 1');
-    const extensionLookupType = this.parseUShort();
-    const extensionParser = new Parser(this.data, this.offset + this.parseULong());
+    let substFormat;
+    let extensionLookupType;
+    let extensionOffset;
+    try {
+        substFormat = this.parseUShort();
+        check.argument(substFormat === 1, 'GSUB Extension Substitution subtable identifier-format must be 1');
+        extensionLookupType = this.parseUShort();
+        extensionOffset = this.parseULong();
+    } catch (err) {
+        if (err instanceof RangeError) {
+            return { error: 'GSUB extension subtable truncated' };
+        }
+        throw err;
+    }
+
+    const extensionStart = this.offset + extensionOffset;
+    if (!subtableParsers[extensionLookupType]) {
+        return { error: 'Unsupported GSUB extension lookup type ' + extensionLookupType };
+    }
+    if (extensionOffset === 0 || extensionStart < 0 || extensionStart >= this.data.byteLength) {
+        return { error: 'Invalid GSUB extension offset ' + extensionOffset };
+    }
+
+    const extensionParser = new Parser(this.data, extensionStart);
+    let extension;
+    try {
+        extension = subtableParsers[extensionLookupType].call(extensionParser);
+    } catch (err) {
+        if (err instanceof RangeError) {
+            return { error: 'GSUB extension parse out of bounds' };
+        }
+        throw err;
+    }
     return {
         substFormat: 1,
         lookupType: extensionLookupType,
-        extension: subtableParsers[extensionLookupType].call(extensionParser)
+        extension: extension
     };
 };
 
@@ -186,7 +217,99 @@ subtableParsers[8] = function parseLookup8() {
     };
 };
 
+// ---- Type definitions ----
+
+/**
+ * A lookup record referencing another lookup to apply at a sequence position.
+ * @typedef {object} GsubLookupRecord
+ * @property {number} sequenceIndex - index into the input sequence
+ * @property {number} lookupListIndex - index into the lookup list
+ */
+
+/**
+ * A single GSUB substitution subtable. Properties vary by lookup type and substFormat.
+ * All subtables share `substFormat`; other properties are type-specific.
+ * @typedef {object} GsubSubtable
+ * @property {number} substFormat - substitution format (1 or 2 for most lookup types)
+ * @property {object} [coverage] - coverage table (format 1 or 2)
+ * @property {number} [deltaGlyphId] - (type 1 fmt 1) delta added to glyph index
+ * @property {number[]} [substitute] - (type 1 fmt 2) list of substitute glyph ids
+ * @property {number[][]} [sequences] - (type 2) per-coverage-index sequences of glyph ids
+ * @property {number[][]} [alternateSets] - (type 3) per-coverage-index alternate glyph sets
+ * @property {Array<Array<{ligGlyph: number, components: number[]}>>} [ligatureSets] - (type 4) ligature sets per coverage index
+ * @property {Array<Array<{input: number[], lookupRecords: GsubLookupRecord[]}>>} [ruleSets] - (type 5 fmt 1) sequence rule sets
+ * @property {object} [classDef] - (type 5 fmt 2) class definition table
+ * @property {Array<Array<{classes: number[], lookupRecords: GsubLookupRecord[]}>>} [classSets] - (type 5 fmt 2) class sets
+ * @property {object[]} [coverages] - (type 5 fmt 3 / type 6 fmt 3) list of coverage tables
+ * @property {GsubLookupRecord[]} [lookupRecords] - (type 5 fmt 3 / type 6 fmt 3) lookup records
+ * @property {Array<Array<{backtrack: number[], input: number[], lookahead: number[], lookupRecords: GsubLookupRecord[]}>>} [chainRuleSets] - (type 6 fmt 1)
+ * @property {object} [backtrackClassDef] - (type 6 fmt 2) backtrack class definition
+ * @property {object} [inputClassDef] - (type 6 fmt 2) input class definition
+ * @property {object} [lookaheadClassDef] - (type 6 fmt 2) lookahead class definition
+ * @property {Array<Array<{backtrack: number[], input: number[], lookahead: number[], lookupRecords: GsubLookupRecord[]}>>} [chainClassSet] - (type 6 fmt 2)
+ * @property {object[]} [backtrackCoverage] - (type 6 fmt 3 / type 8) backtrack coverage tables
+ * @property {object[]} [inputCoverage] - (type 6 fmt 3) input coverage tables
+ * @property {object[]} [lookaheadCoverage] - (type 6 fmt 3 / type 8) lookahead coverage tables
+ * @property {number[]} [substitutes] - (type 8) reverse chain single substitution glyph ids
+ * @property {number} [lookupType] - (type 7) extension: actual lookup type wrapped
+ * @property {GsubSubtable} [extension] - (type 7) extension: inner subtable
+ * @property {string} [error] - error message if parsing failed
+ */
+
+/**
+ * A single GSUB lookup table.
+ * @typedef {object} GsubLookupTable
+ * @property {number} lookupType - lookup type (1–8)
+ * @property {number} lookupFlag - lookup flags bitmask
+ * @property {GsubSubtable[]} subtables - list of subtables
+ * @property {number} [markFilteringSet] - index into MarkGlyphSetsTable (when UseMarkFilteringSet flag is set)
+ */
+
+/**
+ * A LangSys table entry.
+ * @typedef {object} LangSysTable
+ * @property {number} reserved - reserved field (always 0)
+ * @property {number} reqFeatureIndex - required feature index (0xFFFF = none)
+ * @property {number[]} featureIndexes - indices into the feature list
+ */
+
+/**
+ * A script record containing the default LangSys and any language-specific LangSys tables.
+ * @typedef {object} ScriptTable
+ * @property {LangSysTable} defaultLangSys - default language system table
+ * @property {Array<{tag: string, langSys: LangSysTable}>} langSysRecords - language-specific records
+ */
+
+/**
+ * A feature record: tag + feature table.
+ * @typedef {object} FeatureRecord
+ * @property {string} tag - 4-character feature tag
+ * @property {{featureParams: number, lookupListIndexes: number[]}} feature - feature table
+ */
+
+/**
+ * A script list entry (tag + script table).
+ * @typedef {object} ScriptRecord
+ * @property {string} tag - 4-character script tag
+ * @property {ScriptTable} script - script table
+ */
+
+/**
+ * The top-level parsed GSUB table.
+ * @typedef {object} GsubTable
+ * @property {number} version - table version (1 or 1.1)
+ * @property {ScriptRecord[]} scripts - script list
+ * @property {FeatureRecord[]} features - feature list
+ * @property {GsubLookupTable[]} lookups - lookup list
+ * @property {object[]} [variations] - (version 1.1) feature variations list
+ */
+
 // https://www.microsoft.com/typography/OTSPEC/gsub.htm
+/**
+ * @param {DataView} data
+ * @param {number} [start]
+ * @returns {GsubTable}
+ */
 function parseGsubTable(data, start) {
     start = start || 0;
     const p = new Parser(data, start);
@@ -362,7 +485,35 @@ subtableMakers[6] = function makeLookup6(subtable) {
         })));
         return returnTable;
     } else if (subtable.substFormat === 2) {
-        check.assert(false, 'lookup type 6 format 2 is not yet supported.');
+        // Chaining Context Substitution Format 2: Class-based Chaining Context Glyph Substitution
+        return new table.Table('chainContextTable', [
+            {name: 'substFormat', type: 'USHORT', value: subtable.substFormat},
+            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
+            {name: 'backtrackClassDef', type: 'TABLE', value: new table.ClassDef(subtable.backtrackClassDef)},
+            {name: 'inputClassDef', type: 'TABLE', value: new table.ClassDef(subtable.inputClassDef)},
+            {name: 'lookaheadClassDef', type: 'TABLE', value: new table.ClassDef(subtable.lookaheadClassDef)}
+        ].concat(table.tableList('chainClassSet', subtable.chainClassSet, function(chainClassSet) {
+            if (!chainClassSet) {
+                return new table.Table('NULL', null);
+            }
+            return new table.Table('chainClassSetTable', table.tableList('chainClassRule', chainClassSet, function(chainClassRule) {
+                // ChainClassRule table:
+                // backtrackGlyphCount, backtrackSequence[], inputGlyphCount, inputSequence[], 
+                // lookaheadGlyphCount, lookaheadSequence[], substCount, substLookupRecords[]
+                let tableData = table.ushortList('backtrackClass', chainClassRule.backtrack, chainClassRule.backtrack.length)
+                    .concat(table.ushortList('inputClass', chainClassRule.input, chainClassRule.input.length + 1))
+                    .concat(table.ushortList('lookaheadClass', chainClassRule.lookahead, chainClassRule.lookahead.length))
+                    .concat(table.ushortList('substCount', [], chainClassRule.lookupRecords.length));
+                
+                for(let i = 0; i < chainClassRule.lookupRecords.length; i++) {
+                    const record = chainClassRule.lookupRecords[i];
+                    tableData = tableData
+                        .concat({name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex})
+                        .concat({name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex});
+                }
+                return new table.Table('chainClassRuleTable', tableData);
+            }));
+        })));
     } else if (subtable.substFormat === 3) {
         let tableData = [
             {name: 'substFormat', type: 'USHORT', value: subtable.substFormat},
@@ -402,13 +553,50 @@ subtableMakers[6] = function makeLookup6(subtable) {
     check.assert(false, 'lookup type 6 format must be 1, 2 or 3.');
 };
 
+// Extension Substitution subtable (lookup type 7)
+// The inner subtable is encoded as a first-class 32-bit offset reference from
+// the extension header rather than being emitted and patched in a custom pass.
+subtableMakers[7] = function makeLookup7(subtable) {
+    // subtable has: { substFormat: 1, lookupType: actualType, extension: actualSubtable }
+    check.argument(subtable.substFormat === 1, 'Extension substitution format must be 1');
+    check.argument(subtable.lookupType && subtable.lookupType !== 7, 'Extension cannot wrap another extension');
+    
+    // Get the maker for the actual lookup type
+    const actualMaker = subtableMakers[subtable.lookupType];
+    check.assert(actualMaker, 'No maker for extension lookup type ' + subtable.lookupType);
+    
+    const actualTable = actualMaker(subtable.extension);
+
+    return new table.Table('extensionSubstitution', [
+        {name: 'substFormat', type: 'USHORT', value: 1},
+        {name: 'extensionLookupType', type: 'USHORT', value: subtable.lookupType},
+        {name: 'extensionOffset', type: 'OFFSET32', value: actualTable, targetScope: 'root'}
+    ]);
+};
+
+/**
+ * @param {GsubTable} gsub
+ * @returns {object}
+ */
 function makeGsubTable(gsub) {
-    return new table.Table('GSUB', [
-        {name: 'version', type: 'ULONG', value: 0x10000},
+    const hasFeatureVariations = gsub.variations && gsub.variations.length > 0;
+    /** @type {Array<{name: string, type: string, value?: unknown}>} */
+    const tableFields = [
+        {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
         {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
         {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
         {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, subtableMakers)}
-    ]);
+    ];
+
+    if (hasFeatureVariations) {
+        tableFields.push({
+            name: 'featureVariations',
+            type: 'OFFSET32',
+            value: featureVariationsTable.make(gsub.variations)
+        });
+    }
+
+    return new table.Table('GSUB', tableFields);
 }
 
 export default { parse: parseGsubTable, make: makeGsubTable };

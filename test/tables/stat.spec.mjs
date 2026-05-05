@@ -2,7 +2,7 @@ import assert from 'assert';
 import { hex, unhex } from '../testutil.mjs';
 import STAT from '../../src/tables/stat.mjs';
 
-describe('tables/stat.mjs', function() {
+describe('tables/stat.js', function() {
     // Style Attributes Header, v1.2
     const h10 = '00 01 00 00 00 08 00 03 00 00 00 12 00 04 00 00 00 2A';
     // Style Attributes Header, v1.0
@@ -36,9 +36,9 @@ describe('tables/stat.mjs', function() {
             { tag: 'opsz', nameID: 72, ordering: 2 }
         ],
         values: [
-            { format: 1, axisIndex: 1, flags: 2, valueNameID: 120, value: 291.2711070420386 },
+            { format: 1, axisIndex: 1, flags: 2, valueNameID: 120, value: 291.27110290527344 },
             { format: 2, axisIndex: 2, flags: 1, valueNameID: 150, nominalValue: 24, rangeMinValue: 2, rangeMaxValue: 32767 },
-            { format: 3, axisIndex: 1, flags: 2, valueNameID: 252, value: 1.1367208361944, linkedValue: 69.40444037537193 },
+            { format: 3, axisIndex: 1, flags: 2, valueNameID: 252, value: 1.13671875, linkedValue: 69.40443420410156 },
             { format: 4, flags: 1, valueNameID: 328, axisValues: [
                 { axisIndex: 2, value: -32768 },
                 { axisIndex: 0, value: 420 }

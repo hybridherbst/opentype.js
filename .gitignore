@@ -6,3 +6,6 @@
 npm-debug.log
 /.reify-cache
 /experiments
+/test-output
+/test/validators/bin/*
+!/test/validators/bin/README.md

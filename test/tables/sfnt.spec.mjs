@@ -1,7 +1,7 @@
 import assert from 'assert';
 import Font from '../../src/font.mjs';
-import name from '../../src/tables/name.mjs';
 import sfnt from '../../src/tables/sfnt.mjs';
+import name from '../../src/tables/name.mjs';
 import { encode } from '../../src/types.mjs';
 
 function encodeAndParseTable(table, parser) {
@@ -14,7 +14,7 @@ function encodeAndParseTable(table, parser) {
     return parser(data, 0);
 }
 
-describe('tables/sfnt.mjs', function () {
+describe('tables/sfnt.js', ()=>{
     let font;
     const defaultFont = {
         familyName: 'MyFont',
@@ -24,7 +24,7 @@ describe('tables/sfnt.mjs', function () {
         descender: 0,
     };
 
-    describe('fontToSfntTable', function () {
+    describe('fontToSfntTable', () => {
         beforeEach(function() {
             font = new Font({...defaultFont});
         });
@@ -43,44 +43,18 @@ describe('tables/sfnt.mjs', function () {
             
             const parsedNameTable = encodeAndParseTable(name_table, name.parse);
 
+            // macintosh entries are skipped by default in modern fonts
+            // per fontspector recommendation (no_mac_entries)
             assert.deepEqual(parsedNameTable, {
-                macintosh: {
-                    copyright: { en: ' ' },
-                    fontFamily: { en: defaultFont.familyName }, // 'MyFont'
-                    fontSubfamily: { en: defaultFont.styleName }, // 'Medium'
-                    fullName: { en: `${defaultFont.familyName} ${defaultFont.styleName}` }, // 'MyFont Medium'
-                    version: { en: 'Version 0.1' },
-                    postScriptName: { en: `${defaultFont.familyName}${defaultFont.styleName}` }, // 'MyFontMedium'
-                    trademark: { en: ' ' },
-                    manufacturer: { en: ' ' },
-                    designer: { en: ' ' },
-                    description: { en: ' ' },
-                    manufacturerURL: { en: ' ' },
-                    designerURL: { en: ' ' },
-                    license: { en: ' ' },
-                    licenseURL: { en: ' ' },
-                    preferredFamily: { en: defaultFont.familyName }, // 'MyFont'
-                    preferredSubfamily: { en: defaultFont.styleName }, // 'Medium'
-                    uniqueID: { en: ` : ${defaultFont.familyName} ${defaultFont.styleName}` },
-                },
                 windows: {
-                    copyright: { en: ' ' },
                     fontFamily: { en: defaultFont.familyName }, // 'MyFont'
                     fontSubfamily: { en: defaultFont.styleName }, // 'Medium'
                     fullName: { en: `${defaultFont.familyName} ${defaultFont.styleName}` }, // 'MyFont Medium'
                     version: { en: 'Version 0.1' },
                     postScriptName: { en: `${defaultFont.familyName}${defaultFont.styleName}` }, // 'MyFontMedium'
-                    trademark: { en: ' ' },
-                    manufacturer: { en: ' ' },
-                    designer: { en: ' ' },
-                    description: { en: ' ' },
-                    manufacturerURL: { en: ' ' },
-                    designerURL: { en: ' ' },
-                    license: { en: ' ' },
-                    licenseURL: { en: ' ' },
                     preferredFamily: { en: defaultFont.familyName }, // 'MyFont'
                     preferredSubfamily: { en: defaultFont.styleName }, // 'Medium'
-                    uniqueID: { en: ` : ${defaultFont.familyName} ${defaultFont.styleName}` },
+                    description: { en: `${defaultFont.familyName} font` } // Auto-generated description
                 }
             });
         });
@@ -116,17 +90,9 @@ describe('tables/sfnt.mjs', function () {
             const name_table = sfnt_table.tables.find((table)=>table.tableName == 'name');
             const parsedNameTable = encodeAndParseTable(name_table, name.parse);
 
+            // macintosh entries are skipped by default in modern fonts
+            // per fontspector recommendation (no_mac_entries)
             assert.deepEqual(parsedNameTable, {
-                macintosh: {
-                    fontFamily: { en: fontFamily },
-                    fontSubfamily: { en: fontSubfamily},
-                    fullName: { en: fullName },
-                    version: { en: version },
-                    preferredFamily: { en: preferredFamily },
-                    preferredSubfamily: { en: preferredSubfamily },
-                    postScriptName: { en: `${fontFamily.replaceAll(' ', '')}-${fontSubfamily}` },
-                    uniqueID: { en: `: ${fontFamily} ${fontSubfamily}` },
-                },
                 windows: {
                     fontFamily: { en: fontFamily },
                     fontSubfamily: { en: fontSubfamily},
@@ -134,24 +100,24 @@ describe('tables/sfnt.mjs', function () {
                     version: { en: version },
                     preferredFamily: { en: preferredFamily },
                     preferredSubfamily: { en: preferredSubfamily},
-                    postScriptName: { en: `${fontFamily.replaceAll(' ', '')}-${fontSubfamily}` },
-                    uniqueID: { en: `: ${fontFamily} ${fontSubfamily}` },
+                    description: { en: `${fontFamily} font` } // Auto-generated description
                 }
             });
         });
 
         it('should set preferredSubfamily as value of fontSubfamily, if not explicitly set', ()=>{
             const preferredSubfamily = 'Custom Subfamily';
-            font.names = { macintosh: {
-                fontFamily: {en: defaultFont.familyName },
-                fontSubfamily: { en: preferredSubfamily }
-            }};
+            font.names = { 
+                windows: {
+                    fontFamily: {en: defaultFont.familyName },
+                    fontSubfamily: { en: preferredSubfamily }
+                }
+            };
 
             const sfnt_table = sfnt.fontToTable(font);
             const name_table = sfnt_table.tables.find((table)=>table.tableName == 'name');
             const parsedNameTable = encodeAndParseTable(name_table, name.parse);
 
-            assert.deepEqual(parsedNameTable.macintosh.preferredSubfamily, { en: preferredSubfamily });
             assert.deepEqual(parsedNameTable.windows.preferredSubfamily, { en: preferredSubfamily });
         });
     });

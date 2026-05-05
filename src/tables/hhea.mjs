@@ -4,6 +4,23 @@
 import parse from '../parse.mjs';
 import table from '../table.mjs';
 
+/**
+ * @typedef {object} HheaTable
+ * @property {number} version - Table version number (Fixed 16.16)
+ * @property {number} ascender - Typographic ascent in font design units
+ * @property {number} descender - Typographic descent in font design units (negative)
+ * @property {number} lineGap - Typographic line gap in font design units
+ * @property {number} advanceWidthMax - Maximum advance width value in 'hmtx' table
+ * @property {number} minLeftSideBearing - Minimum left sidebearing value in 'hmtx' table
+ * @property {number} minRightSideBearing - Minimum right sidebearing value
+ * @property {number} xMaxExtent - Max(lsb + (xMax - xMin))
+ * @property {number} caretSlopeRise - Used to calculate the slope of the cursor (rise/run)
+ * @property {number} caretSlopeRun - 0 for vertical
+ * @property {number} caretOffset - The amount by which a slanted highlight on a glyph needs to be shifted
+ * @property {number} metricDataFormat - 0 for current format
+ * @property {number} numberOfHMetrics - Number of hMetric entries in 'hmtx' table
+ */
+
 // Parse the horizontal header `hhea` table
 function parseHheaTable(data, start) {
     const hhea = {};

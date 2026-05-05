@@ -21,13 +21,18 @@ function getPathDefinition(glyph, path) {
 
         set: function(p) {
             _path = p;
+            // remove the subrs/gsubrs
+            // @TODO: In the future we'll need an algorithm that finds
+            // candidates for sub routines and adds them to the index
+            delete glyph.subrs;
+            delete glyph.gsubrs;
         }
     };
 }
 
 /**
  * @typedef GlyphOptions
- * @type Object
+ * @property {number} [index]
  * @property {string} [name] - The glyph name
  * @property {number} [unicode]
  * @property {Array} [unicodes]
@@ -37,6 +42,28 @@ function getPathDefinition(glyph, path) {
  * @property {number} [yMax]
  * @property {number} [advanceWidth]
  * @property {number} [leftSideBearing]
+ * @property {Path|Function} [path]
+ * @property {object[]} [points]
+ * @property {object} [font]
+ */
+
+/**
+ * @typedef GlyphRenderOptions
+ * @property {string} [script]
+ * @property {string} [language]
+ * @property {boolean} [kerning]
+ * @property {Record<string, unknown>} [features]
+ * @property {boolean} [hinting]
+ * @property {number} [usePalette]
+ * @property {boolean} [drawLayers]
+ * @property {boolean} [drawSVG]
+ * @property {Record<string, unknown>} [variation]
+ * @property {number} [letterSpacing]
+ * @property {number} [tracking]
+ * @property {string} [fill]
+ * @property {string} [colorFormat]
+ * @property {number} [xScale]
+ * @property {number} [yScale]
  */
 
 // A Glyph is an individual mark that often corresponds to a character.
@@ -47,7 +74,7 @@ function getPathDefinition(glyph, path) {
 /**
  * @exports opentype.Glyph
  * @class
- * @param {GlyphOptions}
+ * @param {GlyphOptions} options
  * @constructor
  */
 function Glyph(options) {
@@ -57,7 +84,7 @@ function Glyph(options) {
 }
 
 /**
- * @param  {GlyphOptions}
+ * @param  {GlyphOptions} options
  */
 Glyph.prototype.bindConstructorValues = function(options) {
     this.index = options.index || 0;
@@ -114,7 +141,7 @@ Glyph.prototype.bindConstructorValues = function(options) {
 };
 
 /**
- * @param {number}
+ * @param {number} unicode
  */
 Glyph.prototype.addUnicode = function(unicode) {
     if (this.unicodes.length === 0) {
@@ -126,7 +153,8 @@ Glyph.prototype.addUnicode = function(unicode) {
 
 /**
  * Calculate the minimum bounding box for this glyph.
- * @return {opentype.BoundingBox}
+ * @this {object}
+ * @return {import('./bbox.mjs').default}
  */
 Glyph.prototype.getBoundingBox = function() {
     return this.path.getBoundingBox();
@@ -134,12 +162,13 @@ Glyph.prototype.getBoundingBox = function() {
 
 /**
  * Convert the glyph to a Path we can draw on a drawing context.
+ * @this {object}
  * @param  {number} [x=0] - Horizontal position of the beginning of the text.
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
  * @param  {number} [fontSize=72] - Font size in pixels. We scale the glyph units by `1 / unitsPerEm * fontSize`.
- * @param  {GlyphRenderOptions=} options - xScale, yScale to stretch the glyph.
- * @param  {opentype.Font} font if hinting is to be used, or CPAL/COLR / variation needs to be rendered, the font
- * @return {opentype.Path}
+ * @param  {object} [options] - xScale, yScale to stretch the glyph.
+ * @param  {object} [font] if hinting is to be used, or CPAL/COLR / variation needs to be rendered, the font
+ * @return {Path}
  */
 Glyph.prototype.getPath = function(x, y, fontSize, options, font) {
     x = x !== undefined ? x : 0;
@@ -180,10 +209,12 @@ Glyph.prototype.getPath = function(x, y, fontSize, options, font) {
         if (yScale === undefined) yScale = scale;
     }
     
+    /** @type {object} */
     const p = new Path();
     if ( options.drawSVG ) {
         const svgImage = this.getSvgImage(font);
         if ( svgImage ) {
+            /** @type {object} */
             const layer = new Path();
             layer._image = {
                 image: svgImage.image,
@@ -202,15 +233,33 @@ Glyph.prototype.getPath = function(x, y, fontSize, options, font) {
             p._layers = [];
             for ( let i = 0; i < layers.length; i += 1 ) {
                 const layer = layers[i];
-                let color = getPaletteColor(font, layer.paletteIndex, options.usePalette);
                 
-                if ( color === 'currentColor' ) {
-                    color = options.fill || 'black'; 
+                // COLRv1 layers may have a paint subtree instead of a simple paletteIndex
+                if (layer.paint && !layer.paletteIndex && layer.paletteIndex !== 0) {
+                    // Complex paint (gradient, etc.) — store paint data on the path
+                    const layerOptions = Object.assign({}, options, { drawLayers: false });
+                    const layerPath = this.getPath.call(layer.glyph, x, y, fontSize, layerOptions, font);
+                    layerPath._paint = layer.paint;
+                    layerPath._alpha = layer.alpha !== undefined ? layer.alpha : 1;
+                    if (layer.transform) layerPath._transform = layer.transform;
+                    p._layers.push(layerPath);
                 } else {
-                    color = formatColor(color, options.colorFormat || 'rgba');
+                    // Simple solid color layer (v0 compatible)
+                    let color = getPaletteColor(font, layer.paletteIndex, options.usePalette);
+                    
+                    if ( color === 'currentColor' ) {
+                        color = options.fill || 'black'; 
+                    } else {
+                        color = formatColor(color, options.colorFormat || 'rgba');
+                    }
+                    const layerOptions = Object.assign({}, options, {fill: color, drawLayers: false});
+                    const layerPath = this.getPath.call(layer.glyph, x, y, fontSize, layerOptions, font);
+                    if (layer.alpha !== undefined && layer.alpha < 1) {
+                        layerPath._alpha = layer.alpha;
+                    }
+                    if (layer.transform) layerPath._transform = layer.transform;
+                    p._layers.push(layerPath);
                 }
-                options = Object.assign({}, options, {fill: color});
-                p._layers.push(this.getPath.call(layer.glyph, x, y, fontSize, options, font));
             }
             return p;
         }
@@ -241,24 +290,23 @@ Glyph.prototype.getPath = function(x, y, fontSize, options, font) {
 };
 
 /**
- * 
- * @param {opentype.Font} font 
+ * @param {object} font
  * @returns {Array}
  */
 Glyph.prototype.getLayers = function(font) {
     if(!font) {
-        throw new Error('The font object is required to read the colr/cpal tables in order to get the layers.');
+        throw Error('The font object is required to read the colr/cpal tables in order to get the layers.');
     }
     return font.layers.get(this.index);
 };
 
 /**
- * @param {opentype.Font} font
- * @returns {import('./svgimages.mjs').SVGImage | undefined}
+ * @param {object} font
+ * @returns {object}
  */
 Glyph.prototype.getSvgImage = function(font) {
     if(!font) {
-        throw new Error('The font object is required to read the svg table in order to get the image.');
+        throw Error('The font object is required to read the svg table in order to get the image.');
     }
     return font.svgImages.get(this.index);
 };
@@ -267,6 +315,7 @@ Glyph.prototype.getSvgImage = function(font) {
  * Split the glyph into contours.
  * This function is here for backwards compatibility, and to
  * provide raw access to the TrueType glyph outlines.
+ * @this {object}
  * @param {Array|null} [transformedPoints=null] Use the supplied transformed points from a glyph variation instead of the regular glyph points
  * @return {Array}
  */
@@ -295,7 +344,8 @@ Glyph.prototype.getContours = function(transformedPoints = null) {
 
 /**
  * Calculate the xMin/yMin/xMax/yMax/lsb/rsb for a Glyph.
- * @return {Object}
+ * @this {object}
+ * @return {object}
  */
 Glyph.prototype.getMetrics = function() {
     const commands = this.path.commands;
@@ -343,6 +393,12 @@ Glyph.prototype.getMetrics = function() {
         metrics.yMax = 0;
     }
 
+    // If leftSideBearing is not explicitly set, default to xMin
+    // This is the correct behavior per the OpenType spec
+    if (metrics.leftSideBearing === undefined || metrics.leftSideBearing === null) {
+        metrics.leftSideBearing = metrics.xMin;
+    }
+
     metrics.rightSideBearing = this.advanceWidth - metrics.leftSideBearing - (metrics.xMax - metrics.xMin);
     return metrics;
 };
@@ -353,11 +409,11 @@ Glyph.prototype.getMetrics = function() {
  * @param  {number} [x=0] - Horizontal position of the beginning of the text.
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
  * @param  {number} [fontSize=72] - Font size in pixels. We scale the glyph units by `1 / unitsPerEm * fontSize`.
- * @param  {Object=} options - xScale, yScale to stretch the glyph.
- * @param  {opentype.Font} font - if hinting is to be used, or CPAL/COLR / variation needs to be rendered, the font
+ * @param  {object} [options] - xScale, yScale to stretch the glyph.
+ * @param  {object} [font] - if hinting is to be used, or CPAL/COLR / variation needs to be rendered, the font
  */
 Glyph.prototype.draw = function(ctx, x, y, fontSize, options, font) {
-    options = Object.assign({}, font && font.defaultRenderOptions, options);
+    options = Object.assign({}, font.defaultRenderOptions, options);
     const path = this.getPath(x, y, fontSize, options, font);
     path.draw(ctx);
 };
@@ -365,12 +421,13 @@ Glyph.prototype.draw = function(ctx, x, y, fontSize, options, font) {
 /**
  * Draw the points of the glyph.
  * On-curve points will be drawn in blue, off-curve points will be drawn in red.
+ * @this {object}
  * @param  {CanvasRenderingContext2D} ctx - A 2D drawing context, like Canvas.
  * @param  {number} [x=0] - Horizontal position of the beginning of the text.
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
  * @param  {number} [fontSize=72] - Font size in pixels. We scale the glyph units by `1 / unitsPerEm * fontSize`.
- * @param  {GlyphRenderOptions=} options
- * @param  {opentype.Font} font - used to get the default render options, may be needed for variable fonts in the future
+ * @param  {object} [options]
+ * @param  {object} [font] - used to get the default render options, may be needed for variable fonts in the future
  */
 Glyph.prototype.drawPoints = function(ctx, x, y, fontSize, options, font) {
     options = Object.assign({}, font && font.defaultRenderOptions, options);
@@ -436,6 +493,7 @@ Glyph.prototype.drawPoints = function(ctx, x, y, fontSize, options, font) {
  * Black lines indicate the origin of the coordinate system (point 0,0).
  * Blue lines indicate the glyph bounding box.
  * Green line indicates the advance width of the glyph.
+ * @this {object}
  * @param  {CanvasRenderingContext2D} ctx - A 2D drawing context, like Canvas.
  * @param  {number} [x=0] - Horizontal position of the beginning of the text.
  * @param  {number} [y=0] - Vertical position of the *baseline* of the text.
@@ -476,8 +534,9 @@ Glyph.prototype.drawMetrics = function(ctx, x, y, fontSize) {
 
 /**
  * Convert the Glyph's Path to a string of path data instructions
+ * @this {object}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true, variation:undefined}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
- * @param  {opentype.Font} font - A font object is required if variation is to be applied in order to get the variation data from the tables
+ * @param  {object} [font] - A font object is required if variation is to be applied in order to get the variation data from the tables
  * @return {string}
  * @see Path.toPathData
  */
@@ -489,8 +548,8 @@ Glyph.prototype.toPathData = function(options, font) {
     }
 
     let usePath = useGlyph.points && options.pointsTransform ? options.pointsTransform(useGlyph.points) : useGlyph.path;
-    if(options.pathTransform) {
-        usePath = options.pathTransform(usePath);
+    if(options.pathTramsform) {
+        usePath = options.pathTramsform(usePath);
     }
 
     return usePath.toPathData(options);
@@ -498,8 +557,9 @@ Glyph.prototype.toPathData = function(options, font) {
 
 /**
  * Sets the path data from an SVG path element or path notation
- * @param  {string|SVGPathElement}
- * @param  {object}
+ * @this {object}
+ * @param  {string|SVGPathElement} pathData
+ * @param  {object} [options]
  */
 Glyph.prototype.fromSVG = function(pathData, options = {}) {
     return this.path.fromSVG(pathData, options);
@@ -507,8 +567,9 @@ Glyph.prototype.fromSVG = function(pathData, options = {}) {
 
 /**
  * Convert the Glyph's Path to an SVG <path> element, as a string.
+ * @this {object}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true, variation:undefined}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
- * @param  {opentype.Font} font - A font object is required if variation is to be applied in order to get the variation data from the tables 
+ * @param  {object} [font] - A font object is required if variation is to be applied in order to get the variation data from the tables
  * @return {string}
  */
 Glyph.prototype.toSVG = function(options, font) {
@@ -518,8 +579,9 @@ Glyph.prototype.toSVG = function(options, font) {
 
 /**
  * Convert the path to a DOM element.
+ * @this {object}
  * @param  {object|number} [options={decimalPlaces:2, optimize:true, variation:undefined}] - Options object (or amount of decimal places for floating-point values for backwards compatibility)
- * @param  {opentype.Font} font - A font object is required if variation is to be applied in order to get the variation data from the tables 
+ * @param  {object} [font] - A font object is required if variation is to be applied in order to get the variation data from the tables
  * @return {SVGPathElement}
  */
 Glyph.prototype.toDOMElement = function(options, font) {
@@ -532,4 +594,17 @@ Glyph.prototype.toDOMElement = function(options, font) {
     return usePath.toDOMElement(options);
 };
 
+// Declare dynamic instance properties for TypeScript inference
+/** @type {Path} */
+Glyph.prototype.path;
+/** @type {boolean} */
+Glyph.prototype.isComposite;
+/** @type {number|undefined} */
+Glyph.prototype._advanceWidth;
+/** @type {number|undefined} */
+Glyph.prototype._leftSideBearing;
+/** @type {Function|undefined} */
+Glyph.prototype.getBlendPath;
+
+export { Glyph };
 export default Glyph;

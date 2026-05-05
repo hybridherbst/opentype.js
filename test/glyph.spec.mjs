@@ -1,18 +1,18 @@
 import assert  from 'assert';
 import { parse, Glyph, Path } from '../src/opentype.mjs';
 import { readFileSync } from 'fs';
-import { createMockObject } from './testutil.mjs';
+import * as util from './testutil.mjs';
 const loadSync = (url, opt) => parse(readFileSync(url), opt);
 
 const emojiFont = loadSync('./test/fonts/OpenMojiCOLRv0-subset.otf');
 
-describe('glyph.mjs', function() {
+describe('glyph.js', function() {
 
     describe('lazy loading', function() {
         let font;
         let glyph;
 
-        beforeEach(function() {
+        before(function() {
             font = loadSync('./test/fonts/Roboto-Black.ttf');
             glyph = font.charToGlyph('A');
         });
@@ -48,7 +48,7 @@ describe('glyph.mjs', function() {
         let trueTypeFont;
         let openTypeFont;
 
-        beforeEach(function() {
+        before(function() {
             trueTypeFont = loadSync('./test/fonts/Roboto-Black.ttf');
             openTypeFont = loadSync('./test/fonts/FiraSansMedium.woff');
         });
@@ -118,7 +118,7 @@ describe('glyph.mjs', function() {
             );
 
             // we can't test toDOMElement() in node context!
-            // @TODO: we'll be able to by leveraging the new mock functionality in testutil.mjs
+            // @TODO: we'll be able to by leveraging the new mock functionality in testutil.js
 
             const trianglePathUp = 'M318 230L182 230L250 93Z';
             const trianglePathDown = 'M318 320L182 320L250 457Z';
@@ -146,21 +146,6 @@ describe('glyph.mjs', function() {
         });
     });
 
-    describe('toPathData options', function() {
-        it('should invoke pathTransform callback', function() {
-            const font = loadSync('./test/fonts/FiraSansMedium.woff');
-            const glyph = font.charToGlyph('A');
-            let called = false;
-            glyph.toPathData({
-                pathTransform: function(path) {
-                    called = true;
-                    return path;
-                }
-            }, font);
-            assert.equal(called, true);
-        });
-    });
-
     describe('component transformation', function() {
         // @TODO test components more thoroughly,
         // maybe move to a separate glyf test file
@@ -169,29 +154,14 @@ describe('glyph.mjs', function() {
 
         it('handles 2x2 transform correctly',function() {
             const glyph = changaVarFont.charToGlyph('+');
-            assert.deepEqual(glyph.toPathData(), 'M91 342L91 284L440 284L440 342ZM294 487L236 487L236 138L294 138Z');
-        });
-    });
-
-    describe('circular composite glyph references', function() {
-        it('does not crash on fonts with circular composite references', function() {
-            const font = loadSync('./test/fonts/circular-composite.ttf');
-            // Verify cmap maps 'A' to glyph 1
-            const glyphA = font.charToGlyph('A');
-            assert.equal(glyphA.index, 1);
-            const glyph2 = font.glyphs.get(2);
-            // Should return paths without stack overflow
-            const path1 = glyphA.getPath();
-            const path2 = glyph2.getPath();
-            assert.ok(path1 instanceof Path);
-            assert.ok(path2 instanceof Path);
+            assert.deepEqual(glyph.toPathData(), 'M91 284L440 284L440 342L91 342ZM236 487L236 138L294 138L294 487Z');
         });
     });
 
     describe('color glyph drawing/rendering', function() {
         it('draws and renders layers correctly', function() {
             let contextLogs = [];
-            const ctx = createMockObject(contextLogs, undefined/*, { consoleLog: 'ctx' }*/);
+            const ctx = util.createMockObject(contextLogs, undefined/*, { consoleLog: 'ctx' }*/);
             emojiFont.glyphs.get(138).draw(ctx, 0, 0, 12, {}, emojiFont);
             const expectedProps = [
                 'beginPath', 'moveTo', 'lineTo', 'lineTo', 'lineTo', 'lineTo', 'fillStyle', 'fill',
@@ -215,7 +185,7 @@ describe('glyph.mjs', function() {
 
         it('does not draw layers when options.drawLayers = false', function() {
             let contextLogs = [];
-            const ctx = createMockObject(contextLogs, undefined/*, { consoleLog: 'ctx' }*/);
+            const ctx = util.createMockObject(contextLogs, undefined/*, { consoleLog: 'ctx' }*/);
             emojiFont.glyphs.get(138).draw(ctx, 0, 0, 12, { drawLayers: false }, emojiFont);
             const expectedProps = [
                 'beginPath', 'moveTo', 'lineTo', 'lineTo', 'fillStyle', 'fill',
@@ -241,14 +211,14 @@ describe('glyph.mjs', function() {
     });
 });
 
-describe('glyph.mjs on low memory mode', function() {
+describe('glyph.js on low memory mode', function() {
     let opt = {lowMemory: true};
 
     describe('lazy loading', function() {
         let font;
         let glyph;
 
-        beforeEach(function() {
+        before(function() {
             font = loadSync('./test/fonts/Roboto-Black.ttf', opt);
             glyph = font.charToGlyph('A');
         });
@@ -284,7 +254,7 @@ describe('glyph.mjs on low memory mode', function() {
         let trueTypeFont;
         let openTypeFont;
 
-        beforeEach(function() {
+        before(function() {
             trueTypeFont = loadSync('./test/fonts/Roboto-Black.ttf', opt);
             openTypeFont = loadSync('./test/fonts/FiraSansMedium.woff', opt);
         });

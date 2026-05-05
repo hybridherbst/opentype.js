@@ -41,7 +41,7 @@ function getLong(dataView, offset) {
 function getFixed(dataView, offset) {
     const decimal = dataView.getInt16(offset, false);
     const fraction = dataView.getUint16(offset + 2, false);
-    return decimal + fraction / 65535;
+    return decimal + fraction / 65536;
 }
 
 // Retrieve a 4-character tag from the DataView.
@@ -99,7 +99,7 @@ const typeOffsets = {
     tag: 4
 };
 
-const masks = {
+export const masks = {
     LONG_WORDS: 0x8000,
     WORD_DELTA_COUNT_MASK: 0x7FFF,
     SHARED_POINT_NUMBERS: 0x8000,
@@ -406,8 +406,9 @@ Parser.prototype.parseStruct = function(description) {
  * Parse a GPOS valueRecord
  * https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#value-record
  * valueFormat is optional, if omitted it is read from the stream.
+ * parentTableOffset is optional, used for resolving Device/VariationIndex table offsets
  */
-Parser.prototype.parseValueRecord = function(valueFormat) {
+Parser.prototype.parseValueRecord = function(valueFormat, parentTableOffset) {
     if (valueFormat === undefined) {
         valueFormat = this.parseUShort();
     }
@@ -423,14 +424,115 @@ Parser.prototype.parseValueRecord = function(valueFormat) {
     if (valueFormat & 0x0004) { valueRecord.xAdvance = this.parseShort(); }
     if (valueFormat & 0x0008) { valueRecord.yAdvance = this.parseShort(); }
 
-    // Device table (non-variable font) / VariationIndex table (variable font) not supported
-    // https://docs.microsoft.com/fr-fr/typography/opentype/spec/chapter2#devVarIdxTbls
-    if (valueFormat & 0x0010) { valueRecord.xPlaDevice = undefined; this.parseShort(); }
-    if (valueFormat & 0x0020) { valueRecord.yPlaDevice = undefined; this.parseShort(); }
-    if (valueFormat & 0x0040) { valueRecord.xAdvDevice = undefined; this.parseShort(); }
-    if (valueFormat & 0x0080) { valueRecord.yAdvDevice = undefined; this.parseShort(); }
+    // Device table (non-variable font) / VariationIndex table (variable font)
+    // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#devVarIdxTbls
+    // Offsets are Offset16 (unsigned) relative to the immediate parent table
+    if (valueFormat & 0x0010) { 
+        const offset = this.parseUShort();
+        if (offset !== 0 && parentTableOffset !== undefined) {
+            valueRecord.xPlaDeviceOffset = offset;
+            valueRecord.xPlaDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
+        }
+    }
+    if (valueFormat & 0x0020) { 
+        const offset = this.parseUShort();
+        if (offset !== 0 && parentTableOffset !== undefined) {
+            valueRecord.yPlaDeviceOffset = offset;
+            valueRecord.yPlaDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
+        }
+    }
+    if (valueFormat & 0x0040) { 
+        const offset = this.parseUShort();
+        if (offset !== 0 && parentTableOffset !== undefined) {
+            valueRecord.xAdvDeviceOffset = offset;
+            valueRecord.xAdvDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
+        }
+    }
+    if (valueFormat & 0x0080) { 
+        const offset = this.parseUShort();
+        if (offset !== 0 && parentTableOffset !== undefined) {
+            valueRecord.yAdvDeviceOffset = offset;
+            valueRecord.yAdvDevice = this.parseDeviceOrVariationIndex(parentTableOffset + offset);
+        }
+    }
 
     return valueRecord;
+};
+
+/**
+ * Parse a Device table or VariationIndex table
+ * https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#device-and-variationindex-tables
+ * @param {number} absoluteOffset - Absolute offset from start of font data
+ * @returns {Record<string, unknown>|null} - Device table or VariationIndex table data
+ */
+Parser.prototype.parseDeviceOrVariationIndex = function(absoluteOffset) {
+    const savedOffset = this.offset;
+    const savedRelativeOffset = this.relativeOffset;
+    
+    this.offset = absoluteOffset;
+    this.relativeOffset = 0;
+    
+    const field1 = this.parseUShort();
+    const field2 = this.parseUShort();
+    const deltaFormat = this.parseUShort();
+    
+    let result;
+    
+    if (deltaFormat === 0x8000) {
+        // VariationIndex table
+        result = {
+            type: 'variationIndex',
+            deltaSetOuterIndex: field1,
+            deltaSetInnerIndex: field2,
+            deltaFormat: deltaFormat
+        };
+    } else if (deltaFormat >= 0x0001 && deltaFormat <= 0x0003) {
+        // Device table - parse the delta values
+        const startSize = field1;
+        const endSize = field2;
+        const deltaCount = endSize - startSize + 1;
+        
+        // Calculate how many uint16 values we need
+        let bitsPerDelta;
+        switch(deltaFormat) {
+            case 0x0001: bitsPerDelta = 2; break;
+            case 0x0002: bitsPerDelta = 4; break;
+            case 0x0003: bitsPerDelta = 8; break;
+        }
+        
+        const deltasPerUint16 = 16 / bitsPerDelta;
+        const numUint16s = Math.ceil(deltaCount / deltasPerUint16);
+        const deltaValues = [];
+        
+        for (let i = 0; i < numUint16s; i++) {
+            const packed = this.parseUShort();
+            for (let j = 0; j < deltasPerUint16 && deltaValues.length < deltaCount; j++) {
+                const shift = 16 - bitsPerDelta * (j + 1);
+                const mask = (1 << bitsPerDelta) - 1;
+                let delta = (packed >> shift) & mask;
+                // Sign extend
+                if (delta >= (1 << (bitsPerDelta - 1))) {
+                    delta -= (1 << bitsPerDelta);
+                }
+                deltaValues.push(delta);
+            }
+        }
+        
+        result = {
+            type: 'device',
+            startSize: startSize,
+            endSize: endSize,
+            deltaFormat: deltaFormat,
+            deltaValues: deltaValues
+        };
+    } else {
+        result = null;
+    }
+    
+    this.offset = savedOffset;
+    this.relativeOffset = savedRelativeOffset;
+    
+    return result;
 };
 
 /**
@@ -451,8 +553,18 @@ Parser.prototype.parseValueRecordList = function() {
 Parser.prototype.parsePointer = function(description) {
     const structOffset = this.parseOffset16();
     if (structOffset > 0) {
-        // NULL offset => return undefined
-        return new Parser(this.data, this.offset + structOffset).parseStruct(description);
+        const absoluteOffset = this.offset + structOffset;
+        if (absoluteOffset < 0 || absoluteOffset >= this.data.byteLength) {
+            return undefined;
+        }
+        try {
+            return new Parser(this.data, absoluteOffset).parseStruct(description);
+        } catch (err) {
+            if (err instanceof RangeError) {
+                return undefined;
+            }
+            throw err;
+        }
     }
     return undefined;
 };
@@ -460,8 +572,18 @@ Parser.prototype.parsePointer = function(description) {
 Parser.prototype.parsePointer32 = function(description) {
     const structOffset = this.parseOffset32();
     if (structOffset > 0) {
-        // NULL offset => return undefined
-        return new Parser(this.data, this.offset + structOffset).parseStruct(description);
+        const absoluteOffset = this.offset + structOffset;
+        if (absoluteOffset < 0 || absoluteOffset >= this.data.byteLength) {
+            return undefined;
+        }
+        try {
+            return new Parser(this.data, absoluteOffset).parseStruct(description);
+        } catch (err) {
+            if (err instanceof RangeError) {
+                return undefined;
+            }
+            throw err;
+        }
     }
     return undefined;
 };
@@ -562,6 +684,35 @@ Parser.prototype.parseClassDef = function() {
     };
 };
 
+// Parse an Anchor table in a GPOS table.
+// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#anchor-table
+Parser.prototype.parseAnchor = function() {
+    const startOffset = this.offset + this.relativeOffset;
+    const anchorFormat = this.parseUShort();
+    const xCoordinate = this.parseShort();
+    const yCoordinate = this.parseShort();
+    const anchor = {
+        format: anchorFormat,
+        xCoordinate: xCoordinate,
+        yCoordinate: yCoordinate
+    };
+    if (anchorFormat === 2) {
+        anchor.anchorPoint = this.parseUShort();
+    } else if (anchorFormat === 3) {
+        const xDeviceOffset = this.parseUShort();
+        const yDeviceOffset = this.parseUShort();
+        if (xDeviceOffset > 0) {
+            anchor.xDevice = this.parseDeviceOrVariationIndex(startOffset + xDeviceOffset);
+        }
+        if (yDeviceOffset > 0) {
+            anchor.yDevice = this.parseDeviceOrVariationIndex(startOffset + yDeviceOffset);
+        }
+    } else if (anchorFormat !== 1) {
+        console.warn(`0x${startOffset.toString(16)}: Anchor format ${anchorFormat} is not supported.`);
+    }
+    return anchor;
+};
+
 ///// Static methods ///////////////////////////////////
 // These convenience methods can be used as callbacks and should be called with "this" context set to a Parser instance.
 
@@ -613,6 +764,7 @@ Parser.f2Dot14 = Parser.prototype.parseF2Dot14;
 Parser.struct = Parser.prototype.parseStruct;
 Parser.coverage = Parser.prototype.parseCoverage;
 Parser.classDef = Parser.prototype.parseClassDef;
+Parser.anchor = Parser.prototype.parseAnchor;
 
 ///// Script, Feature, Lookup lists ///////////////////////////////////////////////
 // https://www.microsoft.com/typography/OTSPEC/chapter2.htm
@@ -663,14 +815,74 @@ Parser.prototype.parseLookupList = function(lookupTableParsers) {
 
 Parser.prototype.parseFeatureVariationsList = function() {
     return this.parsePointer32(function() {
+        const fvTableStart = this.offset;
         const majorVersion = this.parseUShort();
         const minorVersion = this.parseUShort();
         check.argument(majorVersion === 1 && minorVersion < 1, 'GPOS/GSUB feature variations table unknown.');
-        const featureVariations = this.parseRecordList32({
+
+        // Read the record offsets first
+        const rawRecords = this.parseRecordList32({
             conditionSetOffset: Parser.offset32,
             featureTableSubstitutionOffset: Parser.offset32
         });
-        return featureVariations;
+
+        // Now resolve each offset to actual data
+        const records = [];
+        for (const rec of rawRecords) {
+            const entry = { conditions: [], featureSubstitutions: [] };
+
+            // Parse ConditionSet table
+            if (rec.conditionSetOffset > 0) {
+                const csParser = new Parser(this.data, fvTableStart + rec.conditionSetOffset);
+                const conditionCount = csParser.parseUShort();
+                const conditionOffsets = [];
+                for (let i = 0; i < conditionCount; i++) {
+                    conditionOffsets.push(csParser.parseOffset32());
+                }
+                for (const off of conditionOffsets) {
+                    const cp = new Parser(this.data, fvTableStart + rec.conditionSetOffset + off);
+                    const format = cp.parseUShort();
+                    if (format === 1) {
+                        entry.conditions.push({
+                            format: 1,
+                            axisIndex: cp.parseUShort(),
+                            filterRangeMinValue: cp.parseF2Dot14(),
+                            filterRangeMaxValue: cp.parseF2Dot14()
+                        });
+                    }
+                }
+            }
+
+            // Parse FeatureTableSubstitution table
+            if (rec.featureTableSubstitutionOffset > 0) {
+                const ftsStart = fvTableStart + rec.featureTableSubstitutionOffset;
+                const ftsParser = new Parser(this.data, ftsStart);
+                ftsParser.parseUShort();
+                ftsParser.parseUShort();
+                const substitutionCount = ftsParser.parseUShort();
+                for (let i = 0; i < substitutionCount; i++) {
+                    const featureIndex = ftsParser.parseUShort();
+                    const alternateFeatureOffset = ftsParser.parseOffset32();
+                    // Parse alternate feature table (same format as FeatureTable)
+                    if (alternateFeatureOffset > 0) {
+                        const afp = new Parser(this.data, ftsStart + alternateFeatureOffset);
+                        afp.parseUShort(); // featureParams (usually 0)
+                        const lookupCount = afp.parseUShort();
+                        const lookupListIndices = [];
+                        for (let j = 0; j < lookupCount; j++) {
+                            lookupListIndices.push(afp.parseUShort());
+                        }
+                        entry.featureSubstitutions.push({
+                            featureIndex,
+                            lookupListIndices
+                        });
+                    }
+                }
+            }
+
+            records.push(entry);
+        }
+        return records;
     }) || [];
 };
 
@@ -897,6 +1109,7 @@ Parser.prototype.parseTupleVariationStore = function(tableOffset, axisCount, fla
         if(header.flags.privatePointNumbers) {
             header.privatePoints = this.parsePackedPointNumbers();
         }
+        header.privatePointNumbers = header.flags.privatePointNumbers;
         delete header.flags; // we don't need to expose this
         
         const deltasOffset = this.offset;
@@ -909,12 +1122,21 @@ Parser.prototype.parseTupleVariationStore = function(tableOffset, axisCount, fla
             const parseDeltas = () => {
                 let pointsCount = 0;
                 if(flavor === 'gvar') {
-                    pointsCount = header.privatePoints.length || sharedPoints.length;
+                    const usesPrivatePoints = !!header.privatePointNumbers;
+                    pointsCount = usesPrivatePoints ? header.privatePoints.length : sharedPoints.length;
                     if(!pointsCount) {
                         const glyph = glyphs.get(glyphIndex);
                         // make sure the path is available
                         glyph.path;
-                        pointsCount = glyph.points.length;
+                        // For composite glyphs, point numbers refer to component indices, not outline points.
+                        // See OpenType spec: "If a glyph is a composite glyph, then 'point' numbers are
+                        // interpreted as indices for the components that make up the composite glyph."
+                        if (glyph.isComposite && glyph.components) {
+                            pointsCount = glyph.components.length;
+                        } else {
+                            // Some glyphs (like space) may have no points, only phantom points
+                            pointsCount = (glyph.points ? glyph.points.length : 0);
+                        }
                         // add 4 phantom points, see https://learn.microsoft.com/en-us/typography/opentype/spec/tt_instructing_glyphs#phantoms
                         // @TODO: actually generate these points from glyph.getBoundingBox() and glyph.getMetrics(),
                         // as they may be influenced by variation as well
@@ -999,6 +1221,7 @@ Parser.prototype.parseTupleVariationHeader = function(axisCount, flavor) {
 
     if(flavor === 'gvar') {
         result.sharedTupleRecordsIndex = sharedTupleRecordsIndex;
+        result.privatePointNumbers = privatePointNumbers;
     }
 
     return result;
@@ -1042,13 +1265,13 @@ Parser.prototype.parsePackedPointNumbers = function() {
 
 Parser.prototype.parsePackedDeltas = function(expectedCount) {
     const deltas = [];
-    
+
     while (deltas.length < expectedCount) {
         const controlByte = this.parseByte();
         const zeroData = !!(controlByte & masks.DELTAS_ARE_ZERO);
         const deltaWords = !!(controlByte & masks.DELTAS_ARE_WORDS);
         const runCount = (controlByte & masks.DELTA_RUN_COUNT_MASK) + 1;
-        
+
         for (let i = 0; i < runCount && deltas.length < expectedCount; i++) {
             if(zeroData) {
                 deltas.push(0);

@@ -28,15 +28,14 @@
 import glyf from './tables/glyf.mjs';
 
 // Safety limits to prevent denial-of-service from crafted fonts.
-const MAX_INSTRUCTIONS = 1000000;   // max instructions per hinting session
-const MAX_CALL_DEPTH = 64;          // max nested CALL/LOOPCALL depth
-const MAX_LOOP_COUNT = 10000;       // max LOOPCALL iterations & SLOOP value
+const MAX_INSTRUCTIONS = 1_000_000;   // max instructions per hinting session
+const MAX_CALL_DEPTH = 64;            // max nested CALL/LOOPCALL depth
+const MAX_LOOP_COUNT = 10_000;        // max LOOPCALL iterations & SLOOP value
 
 /*
-* turn on for intensive debugging.
+* Set to true for intensive debugging of hinting execution.
 */
-/* global DEBUG */
-//const DEBUG = true;
+const DEBUG = false;
 
 let instructionTable;
 let exec;
@@ -98,6 +97,7 @@ function roundToDoubleGrid(v) {
 * Rounding to half grid.
 */
 function roundToHalfGrid(v) {
+    if (v === 0) return 0;
     return Math.sign(v) * (Math.round(Math.abs(v) + 0.5) - 0.5);
 }
 
@@ -445,8 +445,16 @@ UnitVector.prototype.setRelative = function(p, rp, d, pv, org) {
     const px = p.x;
     const py = p.y;
 
-    p.x = (fvs * px - pvns * rpdx + rpdy - py) / (fvs - pvns);
-    p.y = fvs * (p.x - px) + py;
+    const denom = fvs - pvns;
+    // Guard against perpendicular fv/pv (division by zero)
+    if (Math.abs(denom) < 1e-6) {
+        // Fall back to moving along freedom vector directly
+        p.x += d * this.x;
+        p.y += d * this.y;
+    } else {
+        p.x = (fvs * px - pvns * rpdx + rpdy - py) / denom;
+        p.y = fvs * (p.x - px) + py;
+    }
 };
 
 /*
@@ -538,7 +546,12 @@ const defaultState = {
     deltaShift: 0.125,
     loop: 1,             // loops some instructions
     minDis: 1,           // minimum distance
-    autoFlip: true
+    autoFlip: true,
+    singleWidth: 0,      // single width value (set by SSW)
+    singleWidthCutIn: 0, // single width cut-in (set by SSWCI)
+    scanControl: false,
+    scanType: 0,
+    instructControl: 0
 };
 
 /*
@@ -584,7 +597,7 @@ Hinting.prototype.exec = function(glyph, ppem) {
     const font = this.font;
     let prepState = this._prepState;
 
-    if (!prepState || prepState.ppem !== ppem) {
+    if (!prepState || /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).ppem !== ppem) {
         let fpgmState = this._fpgmState;
 
         if (!fpgmState) {
@@ -596,14 +609,14 @@ Hinting.prototype.exec = function(glyph, ppem) {
             this._fpgmState =
                 new State('fpgm', font.tables.fpgm);
 
-            fpgmState.funcs = [ ];
-            fpgmState.font = font;
-            fpgmState.instructionCount = 0;
-            fpgmState.callDepth = 0;
+            /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (fpgmState)).funcs = [ ];
+            /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (fpgmState)).font = font;
+            /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (fpgmState)).instructionCount = 0;
+            /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (fpgmState)).callDepth = 0;
 
             if (DEBUG) {
                 console.log('---EXEC FPGM---');
-                fpgmState.step = -1;
+                /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (fpgmState)).step = -1;
             }
 
             try {
@@ -624,26 +637,26 @@ Hinting.prototype.exec = function(glyph, ppem) {
         this._prepState =
             new State('prep', font.tables.prep);
 
-        prepState.ppem = ppem;
-        prepState.instructionCount = 0;
-        prepState.callDepth = 0;
+        /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).ppem = ppem;
+        /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).instructionCount = 0;
+        /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).callDepth = 0;
 
         // Creates a copy of the cvt table
         // and scales it to the current ppem setting.
         const oCvt = font.variation && font.variation.process.getCvarTransform() || font.tables.cvt;
         if (oCvt) {
-            const cvt = prepState.cvt = new Array(oCvt.length);
+            const cvt = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).cvt = new Array(oCvt.length);
             const scale = ppem / font.unitsPerEm;
             for (let c = 0; c < oCvt.length; c++) {
                 cvt[c] = oCvt[c] * scale;
             }
         } else {
-            prepState.cvt = [];
+            /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).cvt = [];
         }
 
         if (DEBUG) {
             console.log('---EXEC PREP---');
-            prepState.step = -1;
+            /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (prepState)).step = -1;
         }
 
         try {
@@ -673,9 +686,9 @@ Hinting.prototype.exec = function(glyph, ppem) {
 /*
 * Executes the hinting program for a glyph.
 */
-execGlyph = function(glyph, prepState) {
+execGlyph = function(glyph, /** @type {Record<string, unknown>} */ prepState) {
     // original point positions
-    const xScale = prepState.ppem / prepState.font.unitsPerEm;
+    const xScale = /** @type {number} */ (prepState.ppem) / /** @type {number} */ ((/** @type {Record<string, unknown>} */ (prepState.font)).unitsPerEm);
     const yScale = xScale;
     let components = glyph.components;
     let contours;
@@ -684,7 +697,7 @@ execGlyph = function(glyph, prepState) {
 
     State.prototype = prepState;
     if (!components) {
-        state = new State('glyf', glyph.instructions);
+        state = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (new State('glyf', glyph.instructions)));
         state.instructionCount = 0;
         state.callDepth = 0;
         if (DEBUG) {
@@ -694,14 +707,14 @@ execGlyph = function(glyph, prepState) {
         execComponent(glyph, state, xScale, yScale);
         gZone = state.gZone;
     } else {
-        const font = prepState.font;
+        const font = /** @type {Record<string, unknown>} */ (prepState.font);
         gZone = [];
         contours = [];
         for (let i = 0; i < components.length; i++) {
             const c = components[i];
-            const cg = font.glyphs.get(c.glyphIndex);
+            const cg = /** @type {Record<string, unknown>} */ ((/** @type {{ glyphs: { get: Function } }} */ (font)).glyphs.get(c.glyphIndex));
 
-            state = new State('glyf', cg.instructions);
+            state = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (new State('glyf', cg.instructions)));
             state.instructionCount = 0;
             state.callDepth = 0;
 
@@ -715,8 +728,8 @@ execGlyph = function(glyph, prepState) {
             // post processes the component points
             const dx = Math.round(c.dx * xScale);
             const dy = Math.round(c.dy * yScale);
-            const gz = state.gZone;
-            const cc = state.contours;
+            const gz = /** @type {Array<{x: number, y: number, xo: number, yo: number, xTouched: boolean, yTouched: boolean}>} */ (state.gZone);
+            const cc = /** @type {number[]} */ (state.contours);
             for (let pi = 0; pi < gz.length; pi++) {
                 const p = gz[pi];
                 p.xTouched = p.yTouched = false;
@@ -733,7 +746,7 @@ execGlyph = function(glyph, prepState) {
 
         if (glyph.instructions && !state.inhibitGridFit) {
             // the composite has instructions on its own
-            state = new State('glyf', glyph.instructions);
+            state = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (new State('glyf', glyph.instructions)));
 
             state.gZone = state.z0 = state.z1 = state.z2 = gZone;
 
@@ -817,6 +830,10 @@ execComponent = function(glyph, state, xScale, yScale)
         }
     }
 
+    // Add 2 phantom points (origin + advance width).
+    // The spec defines 4 phantom points (adding top + bottom for vertical metrics),
+    // but many fonts' instruction programs only expect 2 phantom points and would
+    // crash if the zone is larger than expected.
     gZone.push(
         new HPoint(0, 0),
         new HPoint(Math.round(glyph.advanceWidth * xScale), 0)
@@ -824,7 +841,7 @@ execComponent = function(glyph, state, xScale, yScale)
 
     exec(state);
 
-    // Removes the extra points.
+    // Removes the phantom points.
     gZone.length -= 2;
 
     if (DEBUG) {
@@ -1459,7 +1476,8 @@ function MINDEX(state) {
 // FDEF[] Function DEFinition
 // 0x2C
 function FDEF(state) {
-    if (state.env !== 'fpgm') throw new Error('FDEF not allowed here');
+    // Allow FDEF in both fpgm and prep — some fonts define functions in prep
+    if (state.env === 'glyf') throw new Error('FDEF not allowed in glyf programs');
     const stack = state.stack;
     const prog = state.prog;
     let ip = state.ip;
@@ -1499,7 +1517,7 @@ function MDAP(round, state) {
 // 0x30
 function IUP(v, state) {
     const z2 = state.z2;
-    const pLen = z2.length - 2;
+    const pLen = z2.length - 2; // exclude 2 phantom points
     let cp;
     let pp;
     let np;
@@ -1521,12 +1539,11 @@ function IUP(v, state) {
 
         if (pp === np) {
             // only one point on the contour has been touched
-            // so simply moves the point like that
-
+            // so simply shift the point by the same amount
             v.setRelative(cp, cp, v.distance(pp, pp, false, true), v, true);
+        } else {
+            v.interpolate(cp, pp, np, v);
         }
-
-        v.interpolate(cp, pp, np, v);
     }
 }
 
@@ -1582,7 +1599,10 @@ function SHC(a, state) {
     const d = pv.distance(rp, rp, false, true);
 
     do {
-        if (p !== rp) fv.setRelative(p, p, d, pv);
+        if (p !== rp) {
+            fv.setRelative(p, p, d, pv);
+            fv.touch(p);
+        }
         p = p.nextPointOnContour;
     } while (p !== sp);
 }
@@ -1609,7 +1629,7 @@ function SHZ(a, state) {
 
     let p;
     const d = pv.distance(rp, rp, false, true);
-    const pLen = z.length - 2;
+    const pLen = z.length - 2; // exclude 2 phantom points
     for (let i = 0; i < pLen; i++)
     {
         p = z[i];
@@ -1761,7 +1781,6 @@ function MIAP(round, state) {
 
     if (round) {
         if (Math.abs(d - cv) < state.cvCutIn) d = cv;
-
         d = state.round(d);
     }
 
@@ -1876,7 +1895,10 @@ function GC(a, state) {
 
     if (DEBUG) console.log(state.step, 'GC[' + a + ']', pi);
 
-    stack.push(state.dpv.distance(p, HPZero, a, false) * 0x40);
+    // a=0: current position along projection vector
+    // a=1: original position along dual projection vector
+    const v = a ? state.dpv : state.pv;
+    stack.push(v.distance(p, HPZero, a, false) * 0x40);
 }
 
 // MD[a] Measure Distance
@@ -1887,7 +1909,10 @@ function MD(a, state) {
     const pi1 = stack.pop();
     const p2 = state.z1[pi2];
     const p1 = state.z0[pi1];
-    const d = state.dpv.distance(p1, p2, a, a);
+    // a=0: current distance along projection vector
+    // a=1: original distance along dual projection vector
+    const v = a ? state.dpv : state.pv;
+    const d = v.distance(p1, p2, a, a);
 
     if (DEBUG) console.log(state.step, 'MD[' + a + ']', pi2, pi1, '->', d);
 
@@ -2420,6 +2445,174 @@ function SDPVTL(a, state) {
     state.dpv = getUnitVector(dx, dy);
 }
 
+// SSWCI[] Set Single Width Cut-In
+// 0x1E
+function SSWCI(state) {
+    const n = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'SSWCI[]', n);
+    state.singleWidthCutIn = n / 0x40;
+}
+
+// SSW[] Set Single Width
+// 0x1F
+function SSW(state) {
+    const n = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'SSW[]', n);
+    state.singleWidth = n / 0x40;
+}
+
+// ALIGNPTS[] ALIGN Points
+// 0x27
+function ALIGNPTS(state) {
+    const stack = state.stack;
+    const p1i = stack.pop();
+    const p2i = stack.pop();
+    if (DEBUG) console.log(state.step, 'ALIGNPTS[]', p1i, p2i);
+    const p1 = state.z1[p1i];
+    const p2 = state.z0[p2i];
+    const pv = state.pv;
+    const fv = state.fv;
+    const d1 = pv.distance(p1, p2);
+    const d2 = d1 / 2;
+    // Move p1 closer to p2 by half the distance, and p2 by the other half
+    fv.setRelative(p1, p1, -d2, pv);
+    fv.setRelative(p2, p2, d2, pv);
+    fv.touch(p1);
+    fv.touch(p2);
+}
+
+// UTP[] UnTouch Point
+// 0x29
+function UTP(state) {
+    const pi = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'UTP[]', pi);
+    // UTP clears the "touched" flags along the freedom vector.
+    // The touch mechanism in opentype.js uses the fv.touch(p) method
+    // which sets xTouched/yTouched on the HPoint. To untouch, we need
+    // to check if the point has those properties and clear them.
+    const p = state.z0[pi];
+    if (p) {
+        const fv = state.fv;
+        if (fv.x && 'xTouched' in p) p.xTouched = false;
+        if (fv.y && 'yTouched' in p) p.yTouched = false;
+    }
+}
+
+// SCFS[] Sets Coordinate From the Stack using projection vector and freedom vector
+// 0x48
+function SCFS(state) {
+    const stack = state.stack;
+    const v = stack.pop();
+    const pi = stack.pop();
+    if (DEBUG) console.log(state.step, 'SCFS[]', pi, v);
+    const fv = state.fv;
+    const pv = state.pv;
+    const p = state.z2[pi];
+    const c = v / 0x40;
+    const oldC = pv.distance(p, HPZero, false, false);
+    fv.setRelative(p, p, c - oldC, pv);
+    fv.touch(p);
+}
+
+// MPS[] Measure Point Size
+// 0x4C
+function MPS(state) {
+    if (DEBUG) console.log(state.step, 'MPS[]');
+    // MPS returns the point size. We use ppem as an approximation.
+    state.stack.push(state.ppem);
+}
+
+// FLIPOFF[] Set the autoFlip boolean to OFF
+// 0x4E
+function FLIPOFF(state) {
+    if (DEBUG) console.log(state.step, 'FLIPOFF[]');
+    state.autoFlip = false;
+}
+
+// NROUND[] No ROUND
+// 0x6C-0x6F
+function NROUND(dt, state) {
+    const stack = state.stack;
+    const n = stack.pop();
+    if (DEBUG) console.log(state.step, 'NROUND[]');
+    // NROUND compensates for engine characteristics but does NOT round.
+    // In our implementation, just pass through the value unchanged.
+    stack.push(n);
+}
+
+// JROT[] Jump Relative On True
+// 0x78
+function JROT(state) {
+    const e = state.stack.pop();
+    const o = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'JROT[]', o, e);
+    if (e) state.ip += o - 1;
+}
+
+// JROF[] Jump Relative On False
+// 0x79
+function JROF(state) {
+    const e = state.stack.pop();
+    const o = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'JROF[]', o, e);
+    if (!e) state.ip += o - 1;
+}
+
+// FLIPPT[] FLIP PoinT
+// 0x80
+function FLIPPT(state) {
+    const loop = state.loop;
+    if (DEBUG) console.log(state.step, 'FLIPPT[]');
+    for (let i = 0; i < loop; i++) {
+        const pi = state.stack.pop();
+        const p = state.z0[pi];
+        if (p) p.onCurve = !p.onCurve;
+    }
+    state.loop = 1;
+}
+
+// FLIPRGON[] FLIP RanGe ON
+// 0x81
+function FLIPRGON(state) {
+    const stack = state.stack;
+    const end = stack.pop();
+    const start = stack.pop();
+    if (DEBUG) console.log(state.step, 'FLIPRGON[]', start, end);
+    for (let i = start; i <= end; i++) {
+        const p = state.z0[i];
+        if (p) p.onCurve = true;
+    }
+}
+
+// FLIPRGOFF[] FLIP RanGe OFF
+// 0x82
+function FLIPRGOFF(state) {
+    const stack = state.stack;
+    const end = stack.pop();
+    const start = stack.pop();
+    if (DEBUG) console.log(state.step, 'FLIPRGOFF[]', start, end);
+    for (let i = start; i <= end; i++) {
+        const p = state.z0[i];
+        if (p) p.onCurve = false;
+    }
+}
+
+// IDEF[] Instruction DEFinition
+// 0x89
+function IDEF(state) {
+    const opcode = state.stack.pop();
+    if (DEBUG) console.log(state.step, 'IDEF[]', opcode);
+    // IDEF defines a user implementation for an opcode.
+    // Skip to matching ENDF, same as FDEF scanning.
+    state.ip++;
+    const prog = state.prog;
+    while (state.ip < prog.length && prog[state.ip] !== 0x2D) { // 0x2D = ENDF
+        state.ip++;
+    }
+    // We don't store the definition since custom instruction defs are very rare
+    // and would need dispatch table modification. Just consume and move on.
+}
+
 // GETINFO[] GET INFOrmation
 // 0x88
 function GETINFO(state) {
@@ -2564,12 +2757,10 @@ function MDRP_MIRP(indirect, setRp0, keepD, ro, dt, state) {
     d = od = pv.distance(p, rp, true, true);
     sign = d >= 0 ? 1 : -1; // Math.sign would be 0 in case of 0
 
-    // TODO consider autoFlip
     d = Math.abs(d);
 
     if (indirect) {
         cv = state.cvt[cvte];
-
         if (ro && Math.abs(d - cv) < state.cvCutIn) d = cv;
     }
 
@@ -2636,8 +2827,8 @@ instructionTable = [
     /* 0x1B */ ELSE,
     /* 0x1C */ JMPR,
     /* 0x1D */ SCVTCI,
-    /* 0x1E */ undefined,   // TODO SSWCI
-    /* 0x1F */ undefined,   // TODO SSW
+    /* 0x1E */ SSWCI,
+    /* 0x1F */ SSW,
     /* 0x20 */ DUP,
     /* 0x21 */ POP,
     /* 0x22 */ CLEAR,
@@ -2645,9 +2836,9 @@ instructionTable = [
     /* 0x24 */ DEPTH,
     /* 0x25 */ CINDEX,
     /* 0x26 */ MINDEX,
-    /* 0x27 */ undefined,   // TODO ALIGNPTS
+    /* 0x27 */ ALIGNPTS,
     /* 0x28 */ undefined,
-    /* 0x29 */ undefined,   // TODO UTP
+    /* 0x29 */ UTP,
     /* 0x2A */ LOOPCALL,
     /* 0x2B */ CALL,
     /* 0x2C */ FDEF,
@@ -2678,14 +2869,14 @@ instructionTable = [
     /* 0x45 */ RCVT,
     /* 0x46 */ GC.bind(undefined, 0),
     /* 0x47 */ GC.bind(undefined, 1),
-    /* 0x48 */ undefined,   // TODO SCFS
+    /* 0x48 */ SCFS,
     /* 0x49 */ MD.bind(undefined, 0),
     /* 0x4A */ MD.bind(undefined, 1),
     /* 0x4B */ MPPEM,
-    /* 0x4C */ undefined,   // TODO MPS
+    /* 0x4C */ MPS,
     /* 0x4D */ FLIPON,
-    /* 0x4E */ undefined,   // TODO FLIPOFF
-    /* 0x4F */ undefined,   // TODO DEBUG
+    /* 0x4E */ FLIPOFF,
+    /* 0x4F */ POP, // DEBUG: just pop the argument
     /* 0x50 */ LT,
     /* 0x51 */ LTEQ,
     /* 0x52 */ GT,
@@ -2714,10 +2905,10 @@ instructionTable = [
     /* 0x69 */ ROUND.bind(undefined, 1),
     /* 0x6A */ ROUND.bind(undefined, 2),
     /* 0x6B */ ROUND.bind(undefined, 3),
-    /* 0x6C */ undefined,   // TODO NROUND[ab]
-    /* 0x6D */ undefined,   // TODO NROUND[ab]
-    /* 0x6E */ undefined,   // TODO NROUND[ab]
-    /* 0x6F */ undefined,   // TODO NROUND[ab]
+    /* 0x6C */ NROUND.bind(undefined, 0),
+    /* 0x6D */ NROUND.bind(undefined, 1),
+    /* 0x6E */ NROUND.bind(undefined, 2),
+    /* 0x6F */ NROUND.bind(undefined, 3),
     /* 0x70 */ WCVTF,
     /* 0x71 */ DELTAP123.bind(undefined, 2),
     /* 0x72 */ DELTAP123.bind(undefined, 3),
@@ -2726,24 +2917,24 @@ instructionTable = [
     /* 0x75 */ DELTAC123.bind(undefined, 3),
     /* 0x76 */ SROUND,
     /* 0x77 */ S45ROUND,
-    /* 0x78 */ undefined,   // TODO JROT[]
-    /* 0x79 */ undefined,   // TODO JROF[]
+    /* 0x78 */ JROT,
+    /* 0x79 */ JROF,
     /* 0x7A */ ROFF,
     /* 0x7B */ undefined,
     /* 0x7C */ RUTG,
     /* 0x7D */ RDTG,
     /* 0x7E */ POP, // actually SANGW, supposed to do only a pop though
     /* 0x7F */ POP, // actually AA, supposed to do only a pop though
-    /* 0x80 */ undefined,   // TODO FLIPPT
-    /* 0x81 */ undefined,   // TODO FLIPRGON
-    /* 0x82 */ undefined,   // TODO FLIPRGOFF
+    /* 0x80 */ FLIPPT,
+    /* 0x81 */ FLIPRGON,
+    /* 0x82 */ FLIPRGOFF,
     /* 0x83 */ undefined,
     /* 0x84 */ undefined,
     /* 0x85 */ SCANCTRL,
     /* 0x86 */ SDPVTL.bind(undefined, 0),
     /* 0x87 */ SDPVTL.bind(undefined, 1),
     /* 0x88 */ GETINFO,
-    /* 0x89 */ undefined,   // TODO IDEF
+    /* 0x89 */ IDEF,
     /* 0x8A */ ROLL,
     /* 0x8B */ MAX,
     /* 0x8C */ MIN,

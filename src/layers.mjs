@@ -1,5 +1,42 @@
 import { binarySearch, binarySearchIndex, binarySearchInsert } from './util.mjs';
 
+/**
+ * Multiply two 2x3 affine transform matrices: result = a × b
+ * Each is { xx, yx, xy, yy, dx, dy }
+ */
+function multiplyTransforms(a, b) {
+    return {
+        xx: a.xx * b.xx + a.xy * b.yx,
+        yx: a.yx * b.xx + a.yy * b.yx,
+        xy: a.xx * b.xy + a.xy * b.yy,
+        yy: a.yx * b.xy + a.yy * b.yy,
+        dx: a.xx * b.dx + a.xy * b.dy + a.dx,
+        dy: a.yx * b.dx + a.yy * b.dy + a.dy,
+    };
+}
+
+/**
+ * Compose a transform applied around a center point:
+ * translate(cx, cy) × transform × translate(-cx, -cy)
+ */
+function composeTransformAroundCenter(m, cx, cy) {
+    return multiplyTransforms(
+        multiplyTransforms(
+            { xx: 1, yx: 0, xy: 0, yy: 1, dx: cx, dy: cy },
+            m
+        ),
+        { xx: 1, yx: 0, xy: 0, yy: 1, dx: -cx, dy: -cy }
+    );
+}
+
+/**
+ * COLRv1 Angle values are encoded as F2Dot14 where 1.0 = 180 degrees.
+ * Convert to radians for JS Math trig functions.
+ */
+function colrAngleToRadians(angle) {
+    return (angle || 0) * Math.PI;
+}
+
 export class LayerManager {
     // private properties don't work with reify
     // @TODO: refactor once we migrated to ES6 modules, see https://github.com/opentypejs/opentype.js/pull/579
@@ -27,8 +64,8 @@ export class LayerManager {
 
     /**
      * Gets the layers for a specific glyph
-     * @param {integer} glyphIndex
-     * @returns {Array<Object>} array of layer objects {glyph, paletteIndex}
+     * @param {number} glyphIndex
+     * @returns {Array<{glyph: import('./glyph.mjs').default, paletteIndex: number}>} array of layer objects {glyph, paletteIndex}
      */
     get(glyphIndex) {
         const font = this.font;
@@ -41,32 +78,246 @@ export class LayerManager {
         if ( ! colr || ! cpal ) {
             return layers;
         }
-    
+
+        // ── Try v0 first ──
         const baseGlyph = binarySearch(colr.baseGlyphRecords, 'glyphID', glyphIndex);
         
-        if ( ! baseGlyph ) {
+        if ( baseGlyph ) {
+            const firstIndex = baseGlyph.firstLayerIndex;
+            const numLayers = baseGlyph.numLayers;
+        
+            for( let l = 0; l < numLayers; l++ ) {
+                const layer = colr.layerRecords[firstIndex + l];
+                layers.push({
+                    glyph: font.glyphs.get(layer.glyphID),
+                    paletteIndex: layer.paletteIndex,
+                });
+            }
+        
             return layers;
         }
-        
-        const firstIndex = baseGlyph.firstLayerIndex;
-        const numLayers = baseGlyph.numLayers;
-    
-        for( let l = 0; l < numLayers; l++ ) {
-            const layer = colr.layerRecords[firstIndex + l];
-            layers.push({
-                glyph: font.glyphs.get(layer.glyphID),
-                paletteIndex: layer.paletteIndex,
-            });
+
+        // ── Try v1 baseGlyphPaintRecords ──
+        if (colr.baseGlyphPaintRecords) {
+            const v1Layers = this._getV1Layers(glyphIndex);
+            if (v1Layers.length > 0) return v1Layers;
         }
-    
+
         return layers;
     }
 
     /**
+     * Gets the COLRv1 paint tree for a specific glyph.
+     * Returns the raw paint DAG or null if not found.
+     * @param {number} glyphIndex
+     * @returns {Record<string, unknown>|null} paint tree node
+     */
+    getPaintTree(glyphIndex) {
+        const colr = this.font.tables.colr;
+        if (!colr || !colr.baseGlyphPaintRecords) return null;
+
+        const record = binarySearch(colr.baseGlyphPaintRecords, 'glyphID', glyphIndex);
+        return record ? record.paint : null;
+    }
+
+    /**
+     * Flatten COLRv1 paint graph into v0-compatible layers for rendering.
+     * This recursively walks the paint tree and extracts PaintGlyph+PaintSolid
+     * combinations as simple { glyph, paletteIndex } layers.
+     * For gradient fills, it creates a layer with a paint subtree.
+     * @param {number} glyphIndex
+     * @returns {Array} array of layer objects
+     * @private
+     */
+    _getV1Layers(glyphIndex) {
+        const font = this.font;
+        const colr = font.tables.colr;
+        if (!colr.baseGlyphPaintRecords) return [];
+
+        const record = binarySearch(colr.baseGlyphPaintRecords, 'glyphID', glyphIndex);
+        if (!record) return [];
+
+        const layers = [];
+        this._flattenPaint(record.paint, layers, null);
+        return layers;
+    }
+
+    /**
+     * Recursively flatten a paint node into layers.
+     * @param {Record<string, unknown>} paint - paint node
+     * @param {Array} layers - output array
+     * @param {Record<string, unknown>|null} transform - accumulated transform matrix
+     * @private
+     */
+    _flattenPaint(paint, layers, transform) {
+        const font = this.font;
+        if (!paint) return;
+
+        switch (paint.format) {
+            case 1: { // PaintColrLayers
+                for (const child of /** @type {Iterable<Record<string, unknown>>} */ (paint.layers)) {
+                    this._flattenPaint(child, layers, transform);
+                }
+                break;
+            }
+
+            case 10: { // PaintGlyph - clips to glyph outline, fills with inner paint
+                const glyph = font.glyphs.get(/** @type {number} */ (paint.glyphID));
+                if (!glyph) break;
+
+                const innerPaint = /** @type {Record<string, unknown>} */ (paint.paint);
+                if (innerPaint.format === 2 || innerPaint.format === 3) {
+                    // PaintSolid / PaintVarSolid → simple v0-compatible layer
+                    layers.push({
+                        glyph,
+                        paletteIndex: innerPaint.paletteIndex,
+                        alpha: innerPaint.alpha,
+                        transform,
+                    });
+                } else {
+                    // Gradient or other complex fill
+                    layers.push({
+                        glyph,
+                        paint: innerPaint,
+                        transform,
+                    });
+                }
+                break;
+            }
+
+            case 11: { // PaintColrGlyph - reference another color glyph's paint
+                const colr = /** @type {{baseGlyphPaintRecords?: Array<{glyphID: number, paint: Record<string, unknown>}>}} */ (font.tables.colr);
+                if (colr.baseGlyphPaintRecords) {
+                    const refRecord = binarySearch(colr.baseGlyphPaintRecords, 'glyphID', /** @type {number} */ (paint.glyphID));
+                    if (refRecord) {
+                        this._flattenPaint(/** @type {Record<string, unknown>} */ (refRecord.paint), layers, transform);
+                    }
+                }
+                break;
+            }
+
+            case 12: case 13: { // PaintTransform / PaintVarTransform
+                const m = /** @type {Record<string, unknown>} */ (paint.transform);
+                const newTransform = transform ? multiplyTransforms(transform, m) : m;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
+                break;
+            }
+
+            case 14: case 15: { // PaintTranslate / PaintVarTranslate
+                const m = { xx: 1, yx: 0, xy: 0, yy: 1, dx: paint.dx, dy: paint.dy };
+                const newTransform = transform ? multiplyTransforms(transform, m) : m;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
+                break;
+            }
+
+            case 16: case 17: { // PaintScale / PaintVarScale
+                const m = { xx: paint.scaleX, yx: 0, xy: 0, yy: paint.scaleY, dx: 0, dy: 0 };
+                const newTransform = transform ? multiplyTransforms(transform, m) : m;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
+                break;
+            }
+
+            case 18: case 19: { // PaintScaleAroundCenter
+                const { scaleX, scaleY, centerX, centerY } = paint;
+                const m = composeTransformAroundCenter(
+                    { xx: /** @type {number} */ (scaleX), yx: 0, xy: 0, yy: /** @type {number} */ (scaleY), dx: 0, dy: 0 },
+                    /** @type {number} */ (centerX), /** @type {number} */ (centerY)
+                );
+                const newTransform = transform ? multiplyTransforms(transform, m) : m;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
+                break;
+            }
+
+            case 20: case 21: { // PaintScaleUniform
+                const s = /** @type {number} */ (paint.scale);
+                const m = { xx: s, yx: 0, xy: 0, yy: s, dx: 0, dy: 0 };
+                const newTransform = transform ? multiplyTransforms(transform, m) : m;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
+                break;
+            }
+
+            case 22: case 23: { // PaintScaleUniformAroundCenter
+                const s = /** @type {number} */ (paint.scale);
+                const m = composeTransformAroundCenter(
+                    { xx: s, yx: 0, xy: 0, yy: s, dx: 0, dy: 0 },
+                    /** @type {number} */ (paint.centerX), /** @type {number} */ (paint.centerY)
+                );
+                const newTransform = transform ? multiplyTransforms(transform, m) : m;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
+                break;
+            }
+
+            case 24: case 25: { // PaintRotate
+                const radians = colrAngleToRadians(/** @type {number} */ (paint.angle));
+                const cos = Math.cos(radians);
+                const sin = Math.sin(radians);
+                const m = { xx: cos, yx: sin, xy: -sin, yy: cos, dx: 0, dy: 0 };
+                const newTransform = transform ? multiplyTransforms(transform, m) : m;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
+                break;
+            }
+
+            case 26: case 27: { // PaintRotateAroundCenter
+                const radians = colrAngleToRadians(/** @type {number} */ (paint.angle));
+                const cos = Math.cos(radians);
+                const sin = Math.sin(radians);
+                const m = composeTransformAroundCenter(
+                    { xx: cos, yx: sin, xy: -sin, yy: cos, dx: 0, dy: 0 },
+                    /** @type {number} */ (paint.centerX), /** @type {number} */ (paint.centerY)
+                );
+                const newTransform = transform ? multiplyTransforms(transform, m) : m;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
+                break;
+            }
+
+            case 28: case 29: { // PaintSkew
+                const tanX = Math.tan(colrAngleToRadians(/** @type {number} */ (paint.xSkewAngle)));
+                const tanY = Math.tan(colrAngleToRadians(/** @type {number} */ (paint.ySkewAngle)));
+                const m = { xx: 1, yx: tanY, xy: tanX, yy: 1, dx: 0, dy: 0 };
+                const newTransform = transform ? multiplyTransforms(transform, m) : m;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
+                break;
+            }
+
+            case 30: case 31: { // PaintSkewAroundCenter
+                const tanX = Math.tan(colrAngleToRadians(/** @type {number} */ (paint.xSkewAngle)));
+                const tanY = Math.tan(colrAngleToRadians(/** @type {number} */ (paint.ySkewAngle)));
+                const m = composeTransformAroundCenter(
+                    { xx: 1, yx: tanY, xy: tanX, yy: 1, dx: 0, dy: 0 },
+                    /** @type {number} */ (paint.centerX), /** @type {number} */ (paint.centerY)
+                );
+                const newTransform = transform ? multiplyTransforms(transform, m) : m;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.paint), layers, newTransform);
+                break;
+            }
+
+            case 32: { // PaintComposite
+                // Flatten backdrop first, then source. Tag each source layer
+                // with the composite mode so the renderer can apply blending.
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.backdrop), layers, transform);
+                const sourceStart = layers.length;
+                this._flattenPaint(/** @type {Record<string, unknown>} */ (paint.source), layers, transform);
+                // Apply composite mode to every source layer
+                for (let i = sourceStart; i < layers.length; i++) {
+                    layers[i].compositeMode = paint.compositeMode;
+                }
+                break;
+            }
+
+            case 2: case 3: // PaintSolid - standalone (unusual)
+            case 4: case 5: case 6: case 7: case 8: case 9: // Gradients standalone
+                // These shouldn't appear without a PaintGlyph parent
+                // but include them for robustness
+                layers.push({ paint, transform });
+                break;
+        }
+    }
+
+    /**
      * Adds one or more layers to a glyph, at the end or at a specific position.
-     * @param {integer} glyphIndex glyph index to add the layer(s) to.
-     * @param {Array|Object} layers layer object {glyph, paletteIndex}/{glyphID, paletteIndex} or array of layer objects.
-     * @param {integer?} position position to insert the layers at (will default to adding at the end).
+     * @param {number} glyphIndex glyph index to add the layer(s) to.
+     * @param {Array|{glyph: import('./glyph.mjs').default|number, paletteIndex: number}} layers layer object {glyph, paletteIndex}/{glyphID, paletteIndex} or array of layer objects.
+     * @param {number=} position position to insert the layers at (will default to adding at the end).
      */
     add(glyphIndex, layers, position) {
         // Get the current layers for the glyph.
@@ -115,19 +366,19 @@ export class LayerManager {
 
     /**
      * Sets a color glyph layer's paletteIndex property to a new index
-     * @param {integer} glyphIndex glyph in the font by zero-based glyph index
-     * @param {integer} layerIndex layer in the glyph by zero-based layer index
-     * @param {integer} paletteIndex new color to set for the layer by zero-based index in any palette
+     * @param {number} glyphIndex glyph in the font by zero-based glyph index
+     * @param {number} layerIndex layer in the glyph by zero-based layer index
+     * @param {number} paletteIndex new color to set for the layer by zero-based index in any palette
      */
     setPaletteIndex(glyphIndex, layerIndex, paletteIndex) {
-        let layers = this.get(glyphIndex);
+        const layers = this.get(glyphIndex);
         if (layers[layerIndex]) {
-            layers = layers.map((layer, index) => ({
+            const convertedLayers = layers.map((layer, index) => ({
                 glyphID: layer.glyph.index,
                 paletteIndex: index === layerIndex ? paletteIndex : layer.paletteIndex,
             }));
 
-            this.updateColrTable(glyphIndex, layers);
+            this.updateColrTable(glyphIndex, convertedLayers);
         } else {
             console.error('Invalid layer index');
         }
@@ -135,24 +386,24 @@ export class LayerManager {
 
     /**
      * Removes one or more layers from a glyph.
-     * @param {integer} glyphIndex glyph index to remove the layer(s) from
-     * @param {integer} start index to remove the layer at
-     * @param {integer?} end (optional) if provided, removes all layers from start index to (and including) end index
+     * @param {number} glyphIndex glyph index to remove the layer(s) from
+     * @param {number} start index to remove the layer at
+     * @param {number=} end (optional) if provided, removes all layers from start index to (and including) end index
      */
     remove(glyphIndex, start, end = start) {
         // Get the current layers for the glyph.
-        let currentLayers = this.get(glyphIndex);
-    
+        const currentLayersRaw = this.get(glyphIndex);
+
         // Convert to the expected format for updateColrTable if necessary.
-        currentLayers = currentLayers.map(layer => ({
+        const currentLayers = currentLayersRaw.map(layer => ({
             glyphID: layer.glyph.index,
             paletteIndex: layer.paletteIndex,
         }));
-    
+
         // Directly remove the specified range from the currentLayers array.
         // Splice modifies the array in place and removes elements between start and end indices.
         currentLayers.splice(start, end - start + 1);
-    
+
         // Update the COLR table with the modified layers array.
         this.updateColrTable(glyphIndex, currentLayers);
     }
@@ -161,8 +412,8 @@ export class LayerManager {
      * Mainly used internally. Mainly used internally. Updates the colr table, adding a baseGlyphRecord if needed,
      * ensuring that it's inserted at the correct position, updating numLayers, and adjusting firstLayerIndex values
      * for all baseGlyphRecords according to any deletions or insertions.
-     * @param {integer} glyphIndex 
-     * @param {Array<Object>} layers array of layer objects {glyphID, paletteIndex}
+     * @param {number} glyphIndex 
+     * @param {Array<{glyphID: number, paletteIndex: number}>} layers array of layer objects {glyphID, paletteIndex}
      */
     updateColrTable(glyphIndex, layers) {
         // Ensure the COLR table exists with the correct structure

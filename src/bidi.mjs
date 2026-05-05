@@ -22,7 +22,7 @@ import unicodeVariationSequences from './features/unicode/variationSequences.mjs
 
 /**
  * Create Bidi. features
- * @param {string} baseDir text base direction. value either 'ltr' or 'rtl'
+ * @param {string} [baseDir] text base direction. value either 'ltr' or 'rtl'
  */
 function Bidi(baseDir) {
     this.baseDir = baseDir || 'ltr';
@@ -95,7 +95,7 @@ function reverseArabicSentences() {
 
 /**
  * Register supported features tags
- * @param {script} script script tag
+ * @param {string} script script tag
  * @param {Array} tags features tags list
  */
 Bidi.prototype.registerFeatures = function (script, tags) {
@@ -112,15 +112,14 @@ Bidi.prototype.registerFeatures = function (script, tags) {
 
 /**
  * Apply GSUB features
- * @param {Array} tagsList a list of features tags
- * @param {string} script a script tag
- * @param {Font} font opentype font instance
+ * @param {unknown} font opentype font instance
+ * @param {Array} features a list of features
  */
 Bidi.prototype.applyFeatures = function (font, features) {
     if (!font) throw new Error(
         'No valid font was provided to apply features'
     );
-    if (!this.query) this.query = new FeatureQuery(font);
+    if (!this.query) this.query = new FeatureQuery(/** @type {Record<string, unknown>} */ (font));
     for (let f = 0; f < features.length; f++) {
         const feature = features[f];
         if (!this.query.supports({script: feature.script})) continue;
@@ -193,12 +192,23 @@ function applyArabicRequireLigatures() {
  * Apply required arabic ligatures
  */
 function applyLatinLigatures() {
-    if (!this.hasFeatureEnabled('latn', 'liga')) return;
+    const hasLiga = this.hasFeatureEnabled('latn', 'liga');
+    const hasDlig = this.hasFeatureEnabled('latn', 'dlig');
+    const hasClig = this.hasFeatureEnabled('latn', 'clig');
+    const hasCalt = this.hasFeatureEnabled('latn', 'calt');
+    
+    if (!hasLiga && !hasDlig && !hasClig && !hasCalt) return;
+    
     checkGlyphIndexStatus.call(this);
     const ranges = this.tokenizer.getContextRanges('latinWord');
     for(let i = 0; i < ranges.length; i++) {
         const range = ranges[i];
-        latinLigature.call(this, range);
+        // Apply each enabled ligature feature in order
+        // Note: calt (contextual alternates) should be applied before other ligatures
+        if (hasCalt) latinLigature.call(this, range, 'calt');
+        if (hasLiga) latinLigature.call(this, range, 'liga');
+        if (hasDlig) latinLigature.call(this, range, 'dlig');
+        if (hasClig) latinLigature.call(this, range, 'clig');
     }
 }
 
@@ -294,7 +304,7 @@ Bidi.prototype.getBidiText = function (text) {
 
 /**
  * Get the current state index of each token
- * @param {text} text an input text
+ * @param {string} text an input text
  */
 Bidi.prototype.getTextGlyphs = function (text) {
     this.processText(text);

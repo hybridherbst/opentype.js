@@ -9,7 +9,7 @@ import applySubstitution from '../applySubstitution.mjs';
 
 /**
  * Check if a char can be connected to it's preceding char
- * @param {ContextParams} charContextParams context params of a char
+ * @param {{backtrack: string[], current: string, lookahead: string[]}} charContextParams context params of a char
  */
 function willConnectPrev(charContextParams) {
     let backtrack = [].concat(charContextParams.backtrack);
@@ -25,7 +25,7 @@ function willConnectPrev(charContextParams) {
 
 /**
  * Check if a char can be connected to it's proceeding char
- * @param {ContextParams} charContextParams context params of a char
+ * @param {{backtrack: string[], current: string, lookahead: string[]}} charContextParams context params of a char
  */
 function willConnectNext(charContextParams) {
     if (isIsolatedArabicChar(charContextParams.current)) return false;
@@ -39,7 +39,7 @@ function willConnectNext(charContextParams) {
 
 /**
  * Apply arabic presentation forms to a list of tokens
- * @param {ContextRange} range a range of tokens
+ * @param {unknown} range a range of tokens
  */
 function arabicPresentationForms(range) {
     const script = 'arab';

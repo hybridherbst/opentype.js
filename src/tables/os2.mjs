@@ -4,6 +4,47 @@
 import parse from '../parse.mjs';
 import table from '../table.mjs';
 
+/**
+ * @typedef {object} Os2Table
+ * @property {number} version - Table version number
+ * @property {number} xAvgCharWidth - Average weighted advance width of lower case letters and space
+ * @property {number} usWeightClass - Visual weight of stroke in glyphs (100–900)
+ * @property {number} usWidthClass - Relative change from the normal aspect ratio (1–9)
+ * @property {number} fsType - Type flags (embedding licensing bits)
+ * @property {number} ySubscriptXSize - Recommended horizontal size in design units for subscripts
+ * @property {number} ySubscriptYSize - Recommended vertical size in design units for subscripts
+ * @property {number} ySubscriptXOffset - Recommended horizontal offset for subscripts
+ * @property {number} ySubscriptYOffset - Recommended vertical offset from the baseline for subscripts
+ * @property {number} ySuperscriptXSize - Recommended horizontal size in design units for superscripts
+ * @property {number} ySuperscriptYSize - Recommended vertical size in design units for superscripts
+ * @property {number} ySuperscriptXOffset - Recommended horizontal offset for superscripts
+ * @property {number} ySuperscriptYOffset - Recommended vertical offset from the baseline for superscripts
+ * @property {number} yStrikeoutSize - Width of the strikeout stroke
+ * @property {number} yStrikeoutPosition - Position of the top of the strikeout stroke
+ * @property {number} sFamilyClass - Classification of font-family design (IBM class/subclass)
+ * @property {number[]} panose - 10-element array describing the font's visual characteristics
+ * @property {number} ulUnicodeRange1 - Unicode character range bits 0–31
+ * @property {number} ulUnicodeRange2 - Unicode character range bits 32–63
+ * @property {number} ulUnicodeRange3 - Unicode character range bits 64–95
+ * @property {number} ulUnicodeRange4 - Unicode character range bits 96–127
+ * @property {string} achVendID - 4-character font vendor identification
+ * @property {number} fsSelection - Bit field containing information about the font style
+ * @property {number} usFirstCharIndex - Minimum Unicode index in this font
+ * @property {number} usLastCharIndex - Maximum Unicode index in this font
+ * @property {number} sTypoAscender - Typographic ascender (version >= 0)
+ * @property {number} sTypoDescender - Typographic descender (version >= 0)
+ * @property {number} sTypoLineGap - Typographic line gap (version >= 0)
+ * @property {number} usWinAscent - Windows ascender metric (version >= 0)
+ * @property {number} usWinDescent - Windows descender metric (version >= 0)
+ * @property {number} [ulCodePageRange1] - Code page character range bits 0–31 (version >= 1)
+ * @property {number} [ulCodePageRange2] - Code page character range bits 32–63 (version >= 1)
+ * @property {number} [sxHeight] - Distance between baseline and top of lowercase letters (version >= 2)
+ * @property {number} [sCapHeight] - Distance between baseline and top of uppercase letters (version >= 2)
+ * @property {number} [usDefaultChar] - Default glyph index when no glyph exists for a character (version >= 2)
+ * @property {number} [usBreakChar] - Code point used for word breaking (version >= 2)
+ * @property {number} [usMaxContent] - Length of the longest target glyph context (version >= 2)
+ */
+
 const unicodeRanges = [
     {begin: 0x0000, end: 0x007F}, // Basic Latin
     {begin: 0x0080, end: 0x00FF}, // Latin-1 Supplement

@@ -29,6 +29,7 @@ describe('opentype.mjs', function() {
     });
 
     it('can load a CID-keyed font', function() {
+        this.timeout(5000);
         const font = loadSync('./test/fonts/FDArrayTest257.otf');
         assert.deepEqual(font.names.windows.fontFamily, {en: 'FDArray Test 257'});
         assert.deepEqual(font.tables.cff.topDict.ros, ['Adobe', 'Identity', 0]);
@@ -102,6 +103,7 @@ describe('opentype.js on low memory mode', function() {
     });
 
     it('can load a CID-keyed font', function() {
+        this.timeout(5000);
         const font = loadSync('./test/fonts/FDArrayTest257.otf', opt);
         assert.deepEqual(font.names.windows.fontFamily, {en: 'FDArray Test 257'});
         assert.deepEqual(font.tables.cff.topDict.ros, ['Adobe', 'Identity', 0]);

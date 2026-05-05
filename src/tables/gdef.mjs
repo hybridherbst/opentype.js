@@ -3,6 +3,12 @@
 
 import check from '../check.mjs';
 import { Parser } from '../parse.mjs';
+import table from '../table.mjs';
+import { encodeItemVariationStore } from './hvar.mjs';
+
+/**
+ * @typedef {{ name: string, type: string, value: number | null | InstanceType<typeof table.ClassDef>, appendPhase?: number }} GdefHeaderField
+ */
 
 var attachList = function() {
     return {
@@ -57,6 +63,69 @@ function parseGDEFTable(data, start) {
     if (tableVersion >= 1.2) {
         gdef.markGlyphSets = p.parsePointer(markGlyphSets);
     }
+    // GDEF version 1.3 includes ItemVariationStore for GPOS/GSUB variations
+    if (tableVersion >= 1.3) {
+        gdef.itemVariationStore = p.parsePointer32(function() {
+            return this.parseItemVariationStore();
+        });
+    }
     return gdef;
 }
-export default { parse: parseGDEFTable };
+
+function makeGDEFTable(gdef, fvar) {
+    if (!gdef) return undefined;
+
+    const hasClassDef = !!gdef.classDef;
+    const hasAttachList = !!gdef.attachList;
+    const hasLigCaretList = !!gdef.ligCaretList;
+    const hasMarkAttachClassDef = !!gdef.markAttachClassDef;
+    const hasMarkGlyphSets = !!gdef.markGlyphSets;
+    const hasItemVariationStore = !!gdef.itemVariationStore && !!fvar;
+
+    if (!hasClassDef &&
+        !hasAttachList &&
+        !hasLigCaretList &&
+        !hasMarkAttachClassDef &&
+        !hasMarkGlyphSets &&
+        !hasItemVariationStore) {
+        return undefined;
+    }
+
+    const version = hasItemVariationStore ? 1.3 : (hasMarkGlyphSets ? 1.2 : 1.0);
+    const encodedVersion = version >= 1.3 ? 0x00010003 : version >= 1.2 ? 0x00010002 : 0x00010000;
+    const glyphClassDefTable = hasClassDef ? new table.ClassDef(gdef.classDef) : null;
+    const markAttachClassDefTable = hasMarkAttachClassDef ? new table.ClassDef(gdef.markAttachClassDef) : null;
+    /** @type {GdefHeaderField[]} */
+    const fields = [
+        { name: 'version', type: 'FIXED', value: encodedVersion },
+        { name: 'glyphClassDef', type: 'TABLE', value: glyphClassDefTable },
+        { name: 'attachListOffset', type: 'USHORT', value: 0 },
+        { name: 'ligCaretListOffset', type: 'USHORT', value: 0 },
+        { name: 'markAttachClassDef', type: 'TABLE', value: markAttachClassDefTable }
+    ];
+
+    if (version >= 1.2) {
+        fields.push({ name: 'markGlyphSetsDefOffset', type: 'USHORT', value: 0 });
+    }
+    if (version >= 1.3) {
+        fields.push({
+            name: 'itemVariationStore',
+            type: 'OFFSET32',
+            value: null,
+            appendPhase: 100
+        });
+    }
+
+    const result = new table.Table('GDEF', fields);
+    if (version >= 1.3 && hasItemVariationStore) {
+        const itemVariationStoreBytes = encodeItemVariationStore(gdef.itemVariationStore);
+        if (itemVariationStoreBytes.length > 0) {
+            const rec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (result));
+            rec.itemVariationStore = itemVariationStoreBytes;
+        }
+    }
+
+    return result;
+}
+
+export default { parse: parseGDEFTable, make: makeGDEFTable };

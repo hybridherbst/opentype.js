@@ -42,7 +42,7 @@ function parseSvgTable(data, offset) {
 
 /**
  * @param {SVGTable} svgTable
- * @returns {opentype.Table}
+ * @returns {object}
  */
 function makeSvgTable(svgTable) {
     const glyphIds = Array.from(svgTable.keys()).sort();

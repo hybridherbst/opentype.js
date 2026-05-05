@@ -2,8 +2,8 @@ import { SubstitutionAction } from './featureQuery.mjs';
 
 /**
  * Apply single substitution format 1
- * @param {Array} substitutions substitutions
- * @param {any} tokens a list of tokens
+ * @param {InstanceType<typeof SubstitutionAction>} action substitution action
+ * @param {Array<{setState: Function}>} tokens a list of tokens
  * @param {number} index token index
  */
 function singleSubstitutionFormat1(action, tokens, index) {
@@ -12,8 +12,8 @@ function singleSubstitutionFormat1(action, tokens, index) {
 
 /**
  * Apply single substitution format 2
- * @param {Array} substitutions substitutions
- * @param {any} tokens a list of tokens
+ * @param {InstanceType<typeof SubstitutionAction>} action substitution action
+ * @param {Array<{setState: Function}>} tokens a list of tokens
  * @param {number} index token index
  */
 function singleSubstitutionFormat2(action, tokens, index) {
@@ -22,13 +22,14 @@ function singleSubstitutionFormat2(action, tokens, index) {
 
 /**
  * Apply chaining context substitution format 3
- * @param {Array} substitutions substitutions
- * @param {any} tokens a list of tokens
+ * @param {InstanceType<typeof SubstitutionAction>} action substitution action
+ * @param {Array<{setState: Function}>} tokens a list of tokens
  * @param {number} index token index
  */
 function chainingSubstitutionFormat3(action, tokens, index) {
-    for(let i = 0; i < action.substitution.length; i++) {
-        const subst = action.substitution[i];
+    const substitution = /** @type {Array<unknown>} */ (action.substitution);
+    for(let i = 0; i < substitution.length; i++) {
+        const subst = substitution[i];
         const token = tokens[index + i];
         if (Array.isArray(subst)) {
             if (subst.length){
@@ -45,14 +46,15 @@ function chainingSubstitutionFormat3(action, tokens, index) {
 
 /**
  * Apply ligature substitution format 1
- * @param {Array} substitutions substitutions
- * @param {any} tokens a list of tokens
+ * @param {InstanceType<typeof SubstitutionAction>} action substitution action
+ * @param {Array<{setState: Function}>} tokens a list of tokens
  * @param {number} index token index
  */
 function ligatureSubstitutionFormat1(action, tokens, index) {
     let token = tokens[index];
-    token.setState(action.tag, action.substitution.ligGlyph);
-    const compsCount = action.substitution.components.length;
+    const ligSubst = /** @type {{ligGlyph: unknown, components: Array<unknown>}} */ (action.substitution);
+    token.setState(action.tag, ligSubst.ligGlyph);
+    const compsCount = ligSubst.components.length;
     for (let i = 0; i < compsCount; i++) {
         token = tokens[index + i + 1];
         token.setState('deleted', true);
@@ -73,8 +75,8 @@ const SUBSTITUTIONS = {
 
 /**
  * Apply substitutions to a list of tokens
- * @param {Array} substitutions substitutions
- * @param {any} tokens a list of tokens
+ * @param {InstanceType<typeof SubstitutionAction>} action substitution action
+ * @param {Array<{setState: Function}>} tokens a list of tokens
  * @param {number} index token index
  */
 function applySubstitution(action, tokens, index) {
