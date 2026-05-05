@@ -5222,25 +5222,50 @@ function makeCmapTable(glyphs) {
     format4Length = format4LengthForSegments(format4Segments);
   }
   const numTables = needsFullSubtable ? 2 : 1;
-  const format4Offset = 4 + numTables * 8;
-  const fullOffset = format4Offset + format4Length;
+  const firstSubtableOffset = 4 + numTables * 8;
+  const fullFirst = needsFullSubtable && fullFormat === 13 && format4Segments.length === 1;
+  const fullLength = 16 + fullGroups.length * 12;
+  const fullOffset = fullFirst ? firstSubtableOffset : firstSubtableOffset + format4Length;
+  const format4Offset = fullFirst ? firstSubtableOffset + fullLength : firstSubtableOffset;
   const cmapTable = [
     { name: "version", type: "USHORT", value: 0 },
-    { name: "numTables", type: "USHORT", value: numTables },
-    { name: "platformID", type: "USHORT", value: 3 },
-    { name: "encodingID", type: "USHORT", value: 1 },
-    { name: "offset", type: "ULONG", value: format4Offset }
+    { name: "numTables", type: "USHORT", value: numTables }
   ];
   if (needsFullSubtable) {
+    if (fullFirst) {
+      cmapTable.push(
+        { name: "fullPlatformID", type: "USHORT", value: 0 },
+        { name: "fullEncodingID", type: "USHORT", value: 6 },
+        { name: "fullOffset", type: "ULONG", value: fullOffset },
+        { name: "platformID", type: "USHORT", value: 3 },
+        { name: "encodingID", type: "USHORT", value: 1 },
+        { name: "offset", type: "ULONG", value: format4Offset }
+      );
+    } else {
+      cmapTable.push(
+        { name: "platformID", type: "USHORT", value: 3 },
+        { name: "encodingID", type: "USHORT", value: 1 },
+        { name: "offset", type: "ULONG", value: format4Offset },
+        { name: "fullPlatformID", type: "USHORT", value: fullFormat === 13 ? 0 : 3 },
+        { name: "fullEncodingID", type: "USHORT", value: fullFormat === 13 ? 6 : 10 },
+        { name: "fullOffset", type: "ULONG", value: fullOffset }
+      );
+    }
+  } else {
     cmapTable.push(
-      { name: "fullPlatformID", type: "USHORT", value: fullFormat === 13 ? 0 : 3 },
-      { name: "fullEncodingID", type: "USHORT", value: fullFormat === 13 ? 6 : 10 },
-      { name: "fullOffset", type: "ULONG", value: fullOffset }
+      { name: "platformID", type: "USHORT", value: 3 },
+      { name: "encodingID", type: "USHORT", value: 1 },
+      { name: "offset", type: "ULONG", value: format4Offset }
     );
   }
-  appendFields(cmapTable, makeFormat4Fields(format4Segments));
-  if (needsFullSubtable) {
+  if (fullFirst) {
     appendFields(cmapTable, makeFormat12or13Fields(fullFormat, fullGroups));
+    appendFields(cmapTable, makeFormat4Fields(format4Segments));
+  } else {
+    appendFields(cmapTable, makeFormat4Fields(format4Segments));
+    if (needsFullSubtable) {
+      appendFields(cmapTable, makeFormat12or13Fields(fullFormat, fullGroups));
+    }
   }
   return new table_default.Table("cmap", cmapTable);
 }

@@ -156,6 +156,11 @@ describe('tables/cmap.js', function() {
         const fullRecord = records.find((record) => record.format === 13);
 
         assert.ok(fullRecord, 'expected a format 13 full Unicode subtable');
+        assert.deepEqual(
+            records.map((record) => [record.platformID, record.encodingID, record.format]),
+            [[0, 6, 13], [3, 1, 4]],
+            'format 13 must be advertised before the empty BMP fallback so shaping engines select it'
+        );
         assert.equal(fullRecord.groups, 1);
         assert.equal(parse(buffer).tables.cmap.glyphIndexMap[0x10002], 1);
     });
