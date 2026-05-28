@@ -278,7 +278,7 @@ Layout.prototype = {
                 lookupTable = allLookups[lookupListIndexes[i]];
                 if (lookupTable.lookupType === lookupType) {
                     tables.push(lookupTable);
-                } else if (lookupTable.lookupType === 7 && this.tableName === 'gsub') {
+                } else if (!create && lookupTable.lookupType === 7 && this.tableName === 'gsub') {
                     // GSUB Extension Substitution (type 7) - unwrap and check inner type
                     // Extension lookups wrap other lookup types to allow 32-bit offsets
                     for (const subtable of /** @type {import('./tables/gsub.mjs').GsubSubtable[]} */ (lookupTable.subtables)) {
@@ -294,7 +294,7 @@ Layout.prototype = {
                             tables.push(virtualLookup);
                         }
                     }
-                } else if (lookupTable.lookupType === 9 && this.tableName === 'gpos') {
+                } else if (!create && lookupTable.lookupType === 9 && this.tableName === 'gpos') {
                     // GPOS Extension Positioning (type 9) - unwrap and check inner type
                     for (const subtable of /** @type {import('./tables/gpos.mjs').GposSubtable[]} */ (lookupTable.subtables)) {
                         if (subtable.lookupType === lookupType && subtable.extension) {
