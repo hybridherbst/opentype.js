@@ -377,6 +377,17 @@ Glyph.prototype.getMetrics = function() {
         leftSideBearing: this.leftSideBearing
     };
 
+    // Newly-authored composite glyphs intentionally have an empty path and
+    // store their resolved component bounds on the same private fields used by
+    // the glyf encoder. Use those bounds for hmtx/head metrics as well; falling
+    // back to zero here emits an LSB that contradicts the composite glyf header.
+    if (this.isComposite && xCoords.length === 0) {
+        metrics.xMin = this._xMin;
+        metrics.yMin = this._yMin;
+        metrics.xMax = this._xMax;
+        metrics.yMax = this._yMax;
+    }
+
     if (!isFinite(metrics.xMin)) {
         metrics.xMin = 0;
     }

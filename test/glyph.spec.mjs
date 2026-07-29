@@ -100,6 +100,31 @@ describe('glyph.js', function() {
         });
     });
 
+    describe('composite metrics', function() {
+        it('uses encoded component bounds for metrics when the path is empty', function() {
+            const glyph = new Glyph({
+                name: 'composite',
+                path: new Path(),
+                advanceWidth: 500
+            });
+            glyph.isComposite = true;
+            glyph.components = [{ glyphIndex: 1, dx: 20, dy: -30 }];
+            glyph._xMin = 21;
+            glyph._yMin = -31;
+            glyph._xMax = 403;
+            glyph._yMax = 544;
+
+            assert.deepEqual(glyph.getMetrics(), {
+                xMin: 21,
+                yMin: -31,
+                xMax: 403,
+                yMax: 544,
+                leftSideBearing: 21,
+                rightSideBearing: 97
+            });
+        });
+    });
+
     describe('SVG handling', function() {
         it('should flip the path Y coordinates when generating or parsing SVG paths', function() {
             const font = loadSync('./test/fonts/FiraSansMedium.woff');
