@@ -24,7 +24,7 @@ import avar from './tables/avar.mjs';
 import hvar from './tables/hvar.mjs';
 import glyf, { pathToPoints, cubicToQuadratics } from './tables/glyf.mjs';
 import gdef from './tables/gdef.mjs';
-import gpos from './tables/gpos.mjs';
+import gpos, { packPairPosFormat1Lookup } from './tables/gpos.mjs';
 import gsub from './tables/gsub.mjs';
 import head from './tables/head.mjs';
 import hhea from './tables/hhea.mjs';
@@ -714,6 +714,7 @@ export {
     convertStaticCFFToTTF,
     convertStaticTTFToCFF,
     convertFontFormat,
+    packPairPosFormat1Lookup,
     // Font sanitization utilities
     sanitize,
     sanitizeFontForGoogleFonts,

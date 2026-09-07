@@ -1,6 +1,6 @@
 import assert from 'assert';
 import { unhex, unhexArray } from '../testutil.mjs';
-import gpos from '../../src/tables/gpos.mjs';
+import gpos, { packPairPosFormat1Lookup } from '../../src/tables/gpos.mjs';
 
 // Helper that builds a minimal GPOS table to test a lookup subtable.
 function parseLookup(lookupType, subTableData) {
@@ -165,6 +165,114 @@ describe('tables/gpos.js', function() {
                 ]
             ]
         });
+    });
+
+    it('losslessly packs repeated PairPosFormat1 rows and columns into format 2', function() {
+        const variationIndex = {
+            type: 'variationIndex',
+            deltaSetOuterIndex: 2,
+            deltaSetInnerIndex: 7,
+            deltaFormat: 0x8000
+        };
+        const firstGlyphs = [10, 11, 12, 13, 14, 15, 16, 17];
+        const secondGlyphs = [30, 31, 32, 33, 34, 35, 36, 37];
+        const pairSets = firstGlyphs.map((_, rowIndex) => secondGlyphs.map((secondGlyph, columnIndex) => ({
+            secondGlyph,
+            value1: {
+                xAdvance: rowIndex < 4 ? (columnIndex < 4 ? -80 : -20) : (columnIndex < 4 ? -30 : -60),
+                xAdvDevice: variationIndex
+            },
+            value2: { xPlacement: columnIndex < 4 ? 5 : 0 }
+        })));
+        const lookup = {
+            lookupType: 2,
+            lookupFlag: 0,
+            subtables: [{
+                posFormat: 1,
+                coverage: { format: 1, glyphs: firstGlyphs },
+                valueFormat1: 0x0044,
+                valueFormat2: 0x0001,
+                pairSets
+            }]
+        };
+
+        const packed = packPairPosFormat1Lookup(lookup);
+        assert.notEqual(packed, lookup);
+        assert.equal(packed.subtables.length, 1);
+        assert.equal(packed.subtables[0].posFormat, 2);
+        assert.equal(packed.subtables[0].class1Count, 3);
+        assert.equal(packed.subtables[0].class2Count, 3);
+
+        const encoded = gpos.make({
+            version: 1,
+            scripts: [],
+            features: [],
+            lookups: [packed]
+        }).encode();
+        const parsed = gpos.parse(new DataView(Uint8Array.from(encoded).buffer));
+        const subtable = parsed.lookups[0].subtables[0];
+        assert.equal(subtable.posFormat, 2);
+        assert.deepEqual(subtable.classRecords[1][1], {
+            value1: { xAdvance: -80, xAdvDeviceOffset: subtable.classRecords[1][1].value1.xAdvDeviceOffset, xAdvDevice: variationIndex },
+            value2: { xPlacement: 5 }
+        });
+        assert.deepEqual(subtable.classRecords[1][0], {
+            value1: { xAdvance: 0 },
+            value2: { xPlacement: 0 }
+        });
+    });
+
+    it('leaves unsafe or non-beneficial PairPosFormat1 lookups unchanged', function() {
+        const duplicateCoverage = {
+            lookupType: 2,
+            lookupFlag: 0,
+            subtables: [1, 2].map(value => ({
+                posFormat: 1,
+                coverage: { format: 1, glyphs: [10] },
+                valueFormat1: 4,
+                valueFormat2: 0,
+                pairSets: [[{ secondGlyph: 20 + value, value1: { xAdvance: -value }, value2: null }]]
+            }))
+        };
+        assert.equal(packPairPosFormat1Lookup(duplicateCoverage), duplicateCoverage);
+
+        const tinyLookup = {
+            lookupType: 2,
+            lookupFlag: 0,
+            subtables: [{
+                posFormat: 1,
+                coverage: { format: 1, glyphs: [10, 11] },
+                valueFormat1: 4,
+                valueFormat2: 0,
+                pairSets: [
+                    [{ secondGlyph: 20, value1: { xAdvance: -10 }, value2: null }],
+                    [{ secondGlyph: 21, value1: { xAdvance: -20 }, value2: null }]
+                ]
+            }]
+        };
+        assert.equal(packPairPosFormat1Lookup(tinyLookup), tinyLookup);
+    });
+
+    it('retains split format-1 subtables when the packed format-2 offsets overflow', function() {
+        const glyphCount = 220;
+        const secondGlyphs = Array.from({ length: glyphCount }, (_, index) => 1000 + index);
+        const lookup = {
+            lookupType: 2,
+            lookupFlag: 0,
+            subtables: Array.from({ length: glyphCount }, (_, rowIndex) => ({
+                posFormat: 1,
+                coverage: { format: 1, glyphs: [10 + rowIndex] },
+                valueFormat1: 4,
+                valueFormat2: 0,
+                pairSets: [secondGlyphs.map((secondGlyph, columnIndex) => ({
+                    secondGlyph,
+                    value1: { xAdvance: ((rowIndex * glyphCount + columnIndex) % 30000) + 1 },
+                    value2: null
+                }))]
+            }))
+        };
+
+        assert.equal(packPairPosFormat1Lookup(lookup), lookup);
     });
 
     //// Write: Lookup type 1 /////////////////////////////////////////////////

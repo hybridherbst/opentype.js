@@ -707,6 +707,186 @@ subtableMakers[2] = function makeLookup2(subtable) {
     }
 };
 
+function pairPosCoverageGlyphs(coverage) {
+    if (coverage?.format === 1) return [...(coverage.glyphs || [])];
+    if (coverage?.format !== 2) return null;
+    const glyphs = [];
+    for (const range of coverage.ranges || []) {
+        const coverageIndex = range.index ?? range.startCoverageIndex ?? 0;
+        for (let glyph = range.start; glyph <= range.end; glyph++) {
+            glyphs[coverageIndex + glyph - range.start] = glyph;
+        }
+    }
+    return glyphs.every(Number.isInteger) ? glyphs : null;
+}
+
+function pairPosStableSignature(value) {
+    if (value === null || value === undefined) return 'null';
+    if (Array.isArray(value)) return `[${value.map(pairPosStableSignature).join(',')}]`;
+    if (typeof value === 'object') {
+        return `{${Object.keys(value).sort().map(key =>
+            `${JSON.stringify(key)}:${pairPosStableSignature(value[key])}`
+        ).join(',')}}`;
+    }
+    return JSON.stringify(value);
+}
+
+/** @param {GposValueRecord | null | undefined} value @param {number} valueFormat */
+function pairPosEffectiveValue(value, valueFormat) {
+    /** @type {Record<string, unknown>} */
+    const result = {};
+    /** @type {Array<[number, 'xPlacement' | 'yPlacement' | 'xAdvance' | 'yAdvance']>} */
+    const scalarFields = [
+        [0x0001, 'xPlacement'], [0x0002, 'yPlacement'],
+        [0x0004, 'xAdvance'], [0x0008, 'yAdvance']
+    ];
+    /** @type {Array<[number, 'xPlaDevice' | 'yPlaDevice' | 'xAdvDevice' | 'yAdvDevice']>} */
+    const deviceFields = [
+        [0x0010, 'xPlaDevice'], [0x0020, 'yPlaDevice'],
+        [0x0040, 'xAdvDevice'], [0x0080, 'yAdvDevice']
+    ];
+    for (const [bit, key] of scalarFields) {
+        if (valueFormat & bit) result[key] = Number(value?.[key]) || 0;
+    }
+    for (const [bit, key] of deviceFields) {
+        if (valueFormat & bit) result[key] = value?.[key] || null;
+    }
+    return result;
+}
+
+function pairPosAdjustmentSignature(record, valueFormat1, valueFormat2) {
+    return pairPosStableSignature([
+        pairPosEffectiveValue(record?.value1, valueFormat1),
+        pairPosEffectiveValue(record?.value2, valueFormat2)
+    ]);
+}
+
+function pairPosClassDefRanges(assignments) {
+    const entries = [...assignments.entries()].sort((left, right) => left[0] - right[0]);
+    const ranges = [];
+    for (const [glyph, classId] of entries) {
+        const previous = ranges[ranges.length - 1];
+        if (previous && previous.end === glyph - 1 && previous.classId === classId) {
+            previous.end = glyph;
+        } else {
+            ranges.push({ start: glyph, end: glyph, classId });
+        }
+    }
+    return ranges;
+}
+
+/**
+ * Losslessly replace a PairPos format-1 lookup with a smaller format-2 class
+ * lookup when its complete explicit-pair matrix contains equivalent rows and
+ * columns. The input subtables must have disjoint first-glyph coverage so the
+ * format-2 class-0 record cannot change subtable fallthrough behavior.
+ *
+ * All ValueRecords, including Device and VariationIndex tables, remain normal
+ * structured GPOS data. Unsafe, larger, or over-sized results are not used.
+ *
+ * @param {GposLookupTable} lookup
+ * @param {{maxSubtableSize?: number}} [options]
+ * @returns {GposLookupTable}
+ */
+function packPairPosFormat1Lookup(lookup, options = {}) {
+    if (lookup?.lookupType !== 2 || !(lookup.subtables || []).length ||
+        lookup.subtables.some(subtable => subtable?.posFormat !== 1)) return lookup;
+
+    const rows = new Map();
+    let valueFormat1 = 0;
+    let valueFormat2 = 0;
+    for (const subtable of lookup.subtables) {
+        const coverageGlyphs = pairPosCoverageGlyphs(subtable.coverage);
+        const pairSets = subtable.pairSets || [];
+        if (!coverageGlyphs || coverageGlyphs.length !== pairSets.length) return lookup;
+        valueFormat1 |= subtable.valueFormat1 || 0;
+        valueFormat2 |= subtable.valueFormat2 || 0;
+        for (let index = 0; index < coverageGlyphs.length; index++) {
+            const firstGlyph = coverageGlyphs[index];
+            if (rows.has(firstGlyph)) return lookup;
+            const row = new Map();
+            for (const record of pairSets[index] || []) {
+                if (!record || !Number.isInteger(record.secondGlyph) || row.has(record.secondGlyph)) return lookup;
+                row.set(record.secondGlyph, record);
+            }
+            rows.set(firstGlyph, row);
+        }
+    }
+    if (rows.size < 2) return lookup;
+
+    const zeroSignature = pairPosAdjustmentSignature(null, valueFormat1, valueFormat2);
+    const rightGlyphs = [...new Set([...rows.values()].flatMap(row => [...row.keys()]))]
+        .filter(secondGlyph => [...rows.values()].some(row =>
+            pairPosAdjustmentSignature(row.get(secondGlyph), valueFormat1, valueFormat2) !== zeroSignature
+        ))
+        .sort((left, right) => left - right);
+    if (!rightGlyphs.length) return lookup;
+
+    const rowClassesBySignature = new Map();
+    for (const [firstGlyph, row] of rows) {
+        const signature = rightGlyphs.map(secondGlyph =>
+            pairPosAdjustmentSignature(row.get(secondGlyph), valueFormat1, valueFormat2)
+        ).join('|');
+        const rowClass = rowClassesBySignature.get(signature) || { glyphs: [], row };
+        rowClass.glyphs.push(firstGlyph);
+        rowClassesBySignature.set(signature, rowClass);
+    }
+    const rowClasses = [...rowClassesBySignature.values()];
+
+    const columnClassesBySignature = new Map();
+    for (const secondGlyph of rightGlyphs) {
+        const signature = rowClasses.map(rowClass =>
+            pairPosAdjustmentSignature(rowClass.row.get(secondGlyph), valueFormat1, valueFormat2)
+        ).join('|');
+        const columnClass = columnClassesBySignature.get(signature) || { glyphs: [], secondGlyph };
+        columnClass.glyphs.push(secondGlyph);
+        columnClassesBySignature.set(signature, columnClass);
+    }
+    const columnClasses = [...columnClassesBySignature.values()];
+
+    const classDef1Assignments = new Map();
+    for (let index = 0; index < rowClasses.length; index++) {
+        const rowClass = rowClasses[index];
+        for (const glyph of rowClass.glyphs) classDef1Assignments.set(glyph, index + 1);
+    }
+    const classDef2Assignments = new Map();
+    for (let index = 0; index < columnClasses.length; index++) {
+        const columnClass = columnClasses[index];
+        for (const glyph of columnClass.glyphs) classDef2Assignments.set(glyph, index + 1);
+    }
+    const classRecords = Array.from({ length: rowClasses.length + 1 }, (_, class1) =>
+        Array.from({ length: columnClasses.length + 1 }, (_, class2) => {
+            if (class1 === 0 || class2 === 0) return { value1: null, value2: null };
+            const record = rowClasses[class1 - 1].row.get(columnClasses[class2 - 1].secondGlyph);
+            return { value1: record?.value1 || null, value2: record?.value2 || null };
+        })
+    );
+    const packedSubtable = {
+        posFormat: 2,
+        coverage: { format: 1, glyphs: [...rows.keys()].sort((left, right) => left - right) },
+        valueFormat1,
+        valueFormat2,
+        classDef1: { format: 2, ranges: pairPosClassDefRanges(classDef1Assignments) },
+        classDef2: { format: 2, ranges: pairPosClassDefRanges(classDef2Assignments) },
+        class1Count: rowClasses.length + 1,
+        class2Count: columnClasses.length + 1,
+        classRecords
+    };
+    const maxSubtableSize = options.maxSubtableSize || 60000;
+    let packedSize;
+    try {
+        packedSize = subtableMakers[2](packedSubtable).sizeOf();
+    } catch (error) {
+        if (/offset .* exceeds 65535/.test(String(error?.message))) return lookup;
+        throw error;
+    }
+    if (packedSize > maxSubtableSize) return lookup;
+    const originalSize = lookup.subtables.reduce((sum, subtable) =>
+        sum + subtableMakers[2](subtable).sizeOf(), 0);
+    if (packedSize >= originalSize) return lookup;
+    return { ...lookup, subtables: [packedSubtable] };
+}
+
 // Lookup Type 3: Cursive Attachment Positioning
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-3-cursive-attachment-positioning-subtable
 subtableMakers[3] = function makeLookup3(subtable) {
@@ -1221,4 +1401,5 @@ function makeGposTable(gpos) {
     return new table.Table('GPOS', fields);
 }
 
-export default { parse: parseGposTable, make: makeGposTable };
+export { packPairPosFormat1Lookup };
+export default { parse: parseGposTable, make: makeGposTable, packPairPosFormat1Lookup };
