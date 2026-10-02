@@ -222,6 +222,31 @@ describe('tables/gpos.js', function() {
         });
     });
 
+    it('treats explicit zero records as absent and groups equal values held in separate objects', function() {
+        const firstGlyphs = [10, 11, 12, 13, 14, 15];
+        const secondGlyphs = [30, 31, 32, 33, 34, 35];
+        // Rows 10-12 kern columns 30-32 by -50; row 11 spells its zeros out and
+        // row 12 omits them. Rows 13-15 kern only column 35. Column 34 is all zero.
+        const pairSets = firstGlyphs.map((firstGlyph) => secondGlyphs.flatMap((secondGlyph) => {
+            const kerned = firstGlyph < 13 ? secondGlyph < 33 : secondGlyph === 35;
+            if (kerned) return [{ secondGlyph, value1: { xAdvance: -50 }, value2: null }];
+            return firstGlyph === 12 ? [] : [{ secondGlyph, value1: { xAdvance: 0 }, value2: null }];
+        }));
+        const lookup = {
+            lookupType: 2,
+            lookupFlag: 0,
+            subtables: [{ posFormat: 1, coverage: { format: 1, glyphs: firstGlyphs }, valueFormat1: 4, valueFormat2: 0, pairSets }]
+        };
+        const packed = packPairPosFormat1Lookup(lookup);
+        assert.equal(packed.subtables[0].posFormat, 2);
+        assert.equal(packed.subtables[0].class1Count, 3);
+        assert.equal(packed.subtables[0].class2Count, 3);
+        assert.deepEqual(packed.subtables[0].classDef2.ranges, [
+            { start: 30, end: 32, classId: 1 },
+            { start: 35, end: 35, classId: 2 }
+        ]);
+    });
+
     it('leaves unsafe or non-beneficial PairPosFormat1 lookups unchanged', function() {
         const duplicateCoverage = {
             lookupType: 2,

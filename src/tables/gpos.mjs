@@ -814,30 +814,59 @@ function packPairPosFormat1Lookup(lookup, options = {}) {
     }
     if (rows.size < 2) return lookup;
 
+    // Intern each distinct effective adjustment as a small id (0 = no
+    // adjustment), so rows and columns compare as sparse id lists instead of
+    // dense matrices of stringified ValueRecords.
     const zeroSignature = pairPosAdjustmentSignature(null, valueFormat1, valueFormat2);
-    const rightGlyphs = [...new Set([...rows.values()].flatMap(row => [...row.keys()]))]
-        .filter(secondGlyph => [...rows.values()].some(row =>
-            pairPosAdjustmentSignature(row.get(secondGlyph), valueFormat1, valueFormat2) !== zeroSignature
-        ))
-        .sort((left, right) => left - right);
+    const signatureIds = new Map([[zeroSignature, 0]]);
+    const recordIds = new Map();
+    const adjustmentId = (record) => {
+        if (!record) return 0;
+        let id = recordIds.get(record);
+        if (id !== undefined) return id;
+        const signature = pairPosAdjustmentSignature(record, valueFormat1, valueFormat2);
+        id = signatureIds.get(signature);
+        if (id === undefined) {
+            id = signatureIds.size;
+            signatureIds.set(signature, id);
+        }
+        recordIds.set(record, id);
+        return id;
+    };
+    const rightGlyphSet = new Set();
+    for (const row of rows.values()) {
+        for (const [secondGlyph, record] of row) {
+            if (adjustmentId(record) !== 0) rightGlyphSet.add(secondGlyph);
+        }
+    }
+    const rightGlyphs = [...rightGlyphSet].sort((left, right) => left - right);
     if (!rightGlyphs.length) return lookup;
 
     const rowClassesBySignature = new Map();
     for (const [firstGlyph, row] of rows) {
-        const signature = rightGlyphs.map(secondGlyph =>
-            pairPosAdjustmentSignature(row.get(secondGlyph), valueFormat1, valueFormat2)
-        ).join('|');
+        const signature = [...row]
+            .filter(([secondGlyph, record]) => rightGlyphSet.has(secondGlyph) && adjustmentId(record) !== 0)
+            .sort((left, right) => left[0] - right[0])
+            .map(([secondGlyph, record]) => `${secondGlyph}:${adjustmentId(record)}`)
+            .join(',');
         const rowClass = rowClassesBySignature.get(signature) || { glyphs: [], row };
         rowClass.glyphs.push(firstGlyph);
         rowClassesBySignature.set(signature, rowClass);
     }
     const rowClasses = [...rowClassesBySignature.values()];
 
+    const columnSignatures = new Map(rightGlyphs.map(secondGlyph => [secondGlyph, '']));
+    for (let index = 0; index < rowClasses.length; index++) {
+        for (const [secondGlyph, record] of rowClasses[index].row) {
+            const id = adjustmentId(record);
+            if (id !== 0 && rightGlyphSet.has(secondGlyph)) {
+                columnSignatures.set(secondGlyph, `${columnSignatures.get(secondGlyph)}${index}:${id},`);
+            }
+        }
+    }
     const columnClassesBySignature = new Map();
     for (const secondGlyph of rightGlyphs) {
-        const signature = rowClasses.map(rowClass =>
-            pairPosAdjustmentSignature(rowClass.row.get(secondGlyph), valueFormat1, valueFormat2)
-        ).join('|');
+        const signature = columnSignatures.get(secondGlyph);
         const columnClass = columnClassesBySignature.get(signature) || { glyphs: [], secondGlyph };
         columnClass.glyphs.push(secondGlyph);
         columnClassesBySignature.set(signature, columnClass);
