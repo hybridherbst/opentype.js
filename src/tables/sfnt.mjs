@@ -190,54 +190,78 @@ function computeMaxpValues(glyphs) {
     let maxCompositeContours = 0;
     let maxComponentElements = 0;
     let maxComponentDepth = 0;
-    
-    for (let i = 0; i < glyphs.length; i++) {
-        const glyphObj = /** @type {import('../glyph.mjs').Glyph & { components?: Array<{glyphIndex: number, dx: number, dy: number}> }} */ (glyphs.get(i));
-        if (!glyphObj) continue;
-        
-        // Count points and contours from glyph.points (TrueType)
-        // or from path commands using pathToPoints (CFF converted to TrueType)
-        let numPoints = 0;
-        let numContours = 0;
-        
+
+    /** @param {number} index */
+    const glyphAt = (index) => /** @type {(import('../glyph.mjs').Glyph & { components?: Array<{glyphIndex: number, dx: number, dy: number}> }) | undefined} */ (glyphs.get(index));
+
+    /**
+     * Points and contours a simple glyph encodes (TrueType points, or the path
+     * converted exactly as glyf.make() writes it).
+     * @param {import('../glyph.mjs').Glyph} glyphObj
+     */
+    const simpleCounts = (glyphObj) => {
         if (glyphObj.points && glyphObj.points.length > 0) {
-            // TrueType glyph with explicit points
-            numPoints = glyphObj.points.length;
-            // Count contours by counting lastPointOfContour markers
-            for (const point of glyphObj.points) {
-                if (point.lastPointOfContour) {
-                    numContours++;
-                }
-            }
-        } else if (glyphObj.path && glyphObj.path.commands && glyphObj.path.commands.length > 0) {
-            // CFF or constructed glyph - use pathToPoints for accurate conversion
-            // This matches the actual encoding in glyf.make()
+            let contours = 0;
+            for (const point of glyphObj.points) if (point.lastPointOfContour) contours++;
+            return { points: glyphObj.points.length, contours };
+        }
+        if (glyphObj.path && glyphObj.path.commands && glyphObj.path.commands.length > 0) {
             try {
                 const result = pathToPoints(glyphObj.path);
-                numPoints = result.points.length;
-                numContours = result.contourEnds.length;
+                return { points: result.points.length, contours: result.contourEnds.length };
             } catch {
-                // Fallback to simple estimation if pathToPoints fails
-                numPoints = 0;
-                numContours = 0;
+                return { points: 0, contours: 0 };
             }
         }
-        
-        // Check if this is a composite glyph
-        const isComposite = glyphObj.components && glyphObj.components.length > 0;
-        
-        if (isComposite) {
-            maxCompositePoints = Math.max(maxCompositePoints, numPoints);
-            maxCompositeContours = Math.max(maxCompositeContours, numContours);
-            maxComponentElements = Math.max(maxComponentElements, glyphObj.components.length);
-            // Component depth would need recursive analysis, default to 1 for simple composites
-            maxComponentDepth = Math.max(maxComponentDepth, 1);
+        return { points: 0, contours: 0 };
+    };
+
+    // Composite totals are the flattened simple outlines of every component, and
+    // depth counts nesting (1 when all components are simple), per the maxp spec.
+    /** @type {Map<number, { points: number, contours: number, depth: number }>} */
+    const totals = new Map();
+    /** @type {Set<number>} */
+    const visiting = new Set();
+    /** @param {number} index @returns {{ points: number, contours: number, depth: number }} */
+    const flattened = (index) => {
+        const cached = totals.get(index);
+        if (cached) return cached;
+        const glyphObj = glyphAt(index);
+        if (!glyphObj || visiting.has(index)) return { points: 0, contours: 0, depth: 0 };
+        let result;
+        if (glyphObj.components && glyphObj.components.length > 0) {
+            visiting.add(index);
+            result = { points: 0, contours: 0, depth: 0 };
+            for (const component of glyphObj.components) {
+                const child = flattened(component.glyphIndex);
+                result.points += child.points;
+                result.contours += child.contours;
+                result.depth = Math.max(result.depth, child.depth + 1);
+            }
+            visiting.delete(index);
         } else {
-            maxPoints = Math.max(maxPoints, numPoints);
-            maxContours = Math.max(maxContours, numContours);
+            result = { ...simpleCounts(glyphObj), depth: 0 };
+        }
+        totals.set(index, result);
+        return result;
+    };
+
+    for (let i = 0; i < glyphs.length; i++) {
+        const glyphObj = glyphAt(i);
+        if (!glyphObj) continue;
+        if (glyphObj.components && glyphObj.components.length > 0) {
+            const total = flattened(i);
+            maxCompositePoints = Math.max(maxCompositePoints, total.points);
+            maxCompositeContours = Math.max(maxCompositeContours, total.contours);
+            maxComponentElements = Math.max(maxComponentElements, glyphObj.components.length);
+            maxComponentDepth = Math.max(maxComponentDepth, total.depth);
+        } else {
+            const counts = simpleCounts(glyphObj);
+            maxPoints = Math.max(maxPoints, counts.points);
+            maxContours = Math.max(maxContours, counts.contours);
         }
     }
-    
+
     return {
         maxPoints,
         maxContours,
