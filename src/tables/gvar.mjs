@@ -5,6 +5,11 @@ import parse from '../parse.mjs';
 import table from '../table.mjs';
 import { encode } from '../types.mjs';
 
+// Encoded payloads can exceed JavaScript's function-argument limit.
+function appendBytes(target, bytes) {
+    for (const byte of bytes) target.push(byte);
+}
+
 function parseGvarTable(data, start, fvar, glyphs) {
     const p = new parse.Parser(data, start);
     const tableVersionMajor = p.parseUShort();
@@ -37,7 +42,7 @@ function parseGvarTable(data, start, fvar, glyphs) {
 function encodeTuple(tuple) {
     const result = [];
     for (let i = 0; i < tuple.length; i++) {
-        result.push(...encode.F2DOT14(tuple[i]));
+        appendBytes(result, encode.F2DOT14(tuple[i]));
     }
     return result;
 }
@@ -56,7 +61,7 @@ function encodeTupleVariationHeader(header, axisCount, variationDataSize, shared
     const result = [];
     
     // variationDataSize (uint16)
-    result.push(...encode.USHORT(variationDataSize));
+    appendBytes(result, encode.USHORT(variationDataSize));
     
     // Build tupleIndex flags
     let tupleIndex = 0;
@@ -99,17 +104,17 @@ function encodeTupleVariationHeader(header, axisCount, variationDataSize, shared
         tupleIndex |= 0x8000; // EMBEDDED_PEAK_TUPLE
     }
     
-    result.push(...encode.USHORT(tupleIndex));
+    appendBytes(result, encode.USHORT(tupleIndex));
     
     // Peak tuple (if embedded)
     if (useEmbeddedPeak && peakTuple) {
-        result.push(...encodeTuple(peakTuple));
+        appendBytes(result, encodeTuple(peakTuple));
     }
     
     // Intermediate start and end tuples
     if (hasIntermediate) {
-        result.push(...encodeTuple(intermediateStartTuple));
-        result.push(...encodeTuple(intermediateEndTuple));
+        appendBytes(result, encodeTuple(intermediateStartTuple));
+        appendBytes(result, encodeTuple(intermediateEndTuple));
     }
     
     return result;
@@ -126,20 +131,20 @@ function encodeTupleSerializedData(header, usePrivatePoints) {
     
     // Private point numbers (if used)
     if (usePrivatePoints && header.privatePoints && header.privatePoints.length > 0) {
-        result.push(...encode.PACKEDPOINTS(header.privatePoints, false));
+        appendBytes(result, encode.PACKEDPOINTS(header.privatePoints, false));
     } else if (usePrivatePoints) {
         // All points
-        result.push(...encode.PACKEDPOINTS([], true));
+        appendBytes(result, encode.PACKEDPOINTS([], true));
     }
     
     // Packed deltas for X coordinates
     if (header.deltas) {
-        result.push(...encode.VARDELTAS(header.deltas));
+        appendBytes(result, encode.VARDELTAS(header.deltas));
     }
     
     // Packed deltas for Y coordinates (gvar only)
     if (header.deltasY) {
-        result.push(...encode.VARDELTAS(header.deltasY));
+        appendBytes(result, encode.VARDELTAS(header.deltasY));
     }
     
     return result;
@@ -201,13 +206,17 @@ function encodeGlyphVariationData(variation, axisCount, sharedTupleMap, original
     }
     
     const headers = variation.headers;
+    if (headers.length > 0x0FFF) throw new Error('gvar glyph exceeds the 4095 tuple variation limit.');
     const hasSharedPoints = variation.sharedPoints && variation.sharedPoints.length > 0;
     
     // First, encode all the serialized data to get sizes
     const serializedDataParts = [];
     const usePrivatePointsArray = [];
     for (const header of headers) {
-        const usePrivatePoints = !!header.privatePointNumbers || (header.privatePoints && header.privatePoints.length > 0);
+        // Without a shared point list, explicitly encode the all-points marker.
+        // Omitting both point-number flags leaves the tuple without any points
+        // in consumers such as HarfBuzz/fontTools, even if deltas follow it.
+        const usePrivatePoints = !hasSharedPoints || !!header.privatePointNumbers || (header.privatePoints && header.privatePoints.length > 0);
         const data = encodeTupleSerializedData(header, usePrivatePoints);
         usePrivatePointsArray.push(usePrivatePoints);
         serializedDataParts.push(data);
@@ -225,7 +234,7 @@ function encodeGlyphVariationData(variation, axisCount, sharedTupleMap, original
             originalSharedTuples,
             usePrivatePointsArray[i]
         );
-        tupleVariationHeaders.push(...headerBytes);
+        appendBytes(tupleVariationHeaders, headerBytes);
     }
     
     // Build complete GlyphVariationData
@@ -236,23 +245,23 @@ function encodeGlyphVariationData(variation, axisCount, sharedTupleMap, original
     if (hasSharedPoints) {
         tupleVariationCount |= 0x8000; // SHARED_POINT_NUMBERS
     }
-    result.push(...encode.USHORT(tupleVariationCount));
+    appendBytes(result, encode.USHORT(tupleVariationCount));
     
     // Calculate dataOffset: 2 (count) + 2 (offset) + headers
     const dataOffset = 4 + tupleVariationHeaders.length;
-    result.push(...encode.USHORT(dataOffset));
+    appendBytes(result, encode.USHORT(dataOffset));
     
     // Tuple variation headers
-    result.push(...tupleVariationHeaders);
+    appendBytes(result, tupleVariationHeaders);
     
     // Shared point numbers (if present)
     if (hasSharedPoints) {
-        result.push(...encode.PACKEDPOINTS(variation.sharedPoints, false));
+        appendBytes(result, encode.PACKEDPOINTS(variation.sharedPoints, false));
     }
     
     // Serialized data for each tuple variation table
     for (const data of serializedDataParts) {
-        result.push(...data);
+        appendBytes(result, data);
     }
     
     return result;
@@ -373,7 +382,7 @@ function makeGvarTable(gvar, fvar) {
     // Add glyph variation data as literal bytes
     const allGlyphData = [];
     for (const data of glyphVariationDataList) {
-        allGlyphData.push(...data);
+        appendBytes(allGlyphData, data);
     }
     
     if (allGlyphData.length > 0) {

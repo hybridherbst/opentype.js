@@ -450,10 +450,8 @@ export class VariationManager {
 
             const hasSimpleOutlines = glyph && glyph.path && glyph.path.commands && glyph.path.commands.length > 0;
             const isComposite = glyph && glyph.isComposite;
-            if (!hasSimpleOutlines && !isComposite) {
-                continue;
-            }
-            
+            if (!glyph) continue;
+            // Empty glyphs (spaces and shaping fonts) can still vary in advance.
             const deltaResult = deltaGenerator(glyph, font);
             if (!deltaResult) {
                 continue;
@@ -492,7 +490,7 @@ export class VariationManager {
                     hvarTuples[tupleIdx].deltas[i] = item.advanceWidthDelta;
                 }
                 
-                if (!item.deltas && !item.deltasY) {
+                if ((!hasSimpleOutlines && !isComposite) || (!item.deltas && !item.deltasY)) {
                     continue;
                 }
                 

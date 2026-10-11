@@ -389,10 +389,11 @@ export class VariationProcessor {
                         // Mutate in place — no new object allocation needed.
                         // transformedPoints is already a fresh copy from points.map(copyPoint)
                         // so mutating is safe and avoids N object allocations per active header.
-                        // Round per-header to match the spec's implicit rounding model and
-                        // avoid floating-point drift when many headers accumulate.
-                        point.x = Math.round(point.x + header.deltas[i] * factor);
-                        point.y = Math.round(point.y + header.deltasY[i] * factor);
+                        // Sum all weighted deltas before the final OpenType
+                        // rounding below. Rounding each tuple loses small
+                        // contributions and makes the result depend on order.
+                        point.x += header.deltas[i] * factor;
+                        point.y += header.deltasY[i] * factor;
                     } else if (flavor === 'cvar') {
                         transformedPoints[i] = point + header.deltas[i] * factor;
                     }
