@@ -258,6 +258,7 @@ export class VariationManager {
      * @param {object} instanceOptions - The instance configuration
      * @param {string} instanceOptions.name - Human-readable name (e.g., "Bold")
      * @param {Record<string, number>} instanceOptions.coordinates - Object mapping axis tags to values
+     * @param {string} [instanceOptions.postScriptName] - Explicit PostScript name; omitted derives family-instance
      * @returns {Record<string, unknown>} The newly added instance
      */
     addInstance(instanceOptions) {
@@ -281,8 +282,17 @@ export class VariationManager {
         const subfamily = this.font.names?.windows?.fontSubfamily;
         const subfamilyNameID = subfamily?.en === name ? 2 : this._addNameEntry(name);
 
+        const family = this.font.names?.windows?.preferredFamily?.en || this.font.names?.windows?.fontFamily?.en || 'Font';
+        const sanitize = value => String(value).replace(/[^A-Za-z0-9_.-]/g, '');
+        const postScriptName = instanceOptions.postScriptName || `${sanitize(family) || 'Font'}-${sanitize(name) || 'Instance'}`.slice(0, 63);
+        if (!/^[!-~]{1,63}$/.test(postScriptName) || /[\[\](){}<>\/%]/.test(postScriptName)) {
+            throw new Error('Instance PostScript name must be 1–63 printable ASCII characters without spaces or [](){}<>/%');
+        }
+        const postScriptNameID = this.font.names?.windows?.postScriptName?.en === postScriptName ? 6 : this._addNameEntry(postScriptName);
         const newInstance = {
             subfamilyNameID,
+            postScriptNameID,
+            postScriptName: { en: postScriptName },
             name: { en: name },
             coordinates: { ...coordinates }
         };

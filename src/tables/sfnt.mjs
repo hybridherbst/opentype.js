@@ -565,9 +565,14 @@ function fontToSfntTable(font, options = {}) {
     // This is required by Google Fonts and should match the PostScript name prefix
     const isVariableFont = font.tables.fvar && font.tables.fvar.axes && font.tables.fvar.axes.length > 0;
     if (isVariableFont && !names.windows.variationsPostScriptNamePrefix) {
-        // Use the base PostScript name without style suffix as the prefix
-        const basePostScriptName = postScriptName.replace(/-(Regular|Bold|Italic|Light|Medium|Thin|Black|SemiBold|ExtraBold|ExtraLight|Hairline)$/i, '');
-        names.windows.variationsPostScriptNamePrefix = {en: basePostScriptName};
+        // Name 25 identifies the variable family, including its static slope.
+        // Weight/width styles vary within that family; a separate italic font
+        // needs a distinct prefix. Explicit authored name 25 remains untouched.
+        const family = names.windows.preferredFamily?.en || englishFamilyName;
+        const style = names.windows.preferredSubfamily?.en || englishStyleName;
+        const italic = /italic|oblique/i.test(style) || (font.tables.os2?.fsSelection & 1) !== 0 || font.italicAngle !== 0;
+        const familyPrefix = family.replace(/[^A-Za-z0-9]/g, '') || 'Font';
+        names.windows.variationsPostScriptNamePrefix = {en: familyPrefix + (italic ? 'Italic' : '')};
     }
 
     // No ltag table - it's an Apple AAT table not part of OpenType spec
