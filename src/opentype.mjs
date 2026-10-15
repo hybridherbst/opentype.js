@@ -725,3 +725,5 @@ export {
     load,
     loadSync
 };
+
+export { unicodeToGlyphName } from './encoding.mjs';

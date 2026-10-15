@@ -492,7 +492,7 @@ function fontToSfntTable(font, options = {}) {
     
     let postScriptName = font.getEnglishName('postScriptName');
     if (!postScriptName) {
-        postScriptName = englishFamilyName.replace(/\s/g, '') + '-' + englishStyleName;
+        postScriptName = (englishFamilyName + '-' + englishStyleName).replace(/\s/g, '');
     }
 
     // Deep copy names to avoid mutating the original font object
@@ -530,16 +530,16 @@ function fontToSfntTable(font, options = {}) {
     }
 
     // do this as a loop to reduce redundant code
-    for (const platform in ['unicode', 'macintosh', 'windows']) {
+    for (const platform of ['unicode', 'macintosh', 'windows']) {
 
         names[platform] = names[platform] || {};
 
         if (!names[platform].uniqueID) {
-            names.unicode.uniqueID = {en: font.getEnglishName('manufacturer') + ':' + englishFullName};
+            names[platform].uniqueID = {en: (font.getEnglishName('manufacturer') || 'NONE') + ':' + englishFullName};
         }
 
         if (!names[platform].postScriptName) {
-            names.unicode.postScriptName = {en: postScriptName};
+            names[platform].postScriptName = {en: postScriptName};
         }
         
         // Ensure fullName is set and starts with family name
@@ -553,30 +553,8 @@ function fontToSfntTable(font, options = {}) {
         names.windows.fullName = {en: englishFullName};
     }
 
-    // this cannot be done as a loop as each one is unique.
-    if (!names.unicode.preferredFamily) {
-        names.unicode.preferredFamily = fontNamesUnicode.fontFamily || fontNamesMacintosh.fontFamily || fontNamesWindows.fontFamily;
-    }
-
-    if (!names.macintosh.preferredFamily) {
-        names.macintosh.preferredFamily = fontNamesMacintosh.fontFamily || fontNamesUnicode.fontFamily || fontNamesWindows.fontFamily;
-    }
-
-    if (!names.windows.preferredFamily) {
-        names.windows.preferredFamily = fontNamesWindows.fontFamily || fontNamesUnicode.fontFamily || fontNamesMacintosh.fontFamily;
-    }
-
-    if (!names.unicode.preferredSubfamily) {
-        names.unicode.preferredSubfamily = fontNamesUnicode.fontSubfamily || fontNamesMacintosh.fontSubfamily || fontNamesWindows.fontSubfamily;
-    }
-
-    if (!names.macintosh.preferredSubfamily) {
-        names.macintosh.preferredSubfamily = fontNamesMacintosh.fontSubfamily || fontNamesUnicode.fontSubfamily || fontNamesWindows.fontSubfamily;
-    }
-
-    if (!names.windows.preferredSubfamily) {
-        names.windows.preferredSubfamily = fontNamesWindows.fontSubfamily || fontNamesUnicode.fontSubfamily || fontNamesMacintosh.fontSubfamily;
-    }
+    // Typographic names are authored or supplied by the constructor for non-RIBBI
+    // styles. Do not manufacture redundant IDs 16/17 for Regular/Bold/Italic.
 
     // Ensure description (nameID 10) exists - required by some validators
     if (!names.windows.description) {

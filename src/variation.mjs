@@ -276,20 +276,11 @@ export class VariationManager {
             }
         }
         
-        // Check if this is the default instance (coordinates match default values)
-        const isDefaultInstance = fvar.axes.every(axis => 
-            coordinates[axis.tag] === axis.defaultValue
-        );
-        
-        // For the default instance, use nameID 2 (fontSubfamily) as per OpenType spec
-        // This is required for fontspector validation
-        let subfamilyNameID;
-        if (isDefaultInstance || name === 'Regular') {
-            subfamilyNameID = 2; // Use standard fontSubfamily nameID
-        } else {
-            subfamilyNameID = this._addNameEntry(name);
-        }
-        
+        // A standard name ID is reusable only when it resolves to this name.
+        // Default coordinates do not imply that the authored label is Regular.
+        const subfamily = this.font.names?.windows?.fontSubfamily;
+        const subfamilyNameID = subfamily?.en === name ? 2 : this._addNameEntry(name);
+
         const newInstance = {
             subfamilyNameID,
             name: { en: name },
@@ -667,6 +658,13 @@ export class VariationManager {
     finalizeHvar() {
         if (this._hvarTuples.length > 0) {
             this._generateHvarTableMultiAxis(this._hvarTuples, this.font.glyphs.length);
+        } else if (!this.font.tables.hvar && this.font.tables.fvar?.axes?.length) {
+            // Explicit constant metrics keep the variation contract uniform,
+            // including fonts whose axes affect only outlines or paint.
+            this._generateHvarTableMultiAxis([{
+                peakTuple: this.font.tables.fvar.axes.map(() => 0),
+                deltas: []
+            }], this.font.glyphs.length);
         }
     }
 

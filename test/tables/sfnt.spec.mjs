@@ -47,14 +47,15 @@ describe('tables/sfnt.js', ()=>{
             // per fontspector recommendation (no_mac_entries)
             assert.deepEqual(parsedNameTable, {
                 windows: {
-                    fontFamily: { en: defaultFont.familyName }, // 'MyFont'
-                    fontSubfamily: { en: defaultFont.styleName }, // 'Medium'
+                    fontFamily: { en: `${defaultFont.familyName} ${defaultFont.styleName}` }, // Legacy non-RIBBI family
+                    fontSubfamily: { en: 'Regular' }, // Legacy RIBBI style
                     fullName: { en: `${defaultFont.familyName} ${defaultFont.styleName}` }, // 'MyFont Medium'
                     version: { en: 'Version 0.1' },
-                    postScriptName: { en: `${defaultFont.familyName}${defaultFont.styleName}` }, // 'MyFontMedium'
+                    postScriptName: { en: `${defaultFont.familyName}-${defaultFont.styleName}` },
+                    uniqueID: { en: `NONE:${defaultFont.familyName} ${defaultFont.styleName}` },
                     preferredFamily: { en: defaultFont.familyName }, // 'MyFont'
                     preferredSubfamily: { en: defaultFont.styleName }, // 'Medium'
-                    description: { en: `${defaultFont.familyName} font` } // Auto-generated description
+                    description: { en: `${defaultFont.familyName} ${defaultFont.styleName} font` } // Auto-generated description
                 }
             });
         });
@@ -100,12 +101,14 @@ describe('tables/sfnt.js', ()=>{
                     version: { en: version },
                     preferredFamily: { en: preferredFamily },
                     preferredSubfamily: { en: preferredSubfamily},
+                    postScriptName: { en: 'OriginalName-BoldItalic' },
+                    uniqueID: { en: `NONE:${fullName}` },
                     description: { en: `${fontFamily} font` } // Auto-generated description
                 }
             });
         });
 
-        it('should set preferredSubfamily as value of fontSubfamily, if not explicitly set', ()=>{
+        it('preserves authored legacy names without inventing typographic names', ()=>{
             const preferredSubfamily = 'Custom Subfamily';
             font.names = { 
                 windows: {
@@ -118,7 +121,9 @@ describe('tables/sfnt.js', ()=>{
             const name_table = sfnt_table.tables.find((table)=>table.tableName == 'name');
             const parsedNameTable = encodeAndParseTable(name_table, name.parse);
 
-            assert.deepEqual(parsedNameTable.windows.preferredSubfamily, { en: preferredSubfamily });
+            assert.deepEqual(parsedNameTable.windows.fontSubfamily, { en: preferredSubfamily });
+            assert.equal(parsedNameTable.windows.preferredSubfamily, undefined);
+            assert.equal(parsedNameTable.windows.preferredFamily, undefined);
         });
     });
 });

@@ -236,7 +236,9 @@ function parseOS2Table(data, start) {
     return os2;
 }
 
-function makeOS2Table(options) {
+function makeOS2Table(options = {}) {
+    // USE_TYPO_METRICS, WWS and OBLIQUE were introduced in version 4.
+    options = {...options, version: Math.max(options.version || 3, (options.fsSelection & 0x0380) ? 4 : 3)};
     return new table.Table('OS/2', [
         {name: 'version', type: 'USHORT', value: 0x0003},
         {name: 'xAvgCharWidth', type: 'SHORT', value: 0},

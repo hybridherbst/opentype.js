@@ -18,14 +18,22 @@ import { applyPaintType } from './tables/cff.mjs';
 import { convertCFF2ToTTF, convertTTFToCFF2 } from './conversion.mjs';
 
 function createDefaultNamesInfo(options) {
+    const family = options.familyName || 'Untitled';
+    const style = options.styleName || 'Regular';
+    const ribbi = ['Regular', 'Italic', 'Bold', 'Bold Italic'].includes(style);
+    const italic = /\bItalic\b/.test(style);
     const names = {
-        fontFamily: {en: options.familyName || 'Untitled'},
-        fontSubfamily: {en: options.styleName || 'Regular'},
+        fontFamily: {en: ribbi ? family : `${family} ${style.replace(/\bItalic\b/g, '').trim()}`.trim()},
+        fontSubfamily: {en: ribbi ? style : italic ? 'Italic' : 'Regular'},
         fullName: {en: options.fullName || (options.familyName || 'Untitled') + ' ' + (options.styleName || 'Regular')},
         // postScriptName may not contain any whitespace
-        postScriptName: {en: options.postScriptName || ((options.familyName || 'Untitled') + (options.styleName || 'Regular')).replace(/\s/g, '')},
+        postScriptName: {en: options.postScriptName || ((options.familyName || 'Untitled') + '-' + (options.styleName || 'Regular')).replace(/\s/g, '')},
         version: {en: options.version || 'Version 0.1'},
     };
+    if (!ribbi) {
+        names.preferredFamily = {en: family};
+        names.preferredSubfamily = {en: style};
+    }
     // Only include optional fields if they are provided and non-empty
     if (options.designer) names.designer = {en: options.designer};
     if (options.designerURL) names.designerURL = {en: options.designerURL};
@@ -100,7 +108,15 @@ function Font(options) {
         this.descender = options.descender;
         this.createdTimestamp = options.createdTimestamp;
         this.italicAngle = options.italicAngle || 0;
-        this.weightClass = options.weightClass || 0;
+        const styleWeight = /(?:Extra|Ultra)Bold/i.test(options.styleName || '') ? 800
+            : /(?:Semi|Demi)Bold/i.test(options.styleName || '') ? 600
+            : /Bold/i.test(options.styleName || '') ? 700
+            : /Black|Heavy/i.test(options.styleName || '') ? 900
+            : /(?:Extra|Ultra)Light/i.test(options.styleName || '') ? 200
+            : /Light/i.test(options.styleName || '') ? 300
+            : /Thin|Hairline/i.test(options.styleName || '') ? 100
+            : /Medium/i.test(options.styleName || '') ? 500 : 400;
+        this.weightClass = options.weightClass || styleWeight;
 
         let selection = 0;
         if (options.fsSelection) {
@@ -125,7 +141,7 @@ function Font(options) {
 
         this.tables = Object.assign(options.tables, {
             os2: Object.assign({
-                usWeightClass: options.weightClass || Font.prototype.usWeightClasses.MEDIUM,
+                usWeightClass: this.weightClass,
                 usWidthClass: options.widthClass || Font.prototype.usWidthClasses.MEDIUM,
                 bFamilyType: options.panose[0] || 0,
                 bSerifStyle: options.panose[1] || 0,

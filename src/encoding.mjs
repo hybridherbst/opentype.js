@@ -404,3 +404,14 @@ export {
     GlyphNames,
     addGlyphNames
 };
+
+/** Return a production glyph name for a Unicode scalar (ASCII uses standard names). */
+export function unicodeToGlyphName(codePoint) {
+    if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10FFFF || (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
+        throw new RangeError('Expected a Unicode scalar');
+    }
+    if (codePoint === 0) return '.null';
+    if (codePoint >= 32 && codePoint <= 126) return standardNames[codePoint - 32 + 3];
+    const hex = codePoint.toString(16).toUpperCase();
+    return codePoint <= 0xFFFF ? `uni${hex.padStart(4, '0')}` : `u${hex}`;
+}
