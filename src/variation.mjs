@@ -491,7 +491,26 @@ export class VariationManager {
                     hvarTuples[tupleIdx].deltas[i] = item.advanceWidthDelta;
                 }
                 
-                if ((!hasSimpleOutlines && !isComposite) || (!item.deltas && !item.deltasY)) {
+                // gvar phantom points (origin, advance, top, bottom) must agree with
+                // HVAR: consumers without HVAR, and instancers, take the advance from
+                // the second phantom point. Empty glyphs carry only these four points.
+                const advanceDelta = Math.round(item.advanceWidthDelta || 0);
+                const allPoints = !item.privatePoints || item.privatePoints.length === 0;
+                let itemDeltas = item.deltas;
+                let itemDeltasY = item.deltasY;
+                if (advanceDelta && allPoints) {
+                    if (!hasSimpleOutlines && !isComposite && !(itemDeltas && itemDeltas.length)) {
+                        itemDeltas = [0, 0, 0, 0];
+                        itemDeltasY = [0, 0, 0, 0];
+                    }
+                    if (itemDeltas && itemDeltas.length >= 4 && !itemDeltas[itemDeltas.length - 3]) {
+                        itemDeltas = [...itemDeltas];
+                        itemDeltas[itemDeltas.length - 3] = advanceDelta;
+                        if (!itemDeltasY || itemDeltasY.length !== itemDeltas.length) itemDeltasY = new Array(itemDeltas.length).fill(0);
+                    }
+                }
+
+                if ((!hasSimpleOutlines && !isComposite && !(advanceDelta && itemDeltas && itemDeltas.length === 4)) || (!itemDeltas && !itemDeltasY)) {
                     continue;
                 }
                 
@@ -511,8 +530,8 @@ export class VariationManager {
                 // privatePoints must be initialized (empty = all points affected)
                 const header = {
                     peakTuple,
-                    deltas: item.deltas || [],
-                    deltasY: item.deltasY || [],
+                    deltas: itemDeltas || [],
+                    deltasY: itemDeltasY || [],
                     privatePoints: item.privatePoints || []
                 };
                 if (item.intermediateStartTuple) {
