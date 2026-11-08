@@ -199,7 +199,10 @@ encode.UFWORD = encode.USHORT;
 sizeOf.UFWORD = sizeOf.USHORT;
 
 encode.F2DOT14 = function(v) {
-    return encode.USHORT(v * 16384);
+    // Nearest 2.14 value; truncating moved 0.4 to 0.39996 and -0.4 to -0.39996.
+    const scaled = Math.round(v * 16384);
+    check.argument(scaled >= -32768 && scaled <= 32767, 'F2DOT14 value ' + v + ' is outside [-2, 2).');
+    return encode.SHORT(scaled);
 };
 sizeOf.F2DOT14 = sizeOf.USHORT;
 

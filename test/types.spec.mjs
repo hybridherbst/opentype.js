@@ -48,6 +48,14 @@ describe('types.mjs', function() {
         assert.equal(sizeOf.LONG(-123456789), 4);
     });
 
+    it('rounds F2DOT14 to the nearest value', function() {
+        assert.deepEqual(encode.F2DOT14(0.4), [0x19, 0x9A]);
+        assert.deepEqual(encode.F2DOT14(-0.4), [0xE6, 0x66]);
+        assert.deepEqual(encode.F2DOT14(1), [0x40, 0x00]);
+        assert.deepEqual(encode.F2DOT14(-2), [0x80, 0x00]);
+        assert.throws(() => encode.F2DOT14(2), /outside/);
+    });
+
     it('can handle FIXED', function() {
         assert.equal(hex(encode.FIXED(0xBEEFCAFE)), 'BE EF CA FE');
         assert.equal(sizeOf.FIXED(0xBEEFCAFE), 4);
