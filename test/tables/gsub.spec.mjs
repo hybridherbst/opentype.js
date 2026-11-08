@@ -742,4 +742,36 @@ describe('tables/gsub.mjs', function() {
             ]
         }), expectedData);
     });
+    //// FeatureParams ////////////////////////////////////////////////////////
+    it('writes and parses FeatureParams of stylistic sets, character variants and size', function() {
+        const params = {
+            ss01: {kind: 'stylisticSet', version: 0, uiNameID: 256},
+            cv01: {kind: 'characterVariant', format: 0, featUiLabelNameId: 257, featUiTooltipTextNameId: 0,
+                sampleTextNameId: 0, numNamedParameters: 0, firstParamUiLabelNameId: 0, characters: [0x61, 0x1F600]},
+            size: {kind: 'size', designSize: 120, subfamilyIdentifier: 1, subfamilyNameID: 258, rangeStart: 90, rangeEnd: 160},
+        };
+        const table = {
+            version: 1,
+            scripts: [{tag: 'DFLT', script: {defaultLangSys: {reserved: 0, reqFeatureIndex: 65535, featureIndexes: [0, 1, 2, 3]}, langSysRecords: []}}],
+            features: [
+                ...Object.entries(params).map(([tag, featureParams]) => ({tag, feature: {featureParams, lookupListIndexes: [0]}})),
+                {tag: 'liga', feature: {featureParams: 0, lookupListIndexes: [0]}},
+            ],
+            lookups: [{lookupType: 1, lookupFlag: 0, subtables: [{substFormat: 1, coverage: {format: 1, glyphs: [1]}, deltaGlyphId: 1}]}],
+        };
+        const parsed = gsub.parse(new DataView(new Uint8Array(gsub.make(table).encode()).buffer));
+        assert.deepEqual(parsed.features.map((record) => [record.tag, record.feature.featureParams]),
+            [...Object.entries(params), ['liga', 0]]);
+        assert.deepEqual(parsed.features.map((record) => record.feature.lookupListIndexes), [[0], [0], [0], [0]]);
+    });
+
+    it('does not write a parsed FeatureParams offset as a number', function() {
+        const table = {
+            version: 1, scripts: [],
+            features: [{tag: 'ss01', feature: {featureParams: 12, lookupListIndexes: []}}],
+            lookups: [],
+        };
+        const parsed = gsub.parse(new DataView(new Uint8Array(gsub.make(table).encode()).buffer));
+        assert.equal(parsed.features[0].feature.featureParams, 0);
+    });
 });

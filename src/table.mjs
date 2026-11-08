@@ -153,19 +153,61 @@ ScriptList.prototype = Object.create(Table.prototype);
 ScriptList.prototype.constructor = ScriptList;
 
 /**
+ * A FeatureParams table, written at an offset from its Feature table.
+ * @param {import('./parse.mjs').FeatureParams} params
+ * @returns {Table}
+ */
+function makeFeatureParams(params) {
+    if (params.kind === 'stylisticSet') {
+        return new Table('featureParams', [
+            {name: 'version', type: 'USHORT', value: params.version || 0},
+            {name: 'uiNameID', type: 'USHORT', value: params.uiNameID},
+        ]);
+    }
+    if (params.kind === 'characterVariant') {
+        const characters = params.characters || [];
+        return new Table('featureParams', [
+            {name: 'format', type: 'USHORT', value: params.format || 0},
+            {name: 'featUiLabelNameId', type: 'USHORT', value: params.featUiLabelNameId || 0},
+            {name: 'featUiTooltipTextNameId', type: 'USHORT', value: params.featUiTooltipTextNameId || 0},
+            {name: 'sampleTextNameId', type: 'USHORT', value: params.sampleTextNameId || 0},
+            {name: 'numNamedParameters', type: 'USHORT', value: params.numNamedParameters || 0},
+            {name: 'firstParamUiLabelNameId', type: 'USHORT', value: params.firstParamUiLabelNameId || 0},
+            {name: 'charCount', type: 'USHORT', value: characters.length},
+            ...characters.map((character, i) => ({name: 'character' + i, type: 'UINT24', value: character})),
+        ]);
+    }
+    if (params.kind === 'size') {
+        return new Table('featureParams', [
+            {name: 'designSize', type: 'USHORT', value: params.designSize},
+            {name: 'subfamilyIdentifier', type: 'USHORT', value: params.subfamilyIdentifier},
+            {name: 'subfamilyNameID', type: 'USHORT', value: params.subfamilyNameID},
+            {name: 'rangeStart', type: 'USHORT', value: params.rangeStart},
+            {name: 'rangeEnd', type: 'USHORT', value: params.rangeEnd},
+        ]);
+    }
+    throw new Error('Unknown FeatureParams kind ' + /** @type {{kind?: unknown}} */ (params).kind);
+}
+
+/**
  * @exports opentype.FeatureList
  * @class
- * @param {Array<{tag: string, feature: {featureParams: number, lookupListIndexes: number[]}}>} featureListTable
+ * @param {Array<{tag: string, feature: {featureParams?: import('./parse.mjs').FeatureParams | 0, lookupListIndexes: number[]}}>} featureListTable
  * @constructor
  */
 function FeatureList(featureListTable) {
     Table.call(this, 'featureListTable',
         recordList('featureRecord', featureListTable, function(featureRecord, i) {
             const feature = featureRecord.feature;
+            // FeatureParams is an offset from the Feature table; a bare number (a parsed
+            // offset into another font) has no meaning here and is written as none.
+            const params = feature.featureParams && typeof feature.featureParams === 'object' ? feature.featureParams : null;
             return [
                 {name: 'featureTag' + i, type: 'TAG', value: featureRecord.tag},
                 {name: 'feature' + i, type: 'TABLE', value: new Table('featureTable', [
-                    {name: 'featureParams', type: 'USHORT', value: feature.featureParams},
+                    params
+                        ? {name: 'featureParams', type: 'TABLE', value: makeFeatureParams(params)}
+                        : {name: 'featureParams', type: 'USHORT', value: 0},
                 ].concat(ushortList('lookupListIndex', feature.lookupListIndexes)))}
             ];
         })

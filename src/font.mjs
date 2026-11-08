@@ -108,14 +108,12 @@ function Font(options) {
         this.descender = options.descender;
         this.createdTimestamp = options.createdTimestamp;
         this.italicAngle = options.italicAngle || 0;
-        const styleWeight = /(?:Extra|Ultra)Bold/i.test(options.styleName || '') ? 800
-            : /(?:Semi|Demi)Bold/i.test(options.styleName || '') ? 600
-            : /Bold/i.test(options.styleName || '') ? 700
-            : /Black|Heavy/i.test(options.styleName || '') ? 900
-            : /(?:Extra|Ultra)Light/i.test(options.styleName || '') ? 200
-            : /Light/i.test(options.styleName || '') ? 300
-            : /Thin|Hairline/i.test(options.styleName || '') ? 100
-            : /Medium/i.test(options.styleName || '') ? 500 : 400;
+        const styleName = options.styleName || '';
+        const styleWeights = [
+            [/(?:Extra|Ultra)Bold/i, 800], [/(?:Semi|Demi)Bold/i, 600], [/Bold/i, 700], [/Black|Heavy/i, 900],
+            [/(?:Extra|Ultra)Light/i, 200], [/Light/i, 300], [/Thin|Hairline/i, 100], [/Medium/i, 500],
+        ];
+        const styleWeight = /** @type {number} */ (styleWeights.find(([pattern]) => /** @type {RegExp} */ (pattern).test(styleName))?.[1] ?? 400);
         this.weightClass = options.weightClass || styleWeight;
 
         let selection = 0;

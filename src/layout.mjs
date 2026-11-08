@@ -223,7 +223,7 @@ Layout.prototype = {
      * @param {string} [language='dlft']
      * @param {string} [feature] - One of the codes listed at https://www.microsoft.com/typography/OTSPEC/featurelist.htm
      * @param {boolean} [create] - forces the creation of the feature table if it doesn't exist.
-     * @return {{featureParams: number, lookupListIndexes: number[]}|undefined}
+     * @return {{featureParams: import('./parse.mjs').FeatureParams | 0, lookupListIndexes: number[]}|undefined}
      */
     getFeatureTable: function(script, language, feature, create) {
         const langSysTable = this.getLangSysTable(script, language, create);
@@ -245,7 +245,7 @@ Layout.prototype = {
                 check.assert(index === 0 || feature >= allFeatures[index - 1].tag, 'Features must be added in alphabetical order.');
                 featureRecord = {
                     tag: feature,
-                    feature: { featureParams: 0, lookupListIndexes: [] }
+                    feature: { featureParams: /** @type {0} */ (0), lookupListIndexes: /** @type {number[]} */ ([]) }
                 };
                 allFeatures.push(featureRecord);
                 featIndexes.push(index);

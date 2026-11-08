@@ -788,14 +788,81 @@ Parser.prototype.parseScriptList = function() {
     })) || [];
 };
 
+/**
+ * @typedef {{kind: 'stylisticSet', version: number, uiNameID: number}} StylisticSetParams
+ * @typedef {{kind: 'characterVariant', format: number, featUiLabelNameId: number, featUiTooltipTextNameId: number,
+ *   sampleTextNameId: number, numNamedParameters: number, firstParamUiLabelNameId: number, characters: number[]}} CharacterVariantParams
+ * @typedef {{kind: 'size', designSize: number, subfamilyIdentifier: number, subfamilyNameID: number,
+ *   rangeStart: number, rangeEnd: number}} SizeParams
+ * @typedef {StylisticSetParams | CharacterVariantParams | SizeParams} FeatureParams
+ */
+
+/**
+ * FeatureParams of a feature, by its tag (OpenType Layout Common Table Formats):
+ * `ss01`–`ss20` name the set, `cv01`–`cv99` name a character variant and list its
+ * characters, `size` gives the optical size range. Offsets are from the Feature table.
+ * Params of other features have no defined format and are not kept.
+ * @param {DataView} data
+ * @param {number} offset absolute offset of the FeatureParams table
+ * @param {string} tag
+ * @returns {FeatureParams | 0}
+ */
+export function parseFeatureParams(data, offset, tag) {
+    const p = new Parser(data, offset);
+    if (/^ss(0[1-9]|1[0-9]|20)$/.test(tag)) {
+        return { kind: 'stylisticSet', version: p.parseUShort(), uiNameID: p.parseUShort() };
+    }
+    if (/^cv(0[1-9]|[1-9][0-9])$/.test(tag)) {
+        /** @type {CharacterVariantParams} */
+        const params = {
+            kind: 'characterVariant',
+            format: p.parseUShort(),
+            featUiLabelNameId: p.parseUShort(),
+            featUiTooltipTextNameId: p.parseUShort(),
+            sampleTextNameId: p.parseUShort(),
+            numNamedParameters: p.parseUShort(),
+            firstParamUiLabelNameId: p.parseUShort(),
+            characters: /** @type {number[]} */ ([]),
+        };
+        const count = p.parseUShort();
+        for (let i = 0; i < count; i++) params.characters.push(p.parseUInt24());
+        return params;
+    }
+    if (tag === 'size') {
+        return {
+            kind: 'size',
+            designSize: p.parseUShort(),
+            subfamilyIdentifier: p.parseUShort(),
+            subfamilyNameID: p.parseUShort(),
+            rangeStart: p.parseUShort(),
+            rangeEnd: p.parseUShort(),
+        };
+    }
+    return 0;
+}
+
 Parser.prototype.parseFeatureList = function() {
+    const data = this.data;
     return this.parsePointer(Parser.recordList({
         tag: Parser.tag,
-        feature: Parser.pointer({
-            featureParams: Parser.offset16,
-            lookupListIndexes: Parser.uShortList
+        feature: Parser.pointer(function() {
+            const start = this.offset;
+            const paramsOffset = this.parseOffset16();
+            return { paramsOffset: paramsOffset ? start + paramsOffset : 0, lookupListIndexes: this.parseUShortList() };
         })
-    })) || [];
+    }))?.map((/** @type {{tag: string, feature?: {paramsOffset: number, lookupListIndexes: number[]}}} */ record) => {
+        if (!record.feature) return record;
+        const { paramsOffset, lookupListIndexes } = record.feature;
+        let featureParams = /** @type {FeatureParams | 0} */ (0);
+        if (paramsOffset && paramsOffset < data.byteLength) {
+            try {
+                featureParams = parseFeatureParams(data, paramsOffset, record.tag);
+            } catch (err) {
+                if (!(err instanceof RangeError)) throw err;
+            }
+        }
+        return { tag: record.tag, feature: { featureParams, lookupListIndexes } };
+    }) || [];
 };
 
 Parser.prototype.parseLookupList = function(lookupTableParsers) {
