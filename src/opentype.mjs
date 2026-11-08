@@ -727,3 +727,4 @@ export {
 };
 
 export { unicodeToGlyphName } from './encoding.mjs';
+export { normalizeAxisValue, denormalizeAxisValue, applyAvarMapping, invertAvarMapping, normalizeCoordinates } from './variation-coordinates.mjs';

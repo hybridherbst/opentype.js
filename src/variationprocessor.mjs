@@ -1,6 +1,7 @@
 import { getPath, transformPoints } from './tables/glyf.mjs';
 import { copyPoint, copyComponent } from './util.mjs';
 import Glyph from './glyph.mjs';
+import { normalizeCoordinates } from './variation-coordinates.mjs';
 
 function otRound(value) {
     return Math.floor(value + 0.5);
@@ -48,44 +49,8 @@ export class VariationProcessor {
         if (this._normCacheCoords === coords) {
             return this._normCacheResult;
         }
-        let normalized = [];
         this.normalizeCoordTags(coords);
-        for (let i = 0; i < this.fvar().axes.length; i++) {
-            const axis = this.fvar().axes[i];
-            let tagValue = coords[axis.tag];
-            if(tagValue === undefined) {
-                tagValue = axis.defaultValue;
-            }
-            if (tagValue === axis.defaultValue) {
-                normalized.push(0);
-            } else if (tagValue < axis.defaultValue) {
-                const denom = axis.defaultValue - axis.minValue;
-                normalized.push(denom === 0 ? 0 : (tagValue - axis.defaultValue) / denom);
-            } else {
-                const denom = axis.maxValue - axis.defaultValue;
-                normalized.push(denom === 0 ? 0 : (tagValue - axis.defaultValue) / denom);
-            }
-        }
-
-        // if there is an avar table, the normalized value is calculated
-        // by interpolating between the two nearest mapped values.
-        if (this.avar()) {
-            for (let i = 0; i < this.avar().axisSegmentMaps.length; i++) {
-                let segment = this.avar().axisSegmentMaps[i];
-                for (let j = 0; j < segment.axisValueMaps.length; j++) {
-                    let pair = segment.axisValueMaps[j];
-                    if (j >= 1 && normalized[i] < pair.fromCoordinate) {
-                        let prev = segment.axisValueMaps[j - 1];
-                        const denom = pair.fromCoordinate - prev.fromCoordinate;
-                        normalized[i] = ((normalized[i] - prev.fromCoordinate) * (pair.toCoordinate - prev.toCoordinate)) /
-                            (denom === 0 ? 1 : denom) +
-                            prev.toCoordinate;
-            
-                        break;
-                    }
-                }
-            }
-        }
+        const normalized = normalizeCoordinates(coords, this.fvar().axes, this.avar());
 
         this._normCacheCoords = coords;
         this._normCacheResult = normalized;
