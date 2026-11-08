@@ -583,7 +583,7 @@ function fontToSfntTable(font, options = {}) {
     const nameTable = timeStep(timingSink, 'serializeNameTableMs', () => _name.make(names, languageTags, { skipMacPlatform: true, noStringDedup: true }));
     // Skip ltag table creation - not needed for modern fonts
 
-    const postTable = timeStep(timingSink, 'serializePostTableMs', () => post.make(font, { postFormat: options.postFormat }));
+    const postTable = timeStep(timingSink, 'serializePostTableMs', () => post.make(font, { postFormat: options.postFormat, glyphNames: options.glyphNames }));
     
     const metaTable = (font.metas && Object.keys(font.metas).length > 0)
         ? timeStep(timingSink, 'serializeMetaTableMs', () => meta.make(font.metas))

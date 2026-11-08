@@ -50,6 +50,61 @@ function parsePostTable(data, start) {
     return post;
 }
 
+/**
+ * The glyph names a format 2 post table writes, in glyph order: empty names
+ * become `glyph<index>`, characters outside printable ASCII become `_`, and
+ * names are truncated to 63 characters (OTS limits).
+ *
+ * `mode` 'preserve' (default) writes these names even when several glyphs
+ * share one. 'unique' keeps the first occurrence and renames later ones
+ * `name.1`, `name.2`, ... (skipping names already in use); glyph IDs, and so
+ * layout and outlines, are unaffected.
+ * @param {import('../font.mjs').default} font
+ * @param {'preserve'|'unique'} [mode]
+ * @returns {string[]}
+ */
+export function postGlyphNames(font, mode = 'preserve') {
+    const count = font.glyphs ? font.glyphs.length : 0;
+    const names = [];
+    for (let i = 0; i < count; i++) {
+        let name = (font.glyphs.get(i).name || '').replace(/[^\x21-\x7E]/g, '_');
+        if (!name) name = 'glyph' + i;
+        names.push(name.length > 63 ? name.substring(0, 63) : name);
+    }
+    if (mode !== 'unique') return names;
+    const used = new Set(names);
+    const seen = new Set();
+    return names.map(name => {
+        if (!seen.has(name)) { seen.add(name); return name; }
+        let n = 1;
+        let candidate;
+        do {
+            const suffix = '.' + n++;
+            candidate = name.substring(0, 63 - suffix.length) + suffix;
+        } while (used.has(candidate));
+        used.add(candidate);
+        seen.add(candidate);
+        return candidate;
+    });
+}
+
+/**
+ * Glyph names a format 2 post table would write for more than one glyph.
+ * Duplicate names are valid input to read, but QA tools (OTS, Font Bakery's
+ * unique_glyphnames) report them in output; glyph identity is the glyph ID.
+ * @param {import('../font.mjs').default} font
+ * @returns {Array<{name: string, glyphIndices: number[]}>}
+ */
+export function findDuplicateGlyphNames(font) {
+    const byName = new Map();
+    const names = postGlyphNames(font);
+    for (let index = 0; index < names.length; index++) {
+        if (!byName.has(names[index])) byName.set(names[index], []);
+        byName.get(names[index]).push(index);
+    }
+    return [...byName].filter(([, indices]) => indices.length > 1).map(([name, glyphIndices]) => ({ name, glyphIndices }));
+}
+
 function makePostTable(font, options = {}) {
     const {
         italicAngle = Math.round((font.italicAngle || 0) * 0x10000),
@@ -72,23 +127,10 @@ function makePostTable(font, options = {}) {
         const extraNames = [];
         const extraNamesMap = new Map(); // Map extra name -> index
         
+        const names = postGlyphNames(font, options.glyphNames);
         for (let i = 0; i < numberOfGlyphs; i++) {
-            const glyph = font.glyphs.get(i);
-            let name = glyph.name || '';
-            
-            // Generate a name for glyphs without names or with empty names
-            // OTS requires valid Pascal strings (non-empty, valid chars)
-            if (!name || name.length === 0) {
-                name = 'glyph' + i;
-            }
-            
-            // Sanitize name: only allow printable ASCII (0x21-0x7E), no spaces
-            // OTS is strict about post table names
-            name = name.replace(/[^\x21-\x7E]/g, '_');
-            if (name.length === 0) {
-                name = 'glyph' + i;
-            }
-            
+            const name = names[i];
+
             // Check if it's a standard name
             const stdIndex = standardNames.indexOf(name);
             if (stdIndex >= 0) {
@@ -127,9 +169,7 @@ function makePostTable(font, options = {}) {
         
         // Add extra name strings (Pascal strings: length byte + chars)
         for (let i = 0; i < extraNames.length; i++) {
-            const name = extraNames[i];
-            // Truncate names longer than 63 chars (Mac legacy limit, but safer)
-            const truncatedName = name.length > 63 ? name.substring(0, 63) : name;
+            const truncatedName = extraNames[i];
             fields.push({ name: 'extraName_' + i + '_length', type: 'BYTE', value: truncatedName.length });
             for (let j = 0; j < truncatedName.length; j++) {
                 fields.push({ name: 'extraName_' + i + '_char_' + j, type: 'BYTE', value: truncatedName.charCodeAt(j) & 0xFF });
