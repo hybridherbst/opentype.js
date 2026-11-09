@@ -1281,6 +1281,37 @@ function getMaxOffsetForRelocation(relocation) {
 }
 
 /**
+ * Exact content key of an encoded subtable.
+ * @param {Array<number>} bytes
+ * @returns {string}
+ */
+function bytesKey(bytes) {
+    let key = '';
+    for (let i = 0; i < bytes.length; i += 8192) {
+        key += String.fromCharCode.apply(null, bytes.slice(i, i + 8192));
+    }
+    return key;
+}
+
+/**
+ * Identical subtables behind 16-bit offsets in one table's scope are stored once and
+ * shared (as fontTools does): coverage, device, anchor or PairSet tables written twice
+ * would only make layout tables larger. A subtable with offsets resolved by an
+ * ancestor is position dependent and never shared. The size pass encodes the same
+ * subtables to make the same decisions. Only subtables of the same kind share (two
+ * coverage tables, two device tables), never, say, an empty script and feature list.
+ * @param {{width: number, targetScope: string}} relocation
+ * @param {{bytes: Array<number>, deferredForParent: OffsetRelocation[]}} encoded
+ * @param {string} tableName
+ * @returns {string | null}
+ */
+function sharedSubtableKey(relocation, encoded, tableName) {
+    if (relocation.width !== 2 || relocation.targetScope !== 'local') return null;
+    if (encoded.deferredForParent.length > 0 || encoded.bytes.length === 0) return null;
+    return tableName + '\u0000' + bytesKey(encoded.bytes);
+}
+
+/**
  * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}>, tableName?: string}} table
  * @returns {{bytes: Array<number>, deferredForParent: OffsetRelocation[]}}
  */
@@ -1311,7 +1342,8 @@ function encodeTableNode(table) {
                     width: offsetWidth,
                     targetScope: field.targetScope || 'local',
                     appendPhase: field.appendPhase || 0,
-                    target: encodeOffsetTarget(value)
+                    target: encodeOffsetTarget(value),
+                    tableTarget: isTableLike(value) ? String(/** @type {{tableName?: string}} */ (value).tableName || '') : null
                 };
                 if (relocation.targetScope === 'parent' || relocation.targetScope === 'root') {
                     deferredForAncestor.push(relocation);
@@ -1330,11 +1362,20 @@ function encodeTableNode(table) {
         }
     }
 
+    /** @type {Map<string, number>} */
+    const sharedOffsets = new Map();
     while (currentScopeEntries.length > 0) {
         const relocation = currentScopeEntries.splice(findNextAppendIndex(currentScopeEntries), 1)[0];
+        const shareKey = typeof relocation.tableTarget === 'string' ? sharedSubtableKey(relocation, relocation.target, relocation.tableTarget) : null;
+        const sharedOffset = shareKey === null ? undefined : sharedOffsets.get(shareKey);
+        if (sharedOffset !== undefined) {
+            writeOffset(d, relocation.patchPos, relocation.width, sharedOffset);
+            continue;
+        }
         const offset = d.length;
         const maxOffset = getMaxOffsetForRelocation(relocation);
         check.argument(offset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        if (shareKey !== null) sharedOffsets.set(shareKey, offset);
         writeOffset(d, relocation.patchPos, relocation.width, offset);
         for (let j = 0; j < relocation.target.bytes.length; j++) {
             d.push(relocation.target.bytes[j]);
@@ -1421,8 +1462,13 @@ function sizeOfTableNode(table) {
                     width: offsetWidth,
                     targetScope: field.targetScope || 'local',
                     appendPhase: field.appendPhase || 0,
-                    target: sizeOfOffsetTarget(value)
+                    target: sizeOfOffsetTarget(value),
+                    /** @type {string | null} */
+                    shareKey: null
                 };
+                if (offsetWidth === 2 && relocation.targetScope === 'local' && isTableLike(value)) {
+                    relocation.shareKey = sharedSubtableKey(relocation, encodeOffsetTarget(value), String(/** @type {{tableName?: string}} */ (value).tableName || ''));
+                }
                 if (relocation.targetScope === 'parent' || relocation.targetScope === 'root') {
                     deferredForAncestor.push(relocation);
                 } else {
@@ -1437,8 +1483,14 @@ function sizeOfTableNode(table) {
         numBytes += sizeOfFunction(value);
     }
 
+    /** @type {Set<string>} */
+    const sharedSubtables = new Set();
     while (currentScopeEntries.length > 0) {
         const relocation = currentScopeEntries.splice(findNextAppendIndex(currentScopeEntries), 1)[0];
+        if (typeof relocation.shareKey === 'string') {
+            if (sharedSubtables.has(relocation.shareKey)) continue;
+            sharedSubtables.add(relocation.shareKey);
+        }
         const offset = numBytes;
         const maxOffset = getMaxOffsetForRelocation(relocation);
         check.argument(offset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');

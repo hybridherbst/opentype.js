@@ -83,75 +83,59 @@ function encodeVariationRegionList(regions) {
  */
 function encodeItemVariationSubtable(subtable) {
     const result = [];
-    
-    const itemCount = subtable.deltaSets ? subtable.deltaSets.length : 0;
-    const regionIndexCount = subtable.regionIndexes ? subtable.regionIndexes.length : 0;
+    const deltaSets = subtable.deltaSets || [];
+    const regionIndexes = subtable.regionIndexes || [];
+    const itemCount = deltaSets.length;
 
     if (itemCount > 0xFFFF) {
         throw new Error(`HVAR ItemVariationData itemCount ${itemCount} exceeds 65535; split rows across multiple subtables.`);
     }
-    if (regionIndexCount > 0xFFFF) {
-        throw new Error(`HVAR ItemVariationData regionIndexCount ${regionIndexCount} exceeds 65535.`);
+    if (regionIndexes.length > 0xFFFF) {
+        throw new Error(`HVAR ItemVariationData regionIndexCount ${regionIndexes.length} exceeds 65535.`);
     }
-    
-    // Determine the delta format by analyzing the delta values
-    // We need to find the max absolute value to decide between byte/word/long
-    let maxAbsDelta = 0;
+
+    // Each column (region) takes the narrowest width its deltas fit: columns that are
+    // zero in every row are left out, 16-bit columns come before 8-bit ones (the format
+    // stores word deltas first), and LONG_WORDS widens them to 32/16 bits when needed.
+    // Reordering a column together with its region index keeps every row's meaning.
+    const columns = [];
     let needsLongWords = false;
-    
-    if (subtable.deltaSets) {
-        for (const deltaSet of subtable.deltaSets) {
-            for (const delta of deltaSet) {
-                const absDelta = Math.abs(delta);
-                if (absDelta > maxAbsDelta) {
-                    maxAbsDelta = absDelta;
-                }
-            }
+    for (let column = 0; column < regionIndexes.length; column++) {
+        let width = 0;
+        for (const deltaSet of deltaSets) {
+            const delta = deltaSet[column] || 0;
+            if (delta === 0) continue;
+            const need = delta >= -128 && delta <= 127 ? 1 : delta >= -32768 && delta <= 32767 ? 2 : 4;
+            if (need > width) width = need;
         }
+        if (width === 4) needsLongWords = true;
+        if (width) columns.push({column, width});
     }
-    
-    // Use word deltas if values exceed byte range
-    let wordDeltaCount = 0;
-    if (maxAbsDelta > 127) {
-        wordDeltaCount = regionIndexCount;
-    }
-    if (maxAbsDelta > 32767) {
-        needsLongWords = true;
-        wordDeltaCount |= 0x8000; // LONG_WORDS flag
-    }
-    
+    const wide = columns.filter(entry => entry.width >= (needsLongWords ? 4 : 2));
+    const narrow = columns.filter(entry => entry.width < (needsLongWords ? 4 : 2));
+    const ordered = [...wide, ...narrow];
+    const wordCount = wide.length;
+
     result.push(...encode.USHORT(itemCount));
-    result.push(...encode.USHORT(wordDeltaCount));
-    
-    // Region index count and indexes
-    result.push(...encode.USHORT(regionIndexCount));
-    for (const idx of subtable.regionIndexes || []) {
-        result.push(...encode.USHORT(idx));
+    result.push(...encode.USHORT(wordCount | (needsLongWords ? 0x8000 : 0)));
+    result.push(...encode.USHORT(ordered.length));
+    for (const {column} of ordered) {
+        result.push(...encode.USHORT(regionIndexes[column]));
     }
-    
-    // Delta sets
-    if (subtable.deltaSets) {
-        const wordCount = wordDeltaCount & 0x7FFF;
-        for (const deltaSet of subtable.deltaSets) {
-            for (let j = 0; j < regionIndexCount; j++) {
-                const delta = deltaSet[j] || 0;
-                if (j < wordCount) {
-                    if (needsLongWords) {
-                        result.push(...encode.LONG(delta));
-                    } else {
-                        result.push(...encode.SHORT(delta));
-                    }
-                } else {
-                    if (needsLongWords) {
-                        result.push(...encode.SHORT(delta));
-                    } else {
-                        result.push(delta & 0xFF);
-                    }
-                }
+
+    for (const deltaSet of deltaSets) {
+        for (let j = 0; j < ordered.length; j++) {
+            const delta = deltaSet[ordered[j].column] || 0;
+            if (j < wordCount) {
+                result.push(...(needsLongWords ? encode.LONG(delta) : encode.SHORT(delta)));
+            } else if (needsLongWords) {
+                result.push(...encode.SHORT(delta));
+            } else {
+                result.push(delta & 0xFF);
             }
         }
     }
-    
+
     return result;
 }
 

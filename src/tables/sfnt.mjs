@@ -37,6 +37,7 @@ import kern from './kern.mjs';
 import svg from './svg.mjs';
 import glyf, { pathToPoints } from './glyf.mjs';
 import loca from './loca.mjs';
+import { optimizeItemVariationStore, remapVariationIndexes } from '../item-variation-store.mjs';
 
 function log2(v) {
     return Math.log(v) / Math.log(2) | 0;
@@ -413,7 +414,17 @@ function fontToSfntTable(font, options = {}) {
         fontRevision: fontRevisionFixed
     }));
 
+    // The text caret leans with the italic angle: rise/run = 1/tan(angle), as the
+    // OpenType hhea description asks (an upright caret in an italic font sits wrong).
+    const italicAngle = Number(font.italicAngle) || 0;
+    const caret = italicAngle !== 0
+        ? {caretSlopeRise: font.unitsPerEm, caretSlopeRun: Math.round(font.unitsPerEm * Math.tan(-italicAngle * Math.PI / 180))}
+        : {
+            caretSlopeRise: Number.isFinite(font.tables.hhea?.caretSlopeRise) ? font.tables.hhea.caretSlopeRise : 1,
+            caretSlopeRun: Number.isFinite(font.tables.hhea?.caretSlopeRun) ? font.tables.hhea.caretSlopeRun : 0,
+        };
     const hheaTable = timeStep(timingSink, 'serializeHheaTableMs', () => hhea.make({
+        ...caret,
         ascender: hheaAscender,
         descender: hheaDescender,
         lineGap: hheaLineGap,
@@ -682,8 +693,20 @@ function fontToSfntTable(font, options = {}) {
         gvar: [font.tables.fvar],
     };
 
+    // The GDEF item variation store (GPOS/GDEF deltas) is written optimized: identical
+    // rows once, grouped by the regions and widths they need; GPOS and GDEF are written
+    // with their variation indexes remapped. The font's own table objects stay as given.
+    const tablesToWrite = {...font.tables};
+    if (font.tables.gdef?.itemVariationStore && font.tables.fvar && options.optimizeVariationStore !== false) {
+        timeStep(timingSink, 'optimizeItemVariationStoreMs', () => {
+            const optimized = optimizeItemVariationStore(font.tables.gdef.itemVariationStore);
+            tablesToWrite.gdef = {...remapVariationIndexes(font.tables.gdef, optimized.map), itemVariationStore: optimized.store};
+            if (font.tables.gpos) tablesToWrite.gpos = remapVariationIndexes(font.tables.gpos, optimized.map);
+        });
+    }
+
     for (let tableName in optionalTables) {
-        const optTable = font.tables[tableName];
+        const optTable = tablesToWrite[tableName];
         if (optTable) {
             const timingKey = `serialize${tableName[0].toUpperCase()}${tableName.slice(1)}TableMs`;
             const tableData = timeStep(

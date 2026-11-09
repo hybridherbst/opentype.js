@@ -699,7 +699,7 @@ describe('tables/gsub.mjs', function() {
             '00 01' +                             // inputGlyphCount
             '00 2C' +                             // inputCoverageOffsets
             '00 02' +                             // lookaheadGlyphCount
-            '00 32    00 3C' +                    // lookaheadCoverageOffsets
+            '00 18    00 22' +                    // lookaheadCoverageOffsets: the same coverage tables as backtrack, shared
             '00 01' +                             // substitutionCount
             // SubstLookupRecord, see https://docs.microsoft.com/de-de/typography/opentype/spec/gsub#substitution-lookup-record
             '00 00    00 32' +                    // glyphSequenceIndex and lookupListIndex
@@ -707,10 +707,7 @@ describe('tables/gsub.mjs', function() {
             '00 02  00 01  06 82  06 91  00 00' + // coverageFormat, rangeRecordCount, startGlyphID, endGlyphID, startCoverageIndex
             '00 02  00 01  05 05  05 26  00 00' + // and the same for the second entry
             // inputCoverage table
-            '00 01  00 01  03 AB' +               // coverageFormat, glyphCount, glyphIndex
-            // lookaheadCoverage table
-            '00 02  00 01  06 82  06 91  00 00' + // coverageFormat, rangeRecordCount, startGlyphID, endGlyphID, startCoverageIndex
-            '00 02 00 01 05 05 05 26 00 00'       // and the same for the second entry
+            '00 01  00 01  03 AB'                 // coverageFormat, glyphCount, glyphIndex
         );
         assert.deepEqual(makeLookup(6, {
             substFormat: 3,
