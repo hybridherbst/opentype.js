@@ -1280,6 +1280,11 @@ function getMaxOffsetForRelocation(relocation) {
     return relocation.width === 2 ? 0xFFFF : relocation.width === 3 ? 0xFFFFFF : 0xFFFFFFFF;
 }
 
+/** Subtables up to this size are candidates for sharing: devices, anchors, coverages and
+ * PairSets, the ones fonts repeat. Larger ones are rarely identical, and keying them
+ * would encode whole lookups again in every size pass. */
+const MAX_SHARED_SUBTABLE_BYTES = 2048;
+
 /**
  * Exact content key of an encoded subtable.
  * @param {Array<number>} bytes
@@ -1307,7 +1312,7 @@ function bytesKey(bytes) {
  */
 function sharedSubtableKey(relocation, encoded, tableName) {
     if (relocation.width !== 2 || relocation.targetScope !== 'local') return null;
-    if (encoded.deferredForParent.length > 0 || encoded.bytes.length === 0) return null;
+    if (encoded.deferredForParent.length > 0 || encoded.bytes.length === 0 || encoded.bytes.length > MAX_SHARED_SUBTABLE_BYTES) return null;
     return tableName + '\u0000' + bytesKey(encoded.bytes);
 }
 
@@ -1466,7 +1471,8 @@ function sizeOfTableNode(table) {
                     /** @type {string | null} */
                     shareKey: null
                 };
-                if (offsetWidth === 2 && relocation.targetScope === 'local' && isTableLike(value)) {
+                if (offsetWidth === 2 && relocation.targetScope === 'local' && isTableLike(value)
+                    && relocation.target.size <= MAX_SHARED_SUBTABLE_BYTES && relocation.target.deferredForParent.length === 0) {
                     relocation.shareKey = sharedSubtableKey(relocation, encodeOffsetTarget(value), String(/** @type {{tableName?: string}} */ (value).tableName || ''));
                 }
                 if (relocation.targetScope === 'parent' || relocation.targetScope === 'root') {
