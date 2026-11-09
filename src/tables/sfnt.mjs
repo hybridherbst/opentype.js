@@ -13,7 +13,7 @@ import head from './head.mjs';
 import hhea from './hhea.mjs';
 import hmtx from './hmtx.mjs';
 // ltag is not imported - it's an Apple AAT table not part of OpenType spec
-import maxp from './maxp.mjs';
+import maxp, { hintingLimits } from './maxp.mjs';
 import _name from './name.mjs';
 import os2 from './os2.mjs';
 import post from './post.mjs';
@@ -444,7 +444,9 @@ function fontToSfntTable(font, options = {}) {
     const useTrueTypeOutlines = hasGvarData || isTrueTypeFont;
 
     // Compute maxp values from glyphs for TrueType fonts (required for macOS validation)
-    const maxpValues = useTrueTypeOutlines ? computeMaxpValues(font.glyphs) : {};
+    // Outline counts come from the glyphs; hinting limits from the font (tables.maxp),
+    // never below what its programs need where that can be counted.
+    const maxpValues = useTrueTypeOutlines ? {...computeMaxpValues(font.glyphs), ...hintingLimits(font.tables, font.glyphs)} : {};
     const maxpTable = timeStep(timingSink, 'serializeMaxpTableMs', () => maxp.make(font.glyphs.length, useTrueTypeOutlines, maxpValues));
 
     // OS/2 sTypo* metrics should match hhea to produce consistent linespacing
