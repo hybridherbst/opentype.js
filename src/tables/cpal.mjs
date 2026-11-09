@@ -245,8 +245,15 @@ function hslToRGB(hsla) {
     };
 }
 
+/**
+ * A color as the CPAL 32-bit value. Channels are rounded to the nearest 8-bit value (as
+ * fontTools' buildCPAL does), so an alpha read back from CPAL (n / 255) writes back as n.
+ * @param {{r: number, g: number, b: number, a: number}} color
+ * @returns {number}
+ */
 function bgraToRaw(color) {
-    return parseInt(`0x${toHex(color.b)}${toHex(color.g)}${toHex(color.r)}${toHex(color.a * 255)}`, 16);
+    const byte = (/** @type {number} */ value) => toHex(Math.max(0, Math.min(255, Math.round(value))));
+    return parseInt(`0x${byte(color.b)}${byte(color.g)}${byte(color.r)}${byte(color.a * 255)}`, 16);
 }
 
 function parseColor(color, targetFormat = 'hexa') {

@@ -163,6 +163,16 @@ describe('tables/cpal.mjs', function() {
         assert.deepEqual(formattedColors, expectedColors);
     });
 
+    it('rounds channels to the nearest 8-bit value when writing raw colors', function() {
+        // 0.5 * 255 = 127.5 rounds to 128 (fontTools buildCPAL), not down to 127.
+        assert.equal(parseColor({ r: 255, g: 128, b: 0, a: 0.5 }, 'raw'), 0x0080FF80);
+        assert.equal(parseColor({ r: 254.6, g: 0.4, b: 10, a: 1 }, 'raw'), 0x0A00FFFF);
+        // Every CPAL alpha read back as n / 255 writes back as n.
+        for (let n = 0; n < 256; n++) {
+            assert.equal(parseColor({ r: 0, g: 0, b: 0, a: n / 255 }, 'raw') & 0xFF, n);
+        }
+    });
+
     it('correctly detects the special palette index for current text color', function() {
         assert.deepStrictEqual(cpal.getPaletteColor(font, 0xFFFF), 'currentColor');
         assert.deepStrictEqual(cpal.formatColor(cpal.getPaletteColor(font, 0xFFFF)), 'currentColor');
