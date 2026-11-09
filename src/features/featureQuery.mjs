@@ -145,6 +145,33 @@ function getGlyphClass(classDefTable, glyphIndex) {
  * @param {ContextParams} contextParams context params to lookup
  * @param {GsubSubtable} subtable the subtable containing class definitions and chain class sets
  */
+/**
+ * Apply chain context substitution format 1 (glyph sequences): the rules for the current
+ * glyph are tried in order, each matched as a single-glyph format 3 rule.
+ * @param {import('../tokenizer.mjs').ContextParams} contextParams context params to lookup
+ * @param {GsubSubtable} subtable subtable
+ * @this {FeatureQuery}
+ */
+function chainingSubstitutionFormat1(contextParams, subtable) {
+    let glyphIndex = contextParams.current;
+    glyphIndex = Array.isArray(glyphIndex) ? glyphIndex[0] : glyphIndex;
+    const coverageIndex = lookupCoverage(glyphIndex, /** @type {Record<string, unknown>} */ (subtable.coverage));
+    if (coverageIndex === -1) return [];
+    const ruleSet = (subtable.chainRuleSets || [])[coverageIndex] || [];
+    const one = (/** @type {number} */ glyph) => ({ format: 1, glyphs: [glyph] });
+    for (const rule of ruleSet) {
+        const result = chainingSubstitutionFormat3.apply(this, [contextParams, {
+            substFormat: 3,
+            backtrackCoverage: (rule.backtrack || []).map(one),
+            inputCoverage: [glyphIndex].concat(rule.input || []).map(one),
+            lookaheadCoverage: (rule.lookahead || []).map(one),
+            lookupRecords: rule.lookupRecords || []
+        }]);
+        if (result === BLOCK_MARKER || (Array.isArray(result) && result.length > 0)) return result;
+    }
+    return [];
+}
+
 function chainingSubstitutionFormat2(contextParams, subtable) {
     // First check if current glyph is in coverage
     let glyphIndex = contextParams.current;
@@ -596,6 +623,10 @@ FeatureQuery.prototype.getLookupMethod = function(lookupTable, subtable) {
             return glyphIndex => singleSubstitutionFormat2.apply(
                 this, [glyphIndex, subtable]
             );
+        case '61':
+            return contextParams => chainingSubstitutionFormat1.apply(
+                this, [contextParams, subtable]
+            );
         case '62':
             return contextParams => chainingSubstitutionFormat2.apply(
                 this, [contextParams, subtable]
@@ -712,6 +743,7 @@ FeatureQuery.prototype.lookupFeature = function (query) {
                         }));
                     }
                     break;
+                case '61':
                 case '63':
                     substitution = lookup(contextParams);
                     // Check for blocking rule - matched but no substitution

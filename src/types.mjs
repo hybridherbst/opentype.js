@@ -1378,10 +1378,13 @@ function encodeTableNode(table) {
             continue;
         }
         const offset = d.length;
+        // Offsets count from the table holding the field: this one for local fields, a
+        // descendant (ownerStart) for fields deferred to this scope with targetScope 'parent'.
+        const relativeOffset = offset - relocation.ownerStart;
         const maxOffset = getMaxOffsetForRelocation(relocation);
-        check.argument(offset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
-        if (shareKey !== null) sharedOffsets.set(shareKey, offset);
-        writeOffset(d, relocation.patchPos, relocation.width, offset);
+        check.argument(relativeOffset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        if (shareKey !== null) sharedOffsets.set(shareKey, relativeOffset);
+        writeOffset(d, relocation.patchPos, relocation.width, relativeOffset);
         for (let j = 0; j < relocation.target.bytes.length; j++) {
             d.push(relocation.target.bytes[j]);
         }
@@ -1499,7 +1502,7 @@ function sizeOfTableNode(table) {
         }
         const offset = numBytes;
         const maxOffset = getMaxOffsetForRelocation(relocation);
-        check.argument(offset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
+        check.argument(offset - (relocation.ownerStart || 0) <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
         numBytes += relocation.target.size;
         routeDeferredEntries(currentScopeEntries, deferredForAncestor, relocation.target.deferredForParent, offset, false);
     }

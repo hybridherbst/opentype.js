@@ -278,6 +278,40 @@ describe('substitution.js', function() {
         });
     });
 
+    describe('getContextRulesForLookup', function() {
+        it('lists the rules of one lookup in every subtable format, with multiple substitution resolved', function() {
+            font.tables.gsub = {
+                version: 1,
+                scripts: defaultScriptList,
+                features: [{ tag: 'calt', feature: { featureParams: 0, lookupListIndexes: [0] } }],
+                lookups: [
+                    {
+                        lookupType: 6, lookupFlag: 8, subtables: [
+                            { substFormat: 1, coverage: { format: 1, glyphs: [1] }, chainRuleSets: [[{ backtrack: [3], input: [2], lookahead: [], lookupRecords: [{ sequenceIndex: 0, lookupListIndex: 1 }] }]] },
+                            { substFormat: 2, coverage: { format: 1, glyphs: [4, 5] }, backtrackClassDef: { format: 1, startGlyph: 6, classes: [1] }, inputClassDef: { format: 2, ranges: [{ start: 4, end: 5, classId: 1 }] }, lookaheadClassDef: { format: 1, startGlyph: 0, classes: [] }, chainClassSet: [null, [{ backtrack: [1], input: [], lookahead: [], lookupRecords: [{ sequenceIndex: 0, lookupListIndex: 2 }] }]] },
+                            { substFormat: 3, backtrackCoverage: [], inputCoverage: [{ format: 1, glyphs: [7, 8] }], lookaheadCoverage: [{ format: 1, glyphs: [9] }], lookupRecords: [] }
+                        ]
+                    },
+                    { lookupType: 2, lookupFlag: 0, subtables: [{ substFormat: 1, coverage: { format: 1, glyphs: [1] }, sequences: [[1, 12]] }] },
+                    { lookupType: 1, lookupFlag: 0, subtables: [{ substFormat: 2, coverage: { format: 1, glyphs: [4, 5] }, substitute: [14, 15] }] }
+                ]
+            };
+            const rules = substitution.getContextRulesForLookup(0);
+            assert.equal(rules.length, 3);
+            assert.deepEqual(rules[0].backtrack, [[3]]);
+            assert.deepEqual(rules[0].input, [[1], [2]]);
+            assert.equal(rules[0].substitutions[0].lookupType, 2);
+            assert.deepEqual(rules[0].substitutions[0].substitutions, [{ sub: 1, by: [1, 12] }]);
+            assert.deepEqual(rules[1].backtrack, [[6]]);
+            assert.deepEqual(rules[1].input, [[4, 5]]);
+            assert.deepEqual(rules[1].substitutions[0].substitutions, [{ sub: 4, by: 14 }, { sub: 5, by: 15 }]);
+            assert.deepEqual(rules[2].input, [[7, 8]]);
+            assert.deepEqual(rules[2].lookahead, [[9]]);
+            assert.deepEqual(rules[2].lookupRecords, []);
+            assert.deepEqual(substitution.getContextRulesForLookup(font.tables.gsub.lookups[1]), []);
+        });
+    });
+
     describe('chaining context roundtrip', function() {
         it('should preserve calt rules through export and reimport', function() {
             // Add calt rule: substitute 'a' (1) with 'A' (27) when preceded by space-like context

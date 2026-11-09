@@ -227,10 +227,18 @@ function LookupList(lookupListTable, subtableMakers) {
     Table.call(this, 'lookupListTable', tableList('lookup', lookupListTable, function(lookupTable) {
         let subtableCallback = subtableMakers[lookupTable.lookupType];
         check.assert(!!subtableCallback, 'Unable to write GSUB lookup type ' + lookupTable.lookupType + ' tables.');
-        return new Table('lookupTable', [
+        let subtableFields = tableList('subtable', lookupTable.subtables, subtableCallback);
+        // Extension subtables (GSUB 7, GPOS 9) are laid out after every Lookup table, as
+        // fontTools does: the LookupList's 16-bit offsets then only span the compact
+        // Lookup tables, so thousands of lookups stay addressable.
+        if (lookupTable.lookupType === 7 || lookupTable.lookupType === 9) {
+            subtableFields = subtableFields.map((field) => Object.assign({}, field, {targetScope: 'parent'}));
+        }
+        const fields = [
             {name: 'lookupType', type: 'USHORT', value: lookupTable.lookupType},
             {name: 'lookupFlag', type: 'USHORT', value: lookupTable.lookupFlag}
-        ].concat(tableList('subtable', lookupTable.subtables, subtableCallback)));
+        ].concat(subtableFields);
+        return new Table('lookupTable', fields);
     }));
 }
 LookupList.prototype = Object.create(Table.prototype);
