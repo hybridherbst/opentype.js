@@ -739,6 +739,29 @@ describe('tables/gsub.mjs', function() {
             ]
         }), expectedData);
     });
+    it('can write lookup8', function() {
+        const subtable = {
+            substFormat: 1,
+            coverage: { format: 1, glyphs: [5, 7] },
+            backtrackCoverage: [{ format: 1, glyphs: [2] }],
+            lookaheadCoverage: [{ format: 1, glyphs: [3, 4] }, { format: 1, glyphs: [9] }],
+            substitutes: [6, 8]
+        };
+        const expectedData = unhexArray(
+            '00 01  00 14' +                      // substFormat, coverage offset
+            '00 01  00 1C' +                      // backtrackGlyphCount, backtrackCoverage offsets
+            '00 02  00 22  00 2A' +               // lookaheadGlyphCount, lookaheadCoverage offsets
+            '00 02  00 06  00 08' +               // glyphCount, substituteGlyphIDs
+            '00 01  00 02  00 05  00 07' +        // coverage
+            '00 01  00 01  00 02' +               // backtrack coverage
+            '00 01  00 02  00 03  00 04' +        // lookahead coverage 0
+            '00 01  00 01  00 09'                 // lookahead coverage 1
+        );
+        const written = makeLookup(8, subtable);
+        assert.deepEqual(written, expectedData);
+        assert.deepEqual(parseLookup(8, written.map((byte) => byte.toString(16).padStart(2, '0')).join('')), subtable);
+    });
+
     //// FeatureParams ////////////////////////////////////////////////////////
     it('writes and parses FeatureParams of stylistic sets, character variants and size', function() {
         const params = {

@@ -553,6 +553,28 @@ subtableMakers[6] = function makeLookup6(subtable) {
     check.assert(false, 'lookup type 6 format must be 1, 2 or 3.');
 };
 
+// Reverse Chaining Contextual Single Substitution (lookup type 8)
+// https://learn.microsoft.com/typography/opentype/spec/gsub#lookuptype-8-reverse-chaining-contextual-single-substitution-subtable
+subtableMakers[8] = function makeLookup8(subtable) {
+    check.assert(subtable.substFormat === 1, 'Lookup type 8 substFormat must be 1.');
+    const backtrack = subtable.backtrackCoverage || [];
+    const lookahead = subtable.lookaheadCoverage || [];
+    const substitutes = subtable.substitutes || [];
+    const tableData = [
+        {name: 'substFormat', type: 'USHORT', value: 1},
+        {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
+        {name: 'backtrackGlyphCount', type: 'USHORT', value: backtrack.length}
+    ];
+    for (let i = 0; i < backtrack.length; i++) {
+        tableData.push({name: 'backtrackCoverage' + i, type: 'TABLE', value: new table.Coverage(backtrack[i])});
+    }
+    tableData.push({name: 'lookaheadGlyphCount', type: 'USHORT', value: lookahead.length});
+    for (let i = 0; i < lookahead.length; i++) {
+        tableData.push({name: 'lookaheadCoverage' + i, type: 'TABLE', value: new table.Coverage(lookahead[i])});
+    }
+    return new table.Table('reverseChainSingleSubstTable', tableData.concat(table.ushortList('substitute', substitutes)));
+};
+
 // Extension Substitution subtable (lookup type 7)
 // The inner subtable is encoded as a first-class 32-bit offset reference from
 // the extension header rather than being emitted and patched in a custom pass.
