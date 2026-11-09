@@ -1383,4 +1383,25 @@ describe('tables/gpos.js', function() {
         const st6 = reparsed.lookups[2].subtables[0];
         assert.equal(st6.mark2Array[0][0].yCoordinate, 400);
     });
+
+    it('writes the mark filtering set of a lookup that uses one', function() {
+        const lookup = {
+            lookupType: 1,
+            lookupFlag: 0x0010 | 0x0200,
+            markFilteringSet: 3,
+            subtables: [{ posFormat: 1, coverage: { format: 1, glyphs: [2] }, valueFormat: 4, value: { xAdvance: 10 } }]
+        };
+        const encoded = gpos.make({ version: 1, scripts: [], features: [], lookups: [lookup, { ...lookup, lookupFlag: 8, markFilteringSet: undefined }] }).encode();
+        const parsed = gpos.parse(new DataView(Uint8Array.from(encoded).buffer));
+        assert.equal(parsed.lookups[0].lookupFlag, 0x0210);
+        assert.equal(parsed.lookups[0].markFilteringSet, 3);
+        assert.equal(parsed.lookups[0].subtables[0].value.xAdvance, 10);
+        assert.equal(parsed.lookups[1].lookupFlag, 8);
+        assert.equal(parsed.lookups[1].markFilteringSet, undefined);
+    });
+
+    it('refuses UseMarkFilteringSet without a set index', function() {
+        const lookup = { lookupType: 1, lookupFlag: 0x0010, subtables: [{ posFormat: 1, coverage: { format: 1, glyphs: [2] }, valueFormat: 4, value: { xAdvance: 10 } }] };
+        assert.throws(() => gpos.make({ version: 1, scripts: [], features: [], lookups: [lookup] }).encode(), /markFilteringSet/);
+    });
 });

@@ -77,4 +77,24 @@ describe('tables/gdef.mjs', function() {
     it('can parse a GDEF table', function() {
         assert.deepEqual(table, gdef.parse(unhex(data)));
     });
+
+    it('writes mark attachment classes and mark glyph sets (Offset32 coverages) and reads them back', function() {
+        const source = {
+            classDef: { format: 2, ranges: [{ start: 3, end: 5, classId: 3 }] },
+            markAttachClassDef: { format: 2, ranges: [{ start: 3, end: 3, classId: 1 }, { start: 4, end: 5, classId: 2 }] },
+            markGlyphSets: [{ format: 1, glyphs: [3, 5] }, { format: 1, glyphs: [4] }]
+        };
+        const bytes = gdef.make(source).encode();
+        const parsed = gdef.parse(new DataView(Uint8Array.from(bytes).buffer));
+        assert.equal(parsed.version, 1.2);
+        assert.deepEqual(parsed.markAttachClassDef.ranges.map(({ start, end, classId }) => [start, end, classId]), [[3, 3, 1], [4, 5, 2]]);
+        assert.deepEqual(parsed.markGlyphSets, [{ format: 1, glyphs: [3, 5] }, { format: 1, glyphs: [4] }]);
+    });
+
+    it('stays version 1.0 without mark glyph sets', function() {
+        const bytes = gdef.make({ classDef: { format: 2, ranges: [{ start: 1, end: 1, classId: 1 }] }, markGlyphSets: [] }).encode();
+        const parsed = gdef.parse(new DataView(Uint8Array.from(bytes).buffer));
+        assert.equal(parsed.version, 1);
+        assert.equal(parsed.markGlyphSets, undefined);
+    });
 });

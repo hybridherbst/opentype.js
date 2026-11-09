@@ -238,6 +238,12 @@ function LookupList(lookupListTable, subtableMakers) {
             {name: 'lookupType', type: 'USHORT', value: lookupTable.lookupType},
             {name: 'lookupFlag', type: 'USHORT', value: lookupTable.lookupFlag}
         ].concat(subtableFields);
+        // UseMarkFilteringSet (0x0010): the MarkGlyphSets index follows the subtable offsets.
+        if (lookupTable.lookupFlag & 0x0010) {
+            check.argument(Number.isInteger(lookupTable.markFilteringSet) && lookupTable.markFilteringSet >= 0,
+                'A lookup with UseMarkFilteringSet needs a markFilteringSet index.');
+            fields.push({name: 'markFilteringSet', type: 'USHORT', value: lookupTable.markFilteringSet});
+        }
         return new Table('lookupTable', fields);
     }));
 }
