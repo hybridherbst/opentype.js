@@ -119,7 +119,23 @@ subtableParsers[2] = function parseLookup2() {
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-3-cursive-attachment-positioning-subtable
 /** @this {Parser} */
-subtableParsers[3] = function parseLookup3() { return { error: 'GPOS Lookup 3 not supported' }; };
+subtableParsers[3] = function parseLookup3() {
+    const subtableStart = this.offset + this.relativeOffset;
+    const posFormat = this.parseUShort();
+    check.assert(posFormat === 1, '0x' + subtableStart.toString(16) + ': GPOS lookup type 3 format must be 1.');
+    const coverage = this.parsePointer(Parser.coverage);
+    const entryExitCount = this.parseUShort();
+    const entryExitRecords = [];
+    for (let i = 0; i < entryExitCount; i++) {
+        const entryAnchorOffset = this.parseOffset16();
+        const exitAnchorOffset = this.parseOffset16();
+        entryExitRecords.push({
+            entryAnchor: entryAnchorOffset > 0 ? new Parser(this.data, subtableStart + entryAnchorOffset).parseStruct(Parser.anchor) : undefined,
+            exitAnchor: exitAnchorOffset > 0 ? new Parser(this.data, subtableStart + exitAnchorOffset).parseStruct(Parser.anchor) : undefined
+        });
+    }
+    return { posFormat, coverage, entryExitRecords };
+};
 
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-4-mark-to-base-attachment-positioning-subtable
 /** @this {Parser} */
@@ -322,10 +338,97 @@ subtableParsers[6] = function parseLookup6() {
     };
 };
 
+const lookupRecordDesc = {
+    sequenceIndex: Parser.uShort,
+    lookupListIndex: Parser.uShort
+};
+
+// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-7-contextual-positioning-subtables
+// Same structure as GSUB lookup type 5 (sequence context); records are `lookupRecords`.
 /** @this {Parser} */
-subtableParsers[7] = function parseLookup7() { return { error: 'GPOS Lookup 7 not supported' }; };
+subtableParsers[7] = function parseLookup7() {
+    const start = this.offset + this.relativeOffset;
+    const posFormat = this.parseUShort();
+    if (posFormat === 1) {
+        return {
+            posFormat,
+            coverage: this.parsePointer(Parser.coverage),
+            ruleSets: this.parseListOfLists(function() {
+                const glyphCount = this.parseUShort();
+                const posCount = this.parseUShort();
+                return {
+                    input: this.parseUShortList(glyphCount - 1),
+                    lookupRecords: this.parseRecordList(posCount, lookupRecordDesc)
+                };
+            })
+        };
+    } else if (posFormat === 2) {
+        return {
+            posFormat,
+            coverage: this.parsePointer(Parser.coverage),
+            classDef: this.parsePointer(Parser.classDef),
+            classSets: this.parseListOfLists(function() {
+                const glyphCount = this.parseUShort();
+                const posCount = this.parseUShort();
+                return {
+                    classes: this.parseUShortList(glyphCount - 1),
+                    lookupRecords: this.parseRecordList(posCount, lookupRecordDesc)
+                };
+            })
+        };
+    } else if (posFormat === 3) {
+        const glyphCount = this.parseUShort();
+        const posCount = this.parseUShort();
+        return {
+            posFormat,
+            coverages: this.parseList(glyphCount, Parser.pointer(Parser.coverage)),
+            lookupRecords: this.parseRecordList(posCount, lookupRecordDesc)
+        };
+    }
+    check.assert(false, '0x' + start.toString(16) + ': GPOS lookup type 7 format must be 1, 2 or 3.');
+};
+
+// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-8-chained-contexts-positioning-subtable
+// Same structure as GSUB lookup type 6 (chained sequence context).
 /** @this {Parser} */
-subtableParsers[8] = function parseLookup8() { return { error: 'GPOS Lookup 8 not supported' }; };
+subtableParsers[8] = function parseLookup8() {
+    const start = this.offset + this.relativeOffset;
+    const posFormat = this.parseUShort();
+    /** @this {Parser} */
+    const parseChainRule = function() {
+        return {
+            backtrack: this.parseUShortList(),
+            input: this.parseUShortList(this.parseShort() - 1),
+            lookahead: this.parseUShortList(),
+            lookupRecords: this.parseRecordList(lookupRecordDesc)
+        };
+    };
+    if (posFormat === 1) {
+        return {
+            posFormat,
+            coverage: this.parsePointer(Parser.coverage),
+            chainRuleSets: this.parseListOfLists(parseChainRule)
+        };
+    } else if (posFormat === 2) {
+        return {
+            posFormat,
+            coverage: this.parsePointer(Parser.coverage),
+            backtrackClassDef: this.parsePointer(Parser.classDef),
+            inputClassDef: this.parsePointer(Parser.classDef),
+            lookaheadClassDef: this.parsePointer(Parser.classDef),
+            chainClassSet: this.parseListOfLists(parseChainRule)
+        };
+    } else if (posFormat === 3) {
+        return {
+            posFormat,
+            backtrackCoverage: this.parseList(Parser.pointer(Parser.coverage)),
+            inputCoverage: this.parseList(Parser.pointer(Parser.coverage)),
+            lookaheadCoverage: this.parseList(Parser.pointer(Parser.coverage)),
+            lookupRecords: this.parseRecordList(lookupRecordDesc)
+        };
+    }
+    check.assert(false, '0x' + start.toString(16) + ': GPOS lookup type 8 format must be 1, 2 or 3.');
+};
 // Extension Positioning subtable (lookup type 9)
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-9-extension-positioning-subtable
 /** @this {Parser} */
@@ -444,10 +547,19 @@ subtableParsers[9] = function parseLookup9() {
  * @property {Array<Array<Array<GposAnchor|undefined>>>} [ligatureArray] - (type 5) ligature attach arrays
  * @property {Array<Array<GposAnchor|undefined>>} [mark2Array] - (type 6) second mark anchors
  * @property {object[]} [coverages] - (type 7 fmt 3) coverage tables
- * @property {GposLookupRecord[]} [posLookupRecords] - (type 7 fmt 3) lookup records
- * @property {Array<Array<{input: number[], posLookupRecords: GposLookupRecord[]}>>} [ruleSets] - (type 7 fmt 1)
+ * @property {GposLookupRecord[]} [lookupRecords] - (types 7/8 fmt 3) lookup records
+ * @property {GposLookupRecord[]} [posLookupRecords] - accepted by the writer as an alias of lookupRecords
+ * @property {Array<Array<{input: number[], lookupRecords: GposLookupRecord[]}>>} [ruleSets] - (type 7 fmt 1)
  * @property {object} [classDef] - (type 7 fmt 2) class definition
- * @property {Array<Array<{classes: number[], posLookupRecords: GposLookupRecord[]}>>} [classSets] - (type 7 fmt 2)
+ * @property {Array<Array<{classes: number[], lookupRecords: GposLookupRecord[]}>>} [classSets] - (type 7 fmt 2)
+ * @property {Array<Array<{backtrack: number[], input: number[], lookahead: number[], lookupRecords: GposLookupRecord[]}>>} [chainRuleSets] - (type 8 fmt 1)
+ * @property {object} [backtrackClassDef] - (type 8 fmt 2)
+ * @property {object} [inputClassDef] - (type 8 fmt 2)
+ * @property {object} [lookaheadClassDef] - (type 8 fmt 2)
+ * @property {Array<Array<{backtrack: number[], input: number[], lookahead: number[], lookupRecords: GposLookupRecord[]}>>} [chainClassSet] - (type 8 fmt 2)
+ * @property {object[]} [backtrackCoverage] - (type 8 fmt 3)
+ * @property {object[]} [inputCoverage] - (type 8 fmt 3)
+ * @property {object[]} [lookaheadCoverage] - (type 8 fmt 3)
  * @property {number} [lookupType] - (type 9) extension: actual lookup type wrapped
  * @property {number} [extensionLookupType] - (type 9) extension: actual lookup type wrapped
  * @property {GposSubtable} [extension] - (type 9) extension: inner subtable
@@ -918,73 +1030,22 @@ function packPairPosFormat1Lookup(lookup, options = {}) {
 
 // Lookup Type 3: Cursive Attachment Positioning
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-3-cursive-attachment-positioning-subtable
+// Anchor offsets are first-class offset fields (null for a missing anchor).
 subtableMakers[3] = function makeLookup3(subtable) {
     check.assert(subtable.posFormat === 1, 'Lookup type 3 posFormat must be 1.');
-
-    const coverageTable = makeCoverageTable(subtable.coverage);
-    const coverageSize = /** @type {{ sizeOf: () => number }} */ (/** @type {unknown} */ (coverageTable))?.sizeOf() || 0;
-    const entryExitCount = subtable.entryExitRecords?.length || 0;
-
-    const anchorTables = [];
-    if (subtable.entryExitRecords) {
-        for (let i = 0; i < subtable.entryExitRecords.length; i++) {
-            const record = subtable.entryExitRecords[i];
-            record._entryAnchorTable = makeAnchor(record.entryAnchor);
-            record._exitAnchorTable = makeAnchor(record.exitAnchor);
-            anchorTables.push(
-                record._entryAnchorTable?.sizeOf() || 0,
-                record._exitAnchorTable?.sizeOf() || 0
-            );
-        }
-    }
-
-    const headerSize = 6;
-    const entryExitRecordsSize = entryExitCount * 4;
-
-    let currentOffset = headerSize + coverageSize + entryExitRecordsSize;
-    const entryExitRecordFields = [];
-    if (subtable.entryExitRecords) {
-        for (let i = 0; i < subtable.entryExitRecords.length; i++) {
-            const record = subtable.entryExitRecords[i];
-            const entrySize = record._entryAnchorTable?.sizeOf() || 0;
-            const exitSize = record._exitAnchorTable?.sizeOf() || 0;
-
-            entryExitRecordFields.push(
-                { name: `entryAnchorOffset${i}`, type: 'USHORT', value: entrySize > 0 ? currentOffset : 0 }
-            );
-            currentOffset += entrySize;
-
-            entryExitRecordFields.push(
-                { name: `exitAnchorOffset${i}`, type: 'USHORT', value: exitSize > 0 ? currentOffset : 0 }
-            );
-            currentOffset += exitSize;
-        }
-    }
-
+    const records = subtable.entryExitRecords || [];
+    /** @type {Array<{name: string, type: string, value?: unknown}>} */
     const fields = [
         { name: 'posFormat', type: 'USHORT', value: 1 },
-        { name: 'coverageOffset', type: 'USHORT', value: headerSize },
-        { name: 'entryExitCount', type: 'USHORT', value: entryExitCount }
+        { name: 'coverage', type: 'OFFSET16', value: makeCoverageTable(subtable.coverage) },
+        { name: 'entryExitCount', type: 'USHORT', value: records.length }
     ];
-
-    if (coverageTable) {
-        fields.push({ name: 'coverage', type: 'TABLE', value: coverageTable });
+    for (let i = 0; i < records.length; i++) {
+        fields.push(
+            { name: 'entryAnchor' + i, type: 'OFFSET16', value: makeAnchor(records[i]?.entryAnchor) },
+            { name: 'exitAnchor' + i, type: 'OFFSET16', value: makeAnchor(records[i]?.exitAnchor) }
+        );
     }
-
-    fields.push(...entryExitRecordFields);
-
-    if (subtable.entryExitRecords) {
-        for (let i = 0; i < subtable.entryExitRecords.length; i++) {
-            const record = subtable.entryExitRecords[i];
-            if (record._entryAnchorTable) {
-                fields.push({ name: `entryAnchor${i}`, type: 'TABLE', value: record._entryAnchorTable });
-            }
-            if (record._exitAnchorTable) {
-                fields.push({ name: `exitAnchor${i}`, type: 'TABLE', value: record._exitAnchorTable });
-            }
-        }
-    }
-
     return new table.Table('cursivePosTable', fields);
 };
 
@@ -1161,205 +1222,178 @@ subtableMakers[6] = function makeLookup6(subtable) {
     ]);
 };
 
-// Lookup Type 7: Context Positioning
-// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-7-contextual-positioning-subtable
+/**
+ * Positioning lookup records of a sequence/chained rule (`lookupRecords`, or the
+ * older `posLookupRecords` spelling).
+ * @param {{lookupRecords?: GposLookupRecord[], posLookupRecords?: GposLookupRecord[]}} rule
+ * @returns {GposLookupRecord[]}
+ */
+function posLookupRecordsOf(rule) {
+    return rule?.lookupRecords || rule?.posLookupRecords || [];
+}
+
+/**
+ * @param {GposLookupRecord[]} records
+ * @returns {Array<{name: string, type: string, value: number}>}
+ */
+function posLookupRecordFields(records) {
+    const fields = [];
+    for (let i = 0; i < records.length; i++) {
+        fields.push(
+            { name: 'sequenceIndex' + i, type: 'USHORT', value: records[i].sequenceIndex },
+            { name: 'lookupListIndex' + i, type: 'USHORT', value: records[i].lookupListIndex }
+        );
+    }
+    return fields;
+}
+
+/**
+ * @param {string} name
+ * @param {number[]} values
+ * @returns {Array<{name: string, type: string, value: number}>}
+ */
+function ushortFields(name, values) {
+    return (values || []).map((value, i) => ({ name: name + i, type: 'USHORT', value }));
+}
+
+/**
+ * Count-prefixed offset16 list of rule sets, each a count-prefixed offset16
+ * list of rules. A missing set keeps a null (0) offset.
+ * @param {string} name
+ * @param {Array<Array<object>|null|undefined>} sets
+ * @param {(rule: object) => object} makeRule
+ * @returns {Array<{name: string, type: string, value?: unknown}>}
+ */
+function ruleSetListFields(name, sets, makeRule) {
+    const list = sets || [];
+    /** @type {Array<{name: string, type: string, value?: unknown}>} */
+    const fields = [{ name: name + 'Count', type: 'USHORT', value: list.length }];
+    for (let i = 0; i < list.length; i++) {
+        const set = list[i];
+        /** @type {Array<{name: string, type: string, value?: unknown}>} */
+        const setFields = [{ name: 'ruleCount', type: 'USHORT', value: set ? set.length : 0 }];
+        if (set) {
+            for (let r = 0; r < set.length; r++) {
+                setFields.push({ name: 'rule' + r, type: 'OFFSET16', value: makeRule(set[r]) });
+            }
+        }
+        fields.push({ name: name + i, type: 'OFFSET16', value: set ? new table.Table(name + 'Table', setFields) : null });
+    }
+    return fields;
+}
+
+/**
+ * Count-prefixed list of coverage offsets.
+ * @param {string} name
+ * @param {object[]} coverages
+ * @returns {Array<{name: string, type: string, value?: unknown}>}
+ */
+function coverageListFields(name, coverages) {
+    const list = coverages || [];
+    /** @type {Array<{name: string, type: string, value?: unknown}>} */
+    const fields = [{ name: name + 'Count', type: 'USHORT', value: list.length }];
+    for (let i = 0; i < list.length; i++) {
+        fields.push({ name: name + i, type: 'OFFSET16', value: makeCoverageTable(list[i]) });
+    }
+    return fields;
+}
+
+/**
+ * @param {number[]} sequence - input sequence after the first glyph (glyph ids or classes)
+ * @param {GposLookupRecord[]} records
+ * @returns {object}
+ */
+function makePosSequenceRule(sequence, records) {
+    return new table.Table('posRule', [
+        { name: 'glyphCount', type: 'USHORT', value: sequence.length + 1 },
+        { name: 'posCount', type: 'USHORT', value: records.length },
+        ...ushortFields('input', sequence),
+        ...posLookupRecordFields(records)
+    ]);
+}
+
+// Lookup Type 7: Contextual Positioning (sequence context)
+// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-7-contextual-positioning-subtables
 subtableMakers[7] = function makeLookup7(subtable) {
     if (subtable.posFormat === 1) {
-        const coverageTable = makeCoverageTable(subtable.coverage);
-        
-        return new table.Table('contextualPosTable', [
+        return new table.Table('contextPosTable', [
             { name: 'posFormat', type: 'USHORT', value: 1 },
-            { name: 'coverageOffset', type: 'USHORT', value: 0 },
-            { name: 'posRuleSetCount', type: 'USHORT', value: subtable.ruleSets?.length || 0 }
-        ].concat(coverageTable ? [{ name: 'coverage', type: 'TABLE', value: coverageTable }] : []).concat(table.tableList('posRuleSet', subtable.ruleSets || [], function(posRuleSet) {
-            if (!posRuleSet) {
-                return new table.Table('NULL', null);
-            }
-            return new table.Table('posRuleSetTable', table.tableList('posRule', posRuleSet, function(posRule) {
-                let tableData = [
-                    { name: 'glyphCount', type: 'USHORT', value: (posRule.input?.length || 0) + 1 },
-                    { name: 'posCount', type: 'USHORT', value: posRule.posLookupRecords?.length || 0 }
-                ];
-
-                tableData = tableData.concat(table.ushortList('inputSequence', posRule.input, (posRule.input?.length || 0) + 1));
-
-                for (let i = 0; i < (posRule.posLookupRecords?.length || 0); i++) {
-                    const record = posRule.posLookupRecords[i];
-                    tableData = tableData
-                        .concat({ name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex })
-                        .concat({ name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex });
-                }
-                return new table.Table('posRuleTable', tableData);
-            }));
-        })));
+            { name: 'coverage', type: 'OFFSET16', value: makeCoverageTable(subtable.coverage) },
+            ...ruleSetListFields('posRuleSet', subtable.ruleSets, (rule) =>
+                makePosSequenceRule(rule.input || [], posLookupRecordsOf(rule)))
+        ]);
     } else if (subtable.posFormat === 2) {
-        const coverageTable = makeCoverageTable(subtable.coverage);
-        const classDefTable = subtable.classDef ? new table.ClassDef(subtable.classDef) : null;
-
-        return new table.Table('contextualPosTable', [
+        return new table.Table('contextPosTable', [
             { name: 'posFormat', type: 'USHORT', value: 2 },
-            { name: 'coverageOffset', type: 'USHORT', value: 0 },
-            { name: 'classDefOffset', type: 'USHORT', value: 0 },
-            { name: 'posClassSetCount', type: 'USHORT', value: subtable.classSets?.length || 0 }
-        ].concat(coverageTable ? [{ name: 'coverage', type: 'TABLE', value: coverageTable }] : [])
-            .concat(classDefTable ? [{ name: 'classDef', type: 'TABLE', value: classDefTable }] : [])
-            .concat(table.tableList('posClassSet', subtable.classSets || [], function(posClassSet) {
-                if (!posClassSet) {
-                    return new table.Table('NULL', null);
-                }
-                return new table.Table('posClassSetTable', table.tableList('posClassRule', posClassSet, function(posClassRule) {
-                    let tableData = [
-                        { name: 'glyphCount', type: 'USHORT', value: (posClassRule.classes?.length || 0) + 1 },
-                        { name: 'posCount', type: 'USHORT', value: posClassRule.posLookupRecords?.length || 0 }
-                    ];
-
-                    tableData = tableData.concat(table.ushortList('classSequence', posClassRule.classes, (posClassRule.classes?.length || 0) + 1));
-
-                    for (let i = 0; i < (posClassRule.posLookupRecords?.length || 0); i++) {
-                        const record = posClassRule.posLookupRecords[i];
-                        tableData = tableData
-                            .concat({ name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex })
-                            .concat({ name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex });
-                    }
-                    return new table.Table('posClassRuleTable', tableData);
-                }));
-            })));
+            { name: 'coverage', type: 'OFFSET16', value: makeCoverageTable(subtable.coverage) },
+            { name: 'classDef', type: 'OFFSET16', value: subtable.classDef ? new table.ClassDef(subtable.classDef) : null },
+            ...ruleSetListFields('posClassSet', subtable.classSets, (rule) =>
+                makePosSequenceRule(rule.classes || [], posLookupRecordsOf(rule)))
+        ]);
     } else if (subtable.posFormat === 3) {
-        let tableData = [
+        const coverages = subtable.coverages || [];
+        const records = posLookupRecordsOf(subtable);
+        return new table.Table('contextPosTable', [
             { name: 'posFormat', type: 'USHORT', value: 3 },
-            { name: 'glyphCount', type: 'USHORT', value: subtable.coverages?.length || 0 },
-            { name: 'posCount', type: 'USHORT', value: subtable.posLookupRecords?.length || 0 }
-        ];
-
-        for (let i = 0; i < (subtable.coverages?.length || 0); i++) {
-            const coverage = subtable.coverages[i];
-            tableData.push({ name: 'inputCoverageOffset' + i, type: 'USHORT', value: 0 });
-            if (coverage) {
-                tableData.push({ name: 'inputCoverage' + i, type: 'TABLE', value: new table.Coverage(coverage) });
-            }
-        }
-
-        for (let i = 0; i < (subtable.posLookupRecords?.length || 0); i++) {
-            const record = subtable.posLookupRecords[i];
-            tableData = tableData
-                .concat({ name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex })
-                .concat({ name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex });
-        }
-
-        return new table.Table('contextualPosTable', tableData);
+            { name: 'glyphCount', type: 'USHORT', value: coverages.length },
+            { name: 'posCount', type: 'USHORT', value: records.length },
+            ...coverages.map((coverage, i) => ({ name: 'coverage' + i, type: 'OFFSET16', value: makeCoverageTable(coverage) })),
+            ...posLookupRecordFields(records)
+        ]);
     }
-
     check.assert(false, 'GPOS lookup type 7 posFormat must be 1, 2 or 3.');
 };
 
-// Lookup Type 8: Chaining Context Positioning
-// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-8-chaining-context-positioning-subtable
+/**
+ * @param {{backtrack?: number[], input?: number[], lookahead?: number[], lookupRecords?: GposLookupRecord[], posLookupRecords?: GposLookupRecord[]}} rule
+ * @returns {object}
+ */
+function makeChainPosRule(rule) {
+    const backtrack = rule.backtrack || [];
+    const input = rule.input || [];
+    const lookahead = rule.lookahead || [];
+    const records = posLookupRecordsOf(rule);
+    return new table.Table('chainPosRule', [
+        { name: 'backtrackCount', type: 'USHORT', value: backtrack.length },
+        ...ushortFields('backtrack', backtrack),
+        { name: 'inputCount', type: 'USHORT', value: input.length + 1 },
+        ...ushortFields('input', input),
+        { name: 'lookaheadCount', type: 'USHORT', value: lookahead.length },
+        ...ushortFields('lookahead', lookahead),
+        { name: 'posCount', type: 'USHORT', value: records.length },
+        ...posLookupRecordFields(records)
+    ]);
+}
+
+// Lookup Type 8: Chained Contexts Positioning
+// https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-8-chained-contexts-positioning-subtable
 subtableMakers[8] = function makeLookup8(subtable) {
-    // Format 1: Coverage-based chaining context
     if (subtable.posFormat === 1) {
-        // Build Coverage tables
-        const backtrackCoverageTable = makeCoverageTable(subtable.backtrackCoverage);
-        const inputCoverageTable = makeCoverageTable(subtable.inputCoverage);
-        
-        // Calculate sizes
-        const headerSize = 6; // posFormat + backtrackCount + inputCount + lookaheadCount + reserved
-        const backtrackSize = /** @type {{ sizeOf: () => number }} */ (/** @type {unknown} */ (backtrackCoverageTable))?.sizeOf() || 0;
-        const inputSize = /** @type {{ sizeOf: () => number }} */ (/** @type {unknown} */ (inputCoverageTable))?.sizeOf() || 0;
-        
-        // Build position rules if present
-        const posRules = subtable.posRuleSet || [];
-        
-        // For now, create a minimal valid table
-        // Full implementation would require proper position rule construction
-        return new table.Table('chainingContextTable', [
+        return new table.Table('chainContextPosTable', [
             { name: 'posFormat', type: 'USHORT', value: 1 },
-            { name: 'backtrackCoverageOffset', type: 'USHORT', value: headerSize },
-            { name: 'inputCoverageOffset', type: 'USHORT', value: headerSize + backtrackSize },
-            { name: 'lookaheadCoverageOffset', type: 'USHORT', value: headerSize + backtrackSize + inputSize },
-            { name: 'posRuleSetCount', type: 'USHORT', value: posRules.length }
+            { name: 'coverage', type: 'OFFSET16', value: makeCoverageTable(subtable.coverage) },
+            ...ruleSetListFields('chainPosRuleSet', subtable.chainRuleSets, makeChainPosRule)
         ]);
     } else if (subtable.posFormat === 2) {
-        const coverageTable = makeCoverageTable(subtable.coverage);
-        const backtrackClassDef = subtable.backtrackClassDef ? new table.ClassDef(subtable.backtrackClassDef) : null;
-        const inputClassDef = subtable.inputClassDef ? new table.ClassDef(subtable.inputClassDef) : null;
-        const lookaheadClassDef = subtable.lookaheadClassDef ? new table.ClassDef(subtable.lookaheadClassDef) : null;
-
         return new table.Table('chainContextPosTable', [
             { name: 'posFormat', type: 'USHORT', value: 2 },
-            { name: 'coverageOffset', type: 'USHORT', value: 0 },
-            { name: 'backtrackClassDefOffset', type: 'USHORT', value: 0 },
-            { name: 'inputClassDefOffset', type: 'USHORT', value: 0 },
-            { name: 'lookaheadClassDefOffset', type: 'USHORT', value: 0 },
-            { name: 'chainPosClassSetCount', type: 'USHORT', value: subtable.chainClassSet?.length || 0 }
-        ].concat(coverageTable ? [{ name: 'coverage', type: 'TABLE', value: coverageTable }] : [])
-            .concat(backtrackClassDef ? [{ name: 'backtrackClassDef', type: 'TABLE', value: backtrackClassDef }] : [])
-            .concat(inputClassDef ? [{ name: 'inputClassDef', type: 'TABLE', value: inputClassDef }] : [])
-            .concat(lookaheadClassDef ? [{ name: 'lookaheadClassDef', type: 'TABLE', value: lookaheadClassDef }] : [])
-            .concat(table.tableList('chainPosClassSet', subtable.chainClassSet || [], function(chainPosClassSet) {
-                if (!chainPosClassSet) {
-                    return new table.Table('NULL', null);
-                }
-                return new table.Table('chainPosClassSetTable', table.tableList('chainPosClassRule', chainPosClassSet, function(chainPosClassRule) {
-                    let tableData = table.ushortList('backtrackClass', chainPosClassRule.backtrack, chainPosClassRule.backtrack?.length || 0)
-                        .concat(table.ushortList('inputClass', chainPosClassRule.input, (chainPosClassRule.input?.length || 0) + 1))
-                        .concat(table.ushortList('lookaheadClass', chainPosClassRule.lookahead, chainPosClassRule.lookahead?.length || 0))
-                        .concat(table.ushortList('posCount', [], chainPosClassRule.posLookupRecords?.length || 0));
-
-                    for (let i = 0; i < (chainPosClassRule.posLookupRecords?.length || 0); i++) {
-                        const record = chainPosClassRule.posLookupRecords[i];
-                        tableData = tableData
-                            .concat({ name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex })
-                            .concat({ name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex });
-                    }
-                    return new table.Table('chainPosClassRuleTable', tableData);
-                }));
-            })));
+            { name: 'coverage', type: 'OFFSET16', value: makeCoverageTable(subtable.coverage) },
+            { name: 'backtrackClassDef', type: 'OFFSET16', value: subtable.backtrackClassDef ? new table.ClassDef(subtable.backtrackClassDef) : null },
+            { name: 'inputClassDef', type: 'OFFSET16', value: subtable.inputClassDef ? new table.ClassDef(subtable.inputClassDef) : null },
+            { name: 'lookaheadClassDef', type: 'OFFSET16', value: subtable.lookaheadClassDef ? new table.ClassDef(subtable.lookaheadClassDef) : null },
+            ...ruleSetListFields('chainPosClassSet', subtable.chainClassSet, makeChainPosRule)
+        ]);
     } else if (subtable.posFormat === 3) {
-        let tableData = [
+        const records = posLookupRecordsOf(subtable);
+        return new table.Table('chainContextPosTable', [
             { name: 'posFormat', type: 'USHORT', value: 3 },
-            { name: 'backtrackGlyphCount', type: 'USHORT', value: subtable.backtrackCoverage?.length || 0 }
-        ];
-
-        for (let i = 0; i < (subtable.backtrackCoverage?.length || 0); i++) {
-            const coverage = subtable.backtrackCoverage[i];
-            tableData.push({ name: 'backtrackCoverageOffset' + i, type: 'USHORT', value: 0 });
-            if (coverage) {
-                tableData.push({ name: 'backtrackCoverage' + i, type: 'TABLE', value: new table.Coverage(coverage) });
-            }
-        }
-
-        tableData.push({ name: 'inputGlyphCount', type: 'USHORT', value: subtable.inputCoverage?.length || 0 });
-
-        for (let i = 0; i < (subtable.inputCoverage?.length || 0); i++) {
-            const coverage = subtable.inputCoverage[i];
-            tableData.push({ name: 'inputCoverageOffset' + i, type: 'USHORT', value: 0 });
-            if (coverage) {
-                tableData.push({ name: 'inputCoverage' + i, type: 'TABLE', value: new table.Coverage(coverage) });
-            }
-        }
-
-        tableData.push({ name: 'lookaheadGlyphCount', type: 'USHORT', value: subtable.lookaheadCoverage?.length || 0 });
-
-        for (let i = 0; i < (subtable.lookaheadCoverage?.length || 0); i++) {
-            const coverage = subtable.lookaheadCoverage[i];
-            tableData.push({ name: 'lookaheadCoverageOffset' + i, type: 'USHORT', value: 0 });
-            if (coverage) {
-                tableData.push({ name: 'lookaheadCoverage' + i, type: 'TABLE', value: new table.Coverage(coverage) });
-            }
-        }
-
-        tableData.push({ name: 'posCount', type: 'USHORT', value: subtable.posLookupRecords?.length || 0 });
-
-        for (let i = 0; i < (subtable.posLookupRecords?.length || 0); i++) {
-            const record = subtable.posLookupRecords[i];
-            tableData = tableData
-                .concat({ name: 'sequenceIndex' + i, type: 'USHORT', value: record.sequenceIndex })
-                .concat({ name: 'lookupListIndex' + i, type: 'USHORT', value: record.lookupListIndex });
-        }
-
-        return new table.Table('chainContextPosTable', tableData);
+            ...coverageListFields('backtrackCoverage', subtable.backtrackCoverage),
+            ...coverageListFields('inputCoverage', subtable.inputCoverage),
+            ...coverageListFields('lookaheadCoverage', subtable.lookaheadCoverage),
+            { name: 'posCount', type: 'USHORT', value: records.length },
+            ...posLookupRecordFields(records)
+        ]);
     }
-
     check.assert(false, 'GPOS lookup type 8 posFormat must be 1, 2 or 3.');
 };
 

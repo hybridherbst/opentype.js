@@ -1404,4 +1404,82 @@ describe('tables/gpos.js', function() {
         const lookup = { lookupType: 1, lookupFlag: 0x0010, subtables: [{ posFormat: 1, coverage: { format: 1, glyphs: [2] }, valueFormat: 4, value: { xAdvance: 10 } }] };
         assert.throws(() => gpos.make({ version: 1, scripts: [], features: [], lookups: [lookup] }).encode(), /markFilteringSet/);
     });
+    it('can parse lookup3 CursivePosFormat1 from hex', function() {
+        const subtable = parseLookup(3, '0001 000E 0002 0016 001C 0000 0022   0001 0002 0010 0011   ' +
+            '0001 0064 00C8   0001 012C 0000   0001 FFF6 0032');
+        assert.equal(subtable.posFormat, 1);
+        assert.deepEqual(subtable.coverage, { format: 1, glyphs: [0x10, 0x11] });
+        assert.equal(subtable.entryExitRecords.length, 2);
+        assert.equal(subtable.entryExitRecords[0].entryAnchor.xCoordinate, 100);
+        assert.equal(subtable.entryExitRecords[0].entryAnchor.yCoordinate, 200);
+        assert.equal(subtable.entryExitRecords[0].exitAnchor.xCoordinate, 300);
+        assert.equal(subtable.entryExitRecords[1].entryAnchor, undefined);
+        assert.equal(subtable.entryExitRecords[1].exitAnchor.xCoordinate, -10);
+        // Writing gives back the same bytes.
+        assert.deepEqual(Array.from(makeLookup(3, subtable)), Array.from(unhexArray('0001 000E 0002 0016 001C 0000 0022   0001 0002 0010 0011   ' +
+            '0001 0064 00C8   0001 012C 0000   0001 FFF6 0032')));
+    });
+
+    function roundtripGpos(lookups) {
+        const encoded = gpos.make({ version: 1, scripts: [], features: [], lookups }).encode();
+        return gpos.parse(new DataView(Uint8Array.from(encoded).buffer));
+    }
+
+    const singleLookup = { lookupType: 1, lookupFlag: 0, subtables: [{ posFormat: 1, coverage: { format: 1, glyphs: [5, 6] }, valueFormat: 4, value: { xAdvance: -20 } }] };
+
+    it('roundtrips lookup7 contextual positioning formats 1, 2 and 3', function() {
+        const records = [{ sequenceIndex: 1, lookupListIndex: 0 }];
+        const parsed = roundtripGpos([singleLookup, {
+            lookupType: 7, lookupFlag: 8, subtables: [
+                { posFormat: 1, coverage: { format: 1, glyphs: [3, 4] }, ruleSets: [[{ input: [5], lookupRecords: records }], [{ input: [6, 7], lookupRecords: records }, { input: [5], lookupRecords: [] }]] },
+                { posFormat: 2, coverage: { format: 1, glyphs: [3] }, classDef: { format: 2, ranges: [{ start: 3, end: 3, classId: 1 }, { start: 5, end: 6, classId: 2 }] },
+                    classSets: [null, [{ classes: [2], lookupRecords: records }], null] },
+                { posFormat: 3, coverages: [{ format: 1, glyphs: [3] }, { format: 1, glyphs: [5, 6] }], lookupRecords: records }
+            ]
+        }]);
+        const [f1, f2, f3] = parsed.lookups[1].subtables;
+        assert.equal(parsed.lookups[1].lookupType, 7);
+        assert.deepEqual(f1.ruleSets, [[{ input: [5], lookupRecords: records }], [{ input: [6, 7], lookupRecords: records }, { input: [5], lookupRecords: [] }]]);
+        assert.deepEqual(f1.coverage, { format: 1, glyphs: [3, 4] });
+        assert.equal(f2.posFormat, 2);
+        assert.deepEqual(f2.classSets, [undefined, [{ classes: [2], lookupRecords: records }], undefined]);
+        assert.deepEqual(f2.classDef.ranges, [{ start: 3, end: 3, classId: 1 }, { start: 5, end: 6, classId: 2 }]);
+        assert.deepEqual(f3, { posFormat: 3, coverages: [{ format: 1, glyphs: [3] }, { format: 1, glyphs: [5, 6] }], lookupRecords: records });
+    });
+
+    it('roundtrips lookup8 chained contextual positioning formats 1, 2 and 3', function() {
+        const records = [{ sequenceIndex: 0, lookupListIndex: 0 }];
+        const parsed = roundtripGpos([singleLookup, {
+            lookupType: 8, lookupFlag: 0, subtables: [
+                { posFormat: 1, coverage: { format: 1, glyphs: [5] }, chainRuleSets: [[{ backtrack: [2, 1], input: [6], lookahead: [9], lookupRecords: records }]] },
+                { posFormat: 2, coverage: { format: 1, glyphs: [5] },
+                    backtrackClassDef: { format: 1, startGlyph: 2, classes: [1] },
+                    inputClassDef: { format: 1, startGlyph: 5, classes: [1, 2] },
+                    lookaheadClassDef: { format: 1, startGlyph: 9, classes: [1] },
+                    chainClassSet: [null, [{ backtrack: [1], input: [2], lookahead: [], lookupRecords: records }]] },
+                { posFormat: 3, backtrackCoverage: [{ format: 1, glyphs: [2] }], inputCoverage: [{ format: 1, glyphs: [5, 6] }],
+                    lookaheadCoverage: [{ format: 1, glyphs: [9] }, { format: 1, glyphs: [10] }], lookupRecords: records }
+            ]
+        }]);
+        const [f1, f2, f3] = parsed.lookups[1].subtables;
+        assert.deepEqual(f1.chainRuleSets, [[{ backtrack: [2, 1], input: [6], lookahead: [9], lookupRecords: records }]]);
+        assert.deepEqual(f2.chainClassSet, [undefined, [{ backtrack: [1], input: [2], lookahead: [], lookupRecords: records }]]);
+        assert.deepEqual(f2.inputClassDef.classes, [1, 2]);
+        assert.deepEqual(f3, { posFormat: 3, backtrackCoverage: [{ format: 1, glyphs: [2] }], inputCoverage: [{ format: 1, glyphs: [5, 6] }],
+            lookaheadCoverage: [{ format: 1, glyphs: [9] }, { format: 1, glyphs: [10] }], lookupRecords: records });
+    });
+
+    it('roundtrips lookup3 cursive attachment inside an extension lookup', function() {
+        const inner = { posFormat: 1, coverage: { format: 1, glyphs: [3, 4] }, entryExitRecords: [
+            { entryAnchor: { format: 1, xCoordinate: 0, yCoordinate: 10 }, exitAnchor: { format: 1, xCoordinate: 500, yCoordinate: 20 } },
+            { entryAnchor: undefined, exitAnchor: { format: 1, xCoordinate: 400, yCoordinate: -5 } }
+        ] };
+        const parsed = roundtripGpos([{ lookupType: 9, lookupFlag: 1, subtables: [{ posFormat: 1, extensionLookupType: 3, extensionSubtable: inner }] }]);
+        const ext = parsed.lookups[0].subtables[0];
+        assert.equal(ext.extensionLookupType, 3);
+        assert.deepEqual(ext.extension.coverage, inner.coverage);
+        assert.equal(ext.extension.entryExitRecords[0].exitAnchor.xCoordinate, 500);
+        assert.equal(ext.extension.entryExitRecords[1].entryAnchor, undefined);
+        assert.equal(ext.extension.entryExitRecords[1].exitAnchor.yCoordinate, -5);
+    });
 });
