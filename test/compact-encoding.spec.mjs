@@ -139,6 +139,21 @@ describe('compact layout encoding', function() {
         });
     });
 
+    describe('extension lookups', function() {
+        const filler = (k) => ({ substFormat: 2, coverage: { format: 2, ranges: [{ start: 100, end: 12099, index: 0 }] },
+            substitute: Array.from({ length: 12000 }, (_, i) => (i * (k + 3)) % 30000) });
+        it('promotes the lookups to Extension lookups only when an offset would not fit', function() {
+            const small = gsub.parse(view(gsub.make({ version: 1, scripts, features: [], lookups: [{ lookupType: 1, lookupFlag: 0, subtables: [filler(1)] }] }).encode()));
+            assert.equal(small.lookups[0].lookupType, 1);
+            const lookups = [1, 2, 3, 4].map((k) => ({ lookupType: 1, lookupFlag: 0, subtables: [filler(k)] }));
+            const parsed = gsub.parse(view(gsub.make({ version: 1, scripts, features: [], lookups }).encode()));
+            assert.deepEqual(parsed.lookups.map((lookup) => lookup.lookupType), [7, 7, 7, 7]);
+            for (let k = 0; k < 4; k++) {
+                assert.deepEqual(singleSubstitutions(parsed.lookups[k].subtables[0].extension), singleSubstitutions(lookups[k].subtables[0]));
+            }
+        });
+    });
+
     describe('cmap format 4', function() {
         const glyphsOf = (codes) => ({ length: codes.length + 1, get: (i) => ({ unicodes: i === 0 ? [] : [codes[i - 1]] }) });
         it('stores unordered glyph ids of a code run in the glyphIdArray and splits out long consecutive runs', function() {

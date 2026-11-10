@@ -385,6 +385,49 @@ function ClassDef(classDefTable) {
 ClassDef.prototype = Object.create(Table.prototype);
 ClassDef.prototype.constructor = ClassDef;
 
+/**
+ * @typedef {{lookupType: number, lookupFlag: number, subtables: Array<Record<string, unknown>>, markFilteringSet?: number}} LayoutLookup
+ */
+
+/**
+ * Every lookup wrapped as an Extension lookup.
+ * @param {LayoutLookup[]} lookups
+ * @param {number} extensionType - 7 (GSUB) or 9 (GPOS)
+ * @returns {LayoutLookup[]}
+ */
+function wrapExtensionLookups(lookups, extensionType) {
+    return lookups.map((lookup) => {
+        if (!lookup || lookup.lookupType === extensionType) return lookup;
+        const subtables = (lookup.subtables || []).map((extension) => extensionType === 9
+            ? { posFormat: 1, extensionLookupType: lookup.lookupType, extension }
+            : { substFormat: 1, lookupType: lookup.lookupType, extension });
+        return { ...lookup, lookupType: extensionType, subtables };
+    });
+}
+
+/**
+ * Build a GSUB or GPOS table, promoting its lookups to Extension lookups when they are
+ * needed, as fontTools does: if an offset of the table as given does not fit, every
+ * lookup is written as an Extension lookup (their subtables then sit after all of the
+ * table and are reached through 32-bit offsets). Lookups given as Extension lookups
+ * stay so. Wrapping changes the encoding only.
+ * @param {(lookups: LayoutLookup[]) => Table} build
+ * @param {LayoutLookup[]} lookups
+ * @param {number} extensionType - 7 (GSUB) or 9 (GPOS)
+ * @returns {Table}
+ */
+function makeLayoutTableWithinReach(build, lookups, extensionType) {
+    const given = build(lookups || []);
+    if (!(lookups || []).some((lookup) => lookup && lookup.lookupType !== extensionType)) return given;
+    try {
+        given.encode();
+        return given;
+    } catch (error) {
+        if (!/offset .* exceeds/.test(String(/** @type {Error} */ (error)?.message))) throw error;
+    }
+    return build(wrapExtensionLookups(lookups, extensionType));
+}
+
 // Record = same as Table, but inlined (a Table has an offset and its data is further in the stream)
 // Don't use offsets inside Records (probable bug), only in Tables.
 export { Table };
@@ -403,4 +446,5 @@ export default {
     recordList,
     coverageGlyphs,
     coverageRanges,
+    makeLayoutTableWithinReach,
 };

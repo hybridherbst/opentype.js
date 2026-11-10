@@ -614,23 +614,25 @@ subtableMakers[7] = function makeLookup7(subtable) {
  */
 function makeGsubTable(gsub) {
     const hasFeatureVariations = gsub.variations && gsub.variations.length > 0;
-    /** @type {Array<{name: string, type: string, value?: unknown}>} */
-    const tableFields = [
-        {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
-        {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
-        {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
-        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, subtableMakers)}
-    ];
-
-    if (hasFeatureVariations) {
-        tableFields.push({
-            name: 'featureVariations',
-            type: 'OFFSET32',
-            value: featureVariationsTable.make(gsub.variations)
-        });
-    }
-
-    return new table.Table('GSUB', tableFields);
+    /** @param {Array<{lookupType: number, lookupFlag: number, subtables: unknown[], markFilteringSet?: number}>} lookups */
+    const build = (lookups) => {
+        /** @type {Array<{name: string, type: string, value?: unknown}>} */
+        const tableFields = [
+            {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
+            {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
+            {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
+            {name: 'lookups', type: 'TABLE', value: new table.LookupList(lookups, subtableMakers)}
+        ];
+        if (hasFeatureVariations) {
+            tableFields.push({
+                name: 'featureVariations',
+                type: 'OFFSET32',
+                value: featureVariationsTable.make(gsub.variations)
+            });
+        }
+        return new table.Table('GSUB', tableFields);
+    };
+    return table.makeLayoutTableWithinReach(build, gsub.lookups, 7);
 }
 
 export default { parse: parseGsubTable, make: makeGsubTable };

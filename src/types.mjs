@@ -1168,7 +1168,7 @@ function getMaxOffsetForRelocation(relocation) {
  * offsets to other objects. Offsets always count from the start of the object holding
  * the field; `scope` and `phase` only decide where the target is laid out.
  * @typedef {{pos: number, width: number, child: number, scope: string, phase: number, fieldName: string}} GraphLink
- * @typedef {{bytes: Array<number>, links: GraphLink[], kind: string, canon: number}} GraphNode
+ * @typedef {{bytes: Array<number>, links: GraphLink[], kind: string, canon: number, defers?: boolean}} GraphNode
  * @typedef {'global' | 'siblings'} ShareMode
  * @typedef {{nodes: GraphNode[], canonical: Map<string, number>, shareMode: ShareMode}} TableGraph
  * @typedef {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}> | null, tableName?: string}} EncodableTable
@@ -1208,6 +1208,7 @@ function graphNodeKey(node, nodes) {
  */
 function internGraphNode(graph, node) {
     const id = graph.nodes.length;
+    node.defers = node.links.some((link) => link.scope === 'parent');
     if (node.bytes.length === 0) {
         node.canon = id;
         graph.nodes.push(node);
@@ -1302,6 +1303,17 @@ function buildGraphNode(graph, table) {
  * @returns {number[]}
  */
 function graphLayoutChildren(nodes, id) {
+    const links = nodes[id].links;
+    let simple = true;
+    for (let i = 0; i < links.length && simple; i += 1) {
+        const link = links[i];
+        simple = link.scope === 'local' && link.phase === 0 && !nodes[link.child].defers;
+    }
+    if (simple) {
+        const children = new Array(links.length);
+        for (let i = 0; i < links.length; i += 1) children[i] = links[i].child;
+        return children;
+    }
     /** @type {Map<number, GraphLink[]>} */
     const buckets = new Map();
     /** @type {Map<number, number>} */
@@ -1342,47 +1354,45 @@ function graphLayoutChildren(nodes, id) {
  * payloads) form a region after everything that reaches them.
  * @param {GraphNode[]} nodes
  * @param {number} rootId
- * @returns {{regions: Array<Map<number, number>>, order: Array<{region: number, id: number}>, size: number}}
+ * @returns {{regions: Int32Array[], order: Array<{region: number, id: number}>, size: number}}
  */
 function layoutTableGraph(nodes, rootId) {
-    /** @type {Array<Map<number, number>>} */
+    /** @type {Int32Array[]} */
     const regions = [];
     /** @type {Array<{region: number, id: number}>} */
     const order = [];
     let offset = 0;
     let roots = [rootId];
     while (roots.length > 0) {
-        /** @type {Set<number>} */
-        const visited = new Set();
+        const visited = new Uint8Array(nodes.length);
         /** @type {number[]} */
         const post = [];
         /** @param {number[]} children */
         const gatherChildren = (children) => {
             /** @type {Map<number, number>} */
             const first = new Map();
-            for (let i = 0; i < children.length; i += 1) if (!first.has(children[i])) first.set(children[i], i);
+            for (let i = 0; i < children.length; i += 1) if (!visited[children[i]] && !first.has(children[i])) first.set(children[i], i);
             for (let i = children.length - 1; i >= 0; i -= 1) {
                 const child = children[i];
-                if (first.get(child) === i && !visited.has(child)) gather(child);
+                if (!visited[child] && first.get(child) === i) gather(child);
             }
         };
         /** @param {number} id */
         const gather = (id) => {
-            visited.add(id);
+            visited[id] = 1;
             gatherChildren(graphLayoutChildren(nodes, id));
             post.push(id);
         };
         gatherChildren(roots);
         const region = regions.length;
-        /** @type {Map<number, number>} */
-        const positions = new Map();
+        const positions = new Int32Array(nodes.length).fill(-1);
         /** @type {number[]} */
         const nextRoots = [];
         /** @type {Set<number>} */
         const nextSeen = new Set();
         for (let i = post.length - 1; i >= 0; i -= 1) {
             const id = post[i];
-            positions.set(id, offset);
+            positions[id] = offset;
             order.push({ region, id });
             offset += nodes[id].bytes.length;
             for (const link of nodes[id].links) {
@@ -1419,23 +1429,21 @@ function resolveTableGraphLayout(graph, rootId) {
     const nodes = graph.nodes;
     for (let pass = 0; ; pass += 1) {
         const layout = layoutTableGraph(nodes, rootId);
-        /** @type {Map<number, number>} */
-        const references = new Map();
+        const references = new Int32Array(nodes.length);
         for (const { id } of layout.order) {
-            for (const link of nodes[id].links) references.set(link.child, (references.get(link.child) || 0) + 1);
+            for (const link of nodes[id].links) references[link.child] += 1;
         }
         /** @type {Array<{owner: number, link: GraphLink}>} */
         const overflowing = [];
         for (const { region, id } of layout.order) {
-            const ownerPos = /** @type {number} */ (layout.regions[region].get(id));
+            const ownerPos = layout.regions[region][id];
             for (const link of nodes[id].links) {
-                const targetPos = layout.regions[linkTargetRegion(link, region)].get(link.child);
-                const relative = /** @type {number} */ (targetPos) - ownerPos;
+                const relative = layout.regions[linkTargetRegion(link, region)][link.child] - ownerPos;
                 if (relative < 0 || relative > getMaxOffsetForRelocation(link)) overflowing.push({ owner: id, link });
             }
         }
         if (overflowing.length === 0) return { layout, overflow: null };
-        const unsharable = overflowing.find(({ link }) => (references.get(link.child) || 0) < 2);
+        const unsharable = overflowing.find(({ link }) => references[link.child] < 2);
         if (unsharable || pass >= 32) {
             const { owner, link } = unsharable || overflowing[0];
             return { layout: null, overflow: { kind: nodes[owner].kind, fieldName: link.fieldName, max: getMaxOffsetForRelocation(link) } };
@@ -1448,7 +1456,7 @@ function resolveTableGraphLayout(graph, rootId) {
             if (copy === undefined) {
                 const source = nodes[link.child];
                 copy = nodes.length;
-                nodes.push({ bytes: source.bytes, links: source.links.map((l) => Object.assign({}, l)), kind: source.kind, canon: source.canon });
+                nodes.push({ bytes: source.bytes, links: source.links.map((l) => Object.assign({}, l)), kind: source.kind, canon: source.canon, defers: source.defers });
                 copies.set(copyKey, copy);
             }
             link.child = copy;
@@ -1498,10 +1506,10 @@ function encodeTable(table) {
     const bytes = new Array(layout.size);
     for (const { region, id } of layout.order) {
         const node = nodes[id];
-        const start = /** @type {number} */ (layout.regions[region].get(id));
+        const start = layout.regions[region][id];
         for (let i = 0; i < node.bytes.length; i += 1) bytes[start + i] = node.bytes[i];
         for (const link of node.links) {
-            const targetPos = /** @type {number} */ (layout.regions[linkTargetRegion(link, region)].get(link.child));
+            const targetPos = layout.regions[linkTargetRegion(link, region)][link.child];
             writeOffset(bytes, start + link.pos, link.width, targetPos - start);
         }
     }

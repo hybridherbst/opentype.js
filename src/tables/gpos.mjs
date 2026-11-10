@@ -1626,23 +1626,25 @@ subtableMakers[9] = function makeLookup9(subtable) {
  */
 function makeGposTable(gpos) {
     const hasFeatureVariations = gpos.variations && gpos.variations.length > 0;
-    /** @type {Array<{name: string, type: string, value?: unknown}>} */
-    const fields = [
-        {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
-        {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
-        {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
-        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups.map(compactSinglePosLookup), subtableMakers)}
-    ];
-
-    if (hasFeatureVariations) {
-        fields.push({
-            name: 'featureVariations',
-            type: 'OFFSET32',
-            value: featureVariationsTable.make(gpos.variations)
-        });
-    }
-
-    return new table.Table('GPOS', fields);
+    /** @param {GposLookupTable[]} lookups */
+    const build = (lookups) => {
+        /** @type {Array<{name: string, type: string, value?: unknown}>} */
+        const fields = [
+            {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
+            {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
+            {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
+            {name: 'lookups', type: 'TABLE', value: new table.LookupList(lookups.map(compactSinglePosLookup), subtableMakers)}
+        ];
+        if (hasFeatureVariations) {
+            fields.push({
+                name: 'featureVariations',
+                type: 'OFFSET32',
+                value: featureVariationsTable.make(gpos.variations)
+            });
+        }
+        return new table.Table('GPOS', fields);
+    };
+    return table.makeLayoutTableWithinReach(build, gpos.lookups, 9);
 }
 
 export { packPairPosFormat1Lookup, compactSinglePosLookup };
