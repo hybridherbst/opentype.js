@@ -1,6 +1,8 @@
 import assert from 'assert';
 import { unhex, unhexArray } from '../testutil.mjs';
 import gpos, { packPairPosFormat1Lookup } from '../../src/tables/gpos.mjs';
+import Position from '../../src/position.mjs';
+import Substitution from '../../src/substitution.mjs';
 
 // Helper that builds a minimal GPOS table to test a lookup subtable.
 function parseLookup(lookupType, subTableData) {
@@ -1481,5 +1483,25 @@ describe('tables/gpos.js', function() {
         assert.equal(ext.extension.entryExitRecords[0].exitAnchor.xCoordinate, 500);
         assert.equal(ext.extension.entryExitRecords[1].entryAnchor, undefined);
         assert.equal(ext.extension.entryExitRecords[1].exitAnchor.yCoordinate, -5);
+    });
+    it('lists GPOS contextual rules as glyph lists, separately from GSUB rules', function() {
+        const records = [{ sequenceIndex: 0, lookupListIndex: 0 }];
+        const parsed = roundtripGpos([singleLookup, {
+            lookupType: 8, lookupFlag: 0, subtables: [
+                { posFormat: 2, coverage: { format: 1, glyphs: [5, 6] },
+                    backtrackClassDef: { format: 1, startGlyph: 2, classes: [1] },
+                    inputClassDef: { format: 1, startGlyph: 5, classes: [1, 2] },
+                    lookaheadClassDef: { format: 1, startGlyph: 9, classes: [1] },
+                    chainClassSet: [null, [{ backtrack: [1], input: [0], lookahead: [1], lookupRecords: records }]] },
+                { posFormat: 3, backtrackCoverage: [], inputCoverage: [{ format: 1, glyphs: [5, 6] }], lookaheadCoverage: [], lookupRecords: records }
+            ]
+        }]);
+        const font = { numGlyphs: 8, tables: { gpos: parsed, gsub: { lookups: [] } } };
+        const rules = new Position(font).getContextPositioningRules(1);
+        assert.deepEqual(rules, [
+            { backtrack: [[2]], input: [[5], [0, 1, 2, 3, 4, 7]], lookahead: [[9]], lookupRecords: records },
+            { backtrack: [], input: [[5, 6]], lookahead: [], lookupRecords: records }
+        ]);
+        assert.deepEqual(new Substitution(font).getContextRulesForLookup(parsed.lookups[1]), []);
     });
 });

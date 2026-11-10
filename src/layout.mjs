@@ -12,6 +12,7 @@ import check from './check.mjs';
  * @typedef {import('./tables/gsub.mjs').FeatureRecord} FeatureRecord
  * @typedef {import('./tables/gpos.mjs').GposTable} GposTable
  * @typedef {import('./tables/gpos.mjs').GposLookupTable} GposLookupTable
+ * @typedef {{[key: string]: *}} LayoutRecord - a parsed subtable, rule or class definition (fields by format)
  */
 
 /**
@@ -392,6 +393,115 @@ Layout.prototype = {
             }
             return glyphs;
         }
+    },
+
+    /**
+     * List the rules of one sequence context or chained sequence context lookup (GSUB 5/6,
+     * GPOS 7/8), extension lookups unwrapped, in subtable order. Every rule spells its
+     * positions as glyph lists: backtrack (closest glyph first, as stored), input and
+     * lookahead. Class based rules (format 2) list the glyphs of each class; class 0 is
+     * every glyph in no class (for the first input position, of the coverage).
+     * @param {object|number} lookup - a lookup table or its index in the LookupList
+     * @param {{context: number, chaining: number, extension: number, formatKey: string}} types
+     * @return {Array<{backtrack: number[][], input: number[][], lookahead: number[][], lookupRecords: Array<{sequenceIndex: number, lookupListIndex: number}>}>}
+     */
+    listContextRules: function(lookup, types) {
+        const layoutTable = /** @type {{lookups?: Array<{lookupType: number, subtables?: Array<LayoutRecord>}>} | undefined} */ (this.font.tables[this.tableName]);
+        const allLookups = layoutTable ? layoutTable.lookups || [] : [];
+        const lookupTable = typeof lookup === 'number' ? allLookups[lookup] : /** @type {{lookupType: number, subtables?: Array<LayoutRecord>}} */ (lookup);
+        if (!lookupTable) return [];
+        let lookupType = lookupTable.lookupType;
+        let subtables = lookupTable.subtables || [];
+        if (lookupType === types.extension) {
+            lookupType = subtables[0] ? (subtables[0].extensionLookupType ?? subtables[0].lookupType) : 0;
+            subtables = subtables.map((subtable) => subtable.extension).filter(Boolean);
+        }
+        if (lookupType !== types.context && lookupType !== types.chaining) return [];
+        const chaining = lookupType === types.chaining;
+        const numGlyphs = this.font.numGlyphs ?? (this.font.glyphs ? this.font.glyphs.length : 0);
+        /** @type {Array<{backtrack: number[][], input: number[][], lookahead: number[][], lookupRecords: Array<{sequenceIndex: number, lookupListIndex: number}>}>} */
+        const rules = [];
+        const push = (/** @type {number[][]} */ backtrack, /** @type {number[][]} */ input, /** @type {number[][]} */ lookahead, /** @type {Array<{sequenceIndex: number, lookupListIndex: number}>|undefined} */ lookupRecords) => {
+            rules.push({ backtrack, input, lookahead, lookupRecords: (lookupRecords || []).slice() });
+        };
+        const classGlyphs = (/** @type {LayoutRecord|undefined} */ classDef, /** @type {number[]|null} */ universe) => {
+            /** @type {Map<number, number[]>} */
+            const members = new Map();
+            const classed = new Set();
+            const add = (/** @type {number} */ glyph, /** @type {number} */ value) => {
+                if (!value) return;
+                classed.add(glyph);
+                if (!members.has(value)) members.set(value, []);
+                members.get(value).push(glyph);
+            };
+            if (classDef && classDef.format === 1) {
+                const classes = classDef.classes || [];
+                for (let i = 0; i < classes.length; i++) add((classDef.startGlyph || 0) + i, classes[i]);
+            } else if (classDef && classDef.format === 2) {
+                for (const range of classDef.ranges || []) {
+                    for (let glyph = range.start; glyph <= range.end; glyph++) add(glyph, range.classId ?? range.value);
+                }
+            }
+            /** @type {number[]|null} */
+            let classZero = null;
+            return (/** @type {number} */ value) => {
+                if (value) return members.get(value) || [];
+                if (!classZero) {
+                    classZero = [];
+                    if (universe) {
+                        for (const glyph of universe) if (!classed.has(glyph)) classZero.push(glyph);
+                    } else {
+                        for (let glyph = 0; glyph < numGlyphs; glyph++) if (!classed.has(glyph)) classZero.push(glyph);
+                    }
+                }
+                return classZero;
+            };
+        };
+        for (const subtable of subtables) {
+            const format = subtable[types.formatKey];
+            if (format === 1) {
+                const firsts = this.expandCoverage(subtable.coverage);
+                const sets = (chaining ? subtable.chainRuleSets : subtable.ruleSets) || [];
+                for (let j = 0; j < firsts.length; j++) {
+                    for (const rule of sets[j] || []) {
+                        push(
+                            chaining ? (rule.backtrack || []).map((/** @type {number} */ glyph) => [glyph]) : [],
+                            [[firsts[j]]].concat((rule.input || []).map((/** @type {number} */ glyph) => [glyph])),
+                            chaining ? (rule.lookahead || []).map((/** @type {number} */ glyph) => [glyph]) : [],
+                            rule.lookupRecords
+                        );
+                    }
+                }
+            } else if (format === 2) {
+                const firsts = this.expandCoverage(subtable.coverage);
+                const inputClassDef = chaining ? subtable.inputClassDef : subtable.classDef;
+                const inputClass = classGlyphs(inputClassDef, null);
+                const firstClass = classGlyphs(inputClassDef, firsts);
+                const backtrackClass = chaining ? classGlyphs(subtable.backtrackClassDef, null) : null;
+                const lookaheadClass = chaining ? classGlyphs(subtable.lookaheadClassDef, null) : null;
+                const sets = (chaining ? subtable.chainClassSet : subtable.classSets) || [];
+                for (let value = 0; value < sets.length; value++) {
+                    const first = firstClass(value).filter((glyph) => firsts.includes(glyph));
+                    if (first.length === 0) continue;
+                    for (const rule of sets[value] || []) {
+                        push(
+                            chaining ? (rule.backtrack || []).map((/** @type {number} */ item) => backtrackClass(item)) : [],
+                            [first].concat((chaining ? rule.input : rule.classes || []).map((/** @type {number} */ item) => inputClass(item))),
+                            chaining ? (rule.lookahead || []).map((/** @type {number} */ item) => lookaheadClass(item)) : [],
+                            rule.lookupRecords
+                        );
+                    }
+                }
+            } else if (format === 3) {
+                push(
+                    chaining ? (subtable.backtrackCoverage || []).map((/** @type {object} */ coverage) => this.expandCoverage(coverage)) : [],
+                    (chaining ? subtable.inputCoverage : subtable.coverages || []).map((/** @type {object} */ coverage) => this.expandCoverage(coverage)),
+                    chaining ? (subtable.lookaheadCoverage || []).map((/** @type {object} */ coverage) => this.expandCoverage(coverage)) : [],
+                    subtable.lookupRecords
+                );
+            }
+        }
+        return rules;
     }
 
 };
