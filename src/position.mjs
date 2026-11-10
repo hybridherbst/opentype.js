@@ -162,4 +162,16 @@ Position.prototype.getKerningTables = function(script, language) {
     }
 };
 
+/**
+ * List the rules of one contextual (type 7) or chained contextual (type 8) positioning
+ * lookup, extension lookups unwrapped (see Layout.listContextRules). Position and
+ * Substitution share one prototype, hence a name of its own.
+ * @this {object}
+ * @param {object|number} lookup - a lookup table or its index in the GPOS LookupList
+ * @return {Array<{backtrack: number[][], input: number[][], lookahead: number[][], lookupRecords: Array<{sequenceIndex: number, lookupListIndex: number}>}>}
+ */
+Position.prototype.getContextPositioningRules = function(lookup) {
+    return Layout.prototype.listContextRules.call(this, lookup, { context: 7, chaining: 8, extension: 9, formatKey: 'posFormat' });
+};
+
 export default Position;
