@@ -1,5 +1,6 @@
 import assert from 'assert';
-import { unhex, unhexArray } from '../testutil.mjs';
+import { unhex, unhexArray, classDefPairs } from '../testutil.mjs';
+import { firstLookupSubtableBytes } from '../testutil.mjs';
 import gpos, { packPairPosFormat1Lookup } from '../../src/tables/gpos.mjs';
 import Position from '../../src/position.mjs';
 import Substitution from '../../src/substitution.mjs';
@@ -17,7 +18,7 @@ function parseLookup(lookupType, subTableData) {
 
 // Helper that builds a GPOS table from a lookup subtable and returns encoded subtable bytes.
 function makeLookup(lookupType, data) {
-    return gpos.make({
+    return firstLookupSubtableBytes(gpos.make({
         version: 1,
         scripts: [],
         features: [],
@@ -26,7 +27,7 @@ function makeLookup(lookupType, data) {
             lookupFlag: 0,
             subtables: [data]
         }]
-    }).encode().slice(0x1a);                             // sub table start offset: 0x1a
+    }).encode());
 }
 
 describe('tables/gpos.js', function() {
@@ -405,24 +406,30 @@ describe('tables/gpos.js', function() {
             posFormat: 2,
             coverage: {
                 format: 1,
-                glyphs: [0x4f]
+                glyphs: [0x4f, 0x50]
             },
-            values: [{
+            values: [1, -1].map((delta) => ({
                 xPlaDevice: {
                     type: 'device',
                     startSize: 11,
                     endSize: 15,
                     deltaFormat: 1,
-                    deltaValues: [1, 1, 1, 1, 1]
+                    deltaValues: [delta, delta, delta, delta, delta]
                 }
-            }]
+            }))
         };
 
         const encoded = makeLookup(1, subtable);
         const reparsed = parseLookup(1, Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join(' '));
 
         assert.equal(reparsed.posFormat, 2);
-        assert.ok(reparsed.values[0] && typeof reparsed.values[0] === 'object', 'device-only record should not be dropped');
+        assert.deepEqual(reparsed.values.map((value) => value.xPlaDevice.deltaValues[0]), [1, -1], 'device-only records should not be dropped');
+
+        // One glyph (or equal records) is written as format 1, keeping the device table.
+        const single = parseLookup(1, Array.from(makeLookup(1, { ...subtable, coverage: { format: 1, glyphs: [0x4f] }, values: subtable.values.slice(0, 1) }))
+            .map(b => b.toString(16).padStart(2, '0')).join(' '));
+        assert.equal(single.posFormat, 1);
+        assert.deepEqual(single.value.xPlaDevice, subtable.values[0].xPlaDevice);
     });
 
     //// Write: Lookup type 2 /////////////////////////////////////////////////
@@ -514,7 +521,7 @@ describe('tables/gpos.js', function() {
             '0004' +           // valueFormat1 = 4 (xAdvance)
             '0000' +           // valueFormat2 = 0
             '0022' +           // classDef1Offset
-            '0032' +           // classDef2Offset
+            '0030' +           // classDef2Offset
             '0002' +           // class1Count = 2
             '0002' +           // class2Count = 2
             // Class1Record[0]: class1=0 (default)
@@ -526,10 +533,9 @@ describe('tables/gpos.js', function() {
             // Coverage (Format 1)
             '0001 0003' +      // format=1, glyphCount=3
             '0046 0047 0049' + // glyphs
-            // ClassDef1 (Format 2)
-            '0002 0002' +      // format=2, classRangeCount=2
-            '0046 0047 0001' + // range: 0x46-0x47 → class 1
-            '0049 0049 0001' + // range: 0x49-0x49 → class 1
+            // ClassDef1: the spec example's two ranges are smaller as a class array (Format 1)
+            '0001 0046 0004' + // format=1, startGlyph=0x46, glyphCount=4
+            '0001 0001 0000 0001' + // 0x46, 0x47 → class 1, 0x48 → class 0, 0x49 → class 1
             // ClassDef2 (Format 2)
             '0002 0001' +      // format=2, classRangeCount=1
             '006A 006B 0001'   // range: 0x6a-0x6b → class 1
@@ -550,7 +556,9 @@ describe('tables/gpos.js', function() {
         const parsed = parseLookup(2, hexData);
         const encoded = makeLookup(2, parsed);
         const reparsed = parseLookup(2, Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join(' '));
-        assert.deepEqual(reparsed, parsed);
+        // The writer stores classDef1 in its smaller format; the classes are the same.
+        assert.deepEqual(classDefPairs(reparsed.classDef1), classDefPairs(parsed.classDef1));
+        assert.deepEqual({ ...reparsed, classDef1: null }, { ...parsed, classDef1: null });
     });
 
     it('can roundtrip lookup2 PairPosFormat1 with device value records', function() {
@@ -1445,7 +1453,7 @@ describe('tables/gpos.js', function() {
         assert.deepEqual(f1.coverage, { format: 1, glyphs: [3, 4] });
         assert.equal(f2.posFormat, 2);
         assert.deepEqual(f2.classSets, [undefined, [{ classes: [2], lookupRecords: records }], undefined]);
-        assert.deepEqual(f2.classDef.ranges, [{ start: 3, end: 3, classId: 1 }, { start: 5, end: 6, classId: 2 }]);
+        assert.deepEqual(classDefPairs(f2.classDef), [[3, 1], [5, 2], [6, 2]]);
         assert.deepEqual(f3, { posFormat: 3, coverages: [{ format: 1, glyphs: [3] }, { format: 1, glyphs: [5, 6] }], lookupRecords: records });
     });
 

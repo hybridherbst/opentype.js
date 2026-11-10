@@ -651,21 +651,6 @@ function makeCoverageTable(coverage) {
     return new table.Coverage(coverage);
 }
 
-// Helper to infer valueFormat bitmask from parsed value record fields
-function inferValueFormat(value) {
-    if (!value) return 0;
-    let format = 0;
-    if ('xPlacement' in value) format |= 0x0001;
-    if ('yPlacement' in value) format |= 0x0002;
-    if ('xAdvance' in value) format |= 0x0004;
-    if ('yAdvance' in value) format |= 0x0008;
-    if ('xPlaDevice' in value || 'xPlaDeviceOffset' in value) format |= 0x0010;
-    if ('yPlaDevice' in value || 'yPlaDeviceOffset' in value) format |= 0x0020;
-    if ('xAdvDevice' in value || 'xAdvDeviceOffset' in value) format |= 0x0040;
-    if ('yAdvDevice' in value || 'yAdvDeviceOffset' in value) format |= 0x0080;
-    return format;
-}
-
 // Helper to write inline value record fields based on valueFormat
 function valueRecordFields(prefix, value, valueFormat) {
     const fields = [];
@@ -733,23 +718,73 @@ function makePairSetTable(pairSet, valueFormat1, valueFormat2, pairSetIndex) {
     return new table.Table('pairSetTable', fields);
 }
 
+/** @type {Array<[number, 'xPlacement' | 'yPlacement' | 'xAdvance' | 'yAdvance']>} */
+const VALUE_SCALAR_FIELDS = [[0x0001, 'xPlacement'], [0x0002, 'yPlacement'], [0x0004, 'xAdvance'], [0x0008, 'yAdvance']];
+/** @type {Array<[number, 'xPlaDevice' | 'yPlaDevice' | 'xAdvDevice' | 'yAdvDevice']>} */
+const VALUE_DEVICE_FIELDS = [[0x0010, 'xPlaDevice'], [0x0020, 'yPlaDevice'], [0x0040, 'xAdvDevice'], [0x0080, 'yAdvDevice']];
+
+/**
+ * The ValueFormat bits (within `mask`) of a value record that adjust anything: a
+ * non-zero value or a device/variation table. A zero or absent field is no adjustment,
+ * so leaving its bit out writes the same positioning in fewer bytes.
+ * @param {GposValueRecord | null | undefined} value
+ * @param {number} [mask]
+ * @returns {number}
+ */
+function usedValueFormat(value, mask = 0xff) {
+    if (!value) return 0;
+    let format = 0;
+    for (const [bit, key] of VALUE_SCALAR_FIELDS) if ((mask & bit) && Number(value[key])) format |= bit;
+    for (const [bit, key] of VALUE_DEVICE_FIELDS) if ((mask & bit) && value[key]) format |= bit;
+    return format;
+}
+
+/**
+ * Bytes of a value record written with `valueFormat` (device tables are separate objects).
+ * @param {number} valueFormat
+ * @returns {number}
+ */
+function valueRecordSize(valueFormat) {
+    let size = 0;
+    for (let bit = 1; bit <= 0x80; bit <<= 1) if (valueFormat & bit) size += 2;
+    return size;
+}
+
+/**
+ * @param {Record<string, unknown>} coverage
+ * @param {GposValueRecord | null | undefined} value
+ * @returns {object}
+ */
+function makeSinglePosFormat1(coverage, value) {
+    const valueFormat = usedValueFormat(value);
+    return new table.Table('singlePosFormat1', [
+        {name: 'posFormat', type: 'USHORT', value: 1},
+        {name: 'coverage', type: 'TABLE', value: new table.Coverage(coverage)},
+        {name: 'valueFormat', type: 'USHORT', value: valueFormat}
+    ].concat(valueRecordFields('v_', value, valueFormat)));
+}
+
 // Lookup Type 1: Single Adjustment Positioning
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-1-single-adjustment-positioning-subtable
+// Written with the smallest ValueFormat that keeps every adjustment, and as format 1
+// when every covered glyph has the same adjustment.
 subtableMakers[1] = function makeLookup1(subtable) {
     if (subtable.posFormat === 1) {
         // Format 1: single value record applied to all glyphs in coverage
-        const valueFormat = inferValueFormat(subtable.value);
-        return new table.Table('singlePosFormat1', [
-            {name: 'posFormat', type: 'USHORT', value: 1},
-            {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage)},
-            {name: 'valueFormat', type: 'USHORT', value: valueFormat}
-        ].concat(valueRecordFields('v_', subtable.value, valueFormat)));
+        return makeSinglePosFormat1(subtable.coverage, subtable.value);
     } else if (subtable.posFormat === 2) {
         // Format 2: per-glyph value records
         const values = subtable.values || [];
         let valueFormat = 0;
         for (const v of values) {
-            valueFormat |= inferValueFormat(v);
+            valueFormat |= usedValueFormat(v);
+        }
+        const glyphs = table.coverageGlyphs(subtable.coverage);
+        if (glyphs && glyphs.length > 0 && glyphs.length === values.length) {
+            const first = singlePosValueKey(values[0], valueFormat);
+            if (values.every((value) => singlePosValueKey(value, valueFormat) === first)) {
+                return makeSinglePosFormat1(subtable.coverage, values[0]);
+            }
         }
         const vFields = [];
         for (let i = 0; i < values.length; i++) {
@@ -765,16 +800,137 @@ subtableMakers[1] = function makeLookup1(subtable) {
     check.assert(false, 'GPOS lookup type 1 posFormat must be 1 or 2.');
 };
 
+/**
+ * @param {GposValueRecord | null | undefined} value
+ * @param {number} valueFormat
+ * @returns {string}
+ */
+function singlePosValueKey(value, valueFormat) {
+    return pairPosStableSignature(pairPosEffectiveValue(value, valueFormat));
+}
+
+/**
+ * Bytes a coverage of these sorted glyphs takes (in its smaller format).
+ * @param {number[]} glyphs
+ * @returns {number}
+ */
+function coverageSize(glyphs) {
+    return 4 + Math.min(2 * glyphs.length, 6 * table.coverageRanges(glyphs).length);
+}
+
+/**
+ * Bytes a SinglePos subtable for these glyphs and values takes, with its offset (and
+ * extension header) in the lookup.
+ * @param {number[]} glyphs
+ * @param {GposValueRecord[]} values
+ * @param {number} overhead
+ * @returns {number}
+ */
+function singlePosSubtableSize(glyphs, values, overhead) {
+    let valueFormat = 0;
+    for (const value of values) valueFormat |= usedValueFormat(value);
+    const first = values.length ? singlePosValueKey(values[0], valueFormat) : '';
+    const uniform = values.every((value) => singlePosValueKey(value, valueFormat) === first);
+    const records = uniform ? 1 : values.length;
+    return overhead + (uniform ? 6 : 8) + records * valueRecordSize(valueFormat) + coverageSize(glyphs);
+}
+
+/**
+ * Re-split the subtables of a SinglePos lookup by size, as fontTools' builder does:
+ * glyphs that share one adjustment go to a format 1 subtable where that is smaller,
+ * the rest to one format 2 subtable. A glyph keeps the adjustment of the first
+ * subtable covering it, and the new subtables are disjoint, so positioning is the
+ * same. Subtables are unchanged when a coverage cannot be read or nothing is gained.
+ * @param {GposSubtable[]} subtables - SinglePos subtables
+ * @param {number} overhead - bytes each subtable costs in its lookup (offset, extension)
+ * @returns {GposSubtable[]}
+ */
+function compactSinglePosSubtables(subtables, overhead) {
+    /** @type {Map<number, GposValueRecord>} */
+    const mapping = new Map();
+    let originalSize = 0;
+    for (const subtable of subtables) {
+        const glyphs = table.coverageGlyphs(subtable?.coverage);
+        if (!glyphs) return subtables;
+        let values;
+        if (subtable.posFormat === 1) values = glyphs.map(() => subtable.value);
+        else if (subtable.posFormat === 2 && (subtable.values || []).length === glyphs.length) values = subtable.values;
+        else return subtables;
+        originalSize += singlePosSubtableSize(glyphs, values, overhead);
+        for (let i = 0; i < glyphs.length; i++) if (!mapping.has(glyphs[i])) mapping.set(glyphs[i], values[i]);
+    }
+    if (mapping.size === 0) return subtables;
+    /** @type {Map<string, {value: GposValueRecord, glyphs: number[]}>} */
+    const groups = new Map();
+    for (const glyph of [...mapping.keys()].sort((a, b) => a - b)) {
+        const value = /** @type {GposValueRecord} */ (mapping.get(glyph));
+        const key = singlePosValueKey(value, 0xff);
+        const group = groups.get(key) || { value, glyphs: [] };
+        group.glyphs.push(glyph);
+        groups.set(key, group);
+    }
+    /** @param {Set<number>} glyphSet */
+    const restSize = (glyphSet) => {
+        if (glyphSet.size === 0) return 0;
+        const glyphs = [...glyphSet].sort((a, b) => a - b);
+        return singlePosSubtableSize(glyphs, glyphs.map((glyph) => /** @type {GposValueRecord} */ (mapping.get(glyph))), overhead);
+    };
+    let rest = new Set(mapping.keys());
+    let restBytes = restSize(rest);
+    let total = restBytes;
+    /** @type {GposSubtable[]} */
+    const result = [];
+    for (const group of [...groups.values()].sort((a, b) => b.glyphs.length - a.glyphs.length)) {
+        if (group.glyphs.length === rest.size) break;
+        const without = new Set(rest);
+        for (const glyph of group.glyphs) without.delete(glyph);
+        const withoutBytes = restSize(without);
+        const split = total - restBytes + withoutBytes + singlePosSubtableSize(group.glyphs, [group.value], overhead);
+        if (split < total) {
+            result.push({ posFormat: 1, coverage: { format: 1, glyphs: group.glyphs }, value: group.value });
+            rest = without;
+            restBytes = withoutBytes;
+            total = split;
+        }
+    }
+    if (rest.size > 0) {
+        const glyphs = [...rest].sort((a, b) => a - b);
+        result.push({ posFormat: 2, coverage: { format: 1, glyphs }, values: glyphs.map((glyph) => /** @type {GposValueRecord} */ (mapping.get(glyph))) });
+    }
+    return total < originalSize ? result : subtables;
+}
+
+/**
+ * The lookup with its SinglePos subtables re-split by size (see compactSinglePosSubtables);
+ * extension-wrapped SinglePos subtables stay wrapped.
+ * @param {GposLookupTable} lookup
+ * @returns {GposLookupTable}
+ */
+function compactSinglePosLookup(lookup) {
+    const subtables = lookup?.subtables || [];
+    if (lookup?.lookupType === 1 && subtables.length > 0) {
+        const compacted = compactSinglePosSubtables(subtables, 2);
+        return compacted === subtables ? lookup : { ...lookup, subtables: compacted };
+    }
+    if (lookup?.lookupType === 9 && subtables.length > 0 && subtables.every((subtable) =>
+        subtable?.posFormat === 1 && subtable.extensionLookupType === 1 && subtable.extension)) {
+        const inner = subtables.map((subtable) => /** @type {GposSubtable} */ (subtable.extension));
+        const compacted = compactSinglePosSubtables(inner, 10);
+        if (compacted === inner) return lookup;
+        return { ...lookup, subtables: compacted.map((extension) => ({ posFormat: 1, extensionLookupType: 1, extension })) };
+    }
+    return lookup;
+}
+
 // Lookup Type 2: Pair Adjustment Positioning (Kerning)
 // https://docs.microsoft.com/en-us/typography/opentype/spec/gpos#lookup-type-2-pair-adjustment-positioning-subtable
 subtableMakers[2] = function makeLookup2(subtable) {
     check.assert(subtable.posFormat === 1 || subtable.posFormat === 2,
         'Lookup type 2 posFormat must be 1 or 2.');
 
+    const [valueFormat1, valueFormat2] = pairPosValueFormats(subtable);
     if (subtable.posFormat === 1) {
         const pairSets = subtable.pairSets || [];
-        const valueFormat1 = subtable.valueFormat1 || 0;
-        const valueFormat2 = subtable.valueFormat2 || 0;
         const fields = [
             {name: 'posFormat', type: 'USHORT', value: 1},
             {name: 'coverage', type: 'TABLE', value: new table.Coverage(subtable.coverage), appendPhase: 1},
@@ -791,8 +947,6 @@ subtableMakers[2] = function makeLookup2(subtable) {
         }
         return new table.Table('pairPosFormat1', fields);
     } else {
-        const valueFormat1 = subtable.valueFormat1 || 0;
-        const valueFormat2 = subtable.valueFormat2 || 0;
         const class1Count = subtable.class1Count || 0;
         const class2Count = subtable.class2Count || 0;
         const classRecords = subtable.classRecords || [];
@@ -818,6 +972,33 @@ subtableMakers[2] = function makeLookup2(subtable) {
         return new table.Table('pairPosFormat2', fields);
     }
 };
+
+/**
+ * The smallest ValueFormats that keep every adjustment of a PairPos subtable. A
+ * non-zero valueFormat2 keeps one bit even when no second value adjusts anything:
+ * shaping engines treat the second glyph of a pair as consumed exactly when
+ * valueFormat2 is non-zero, so it may not become zero.
+ * @param {GposSubtable} subtable
+ * @returns {[number, number]}
+ */
+function pairPosValueFormats(subtable) {
+    const given1 = subtable.valueFormat1 || 0;
+    const given2 = subtable.valueFormat2 || 0;
+    let used1 = 0;
+    let used2 = 0;
+    /** @param {{value1?: GposValueRecord | null, value2?: GposValueRecord | null} | null | undefined} record */
+    const add = (record) => {
+        used1 |= usedValueFormat(record?.value1, given1);
+        used2 |= usedValueFormat(record?.value2, given2);
+    };
+    if (subtable.posFormat === 1) {
+        for (const pairSet of subtable.pairSets || []) for (const record of pairSet || []) add(record);
+    } else {
+        for (const row of subtable.classRecords || []) for (const record of row || []) add(record);
+    }
+    if (given2 && !used2) used2 = given2 & -given2;
+    return [used1, used2];
+}
 
 function pairPosCoverageGlyphs(coverage) {
     if (coverage?.format === 1) return [...(coverage.glyphs || [])];
@@ -1445,24 +1626,26 @@ subtableMakers[9] = function makeLookup9(subtable) {
  */
 function makeGposTable(gpos) {
     const hasFeatureVariations = gpos.variations && gpos.variations.length > 0;
-    /** @type {Array<{name: string, type: string, value?: unknown}>} */
-    const fields = [
-        {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
-        {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
-        {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
-        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gpos.lookups, subtableMakers)}
-    ];
-
-    if (hasFeatureVariations) {
-        fields.push({
-            name: 'featureVariations',
-            type: 'OFFSET32',
-            value: featureVariationsTable.make(gpos.variations)
-        });
-    }
-
-    return new table.Table('GPOS', fields);
+    /** @param {GposLookupTable[]} lookups */
+    const build = (lookups) => {
+        /** @type {Array<{name: string, type: string, value?: unknown}>} */
+        const fields = [
+            {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
+            {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gpos.scripts)},
+            {name: 'features', type: 'TABLE', value: new table.FeatureList(gpos.features)},
+            {name: 'lookups', type: 'TABLE', value: new table.LookupList(lookups.map(compactSinglePosLookup), subtableMakers)}
+        ];
+        if (hasFeatureVariations) {
+            fields.push({
+                name: 'featureVariations',
+                type: 'OFFSET32',
+                value: featureVariationsTable.make(gpos.variations)
+            });
+        }
+        return new table.Table('GPOS', fields);
+    };
+    return table.makeLayoutTableWithinReach(build, gpos.lookups, 9);
 }
 
-export { packPairPosFormat1Lookup };
+export { packPairPosFormat1Lookup, compactSinglePosLookup };
 export default { parse: parseGposTable, make: makeGposTable, packPairPosFormat1Lookup };

@@ -58,8 +58,11 @@ describe('extension lookup layout', function() {
         const written = again.tables.gsub.lookups;
         assert.equal(written.length, 3000);
         for (const index of [0, 1499, 2999]) {
+            // Single-glyph substitutions are written as format 1 (a glyph id delta).
             const expected = lookups[index].subtables.map((subtable) => [subtable.extension.coverage.glyphs, subtable.extension.substitute]);
-            const actual = written[index].subtables.map((subtable) => [subtable.extension.coverage.glyphs, subtable.extension.substitute]);
+            const actual = written[index].subtables.map(({ extension }) => [extension.coverage.glyphs,
+                extension.coverage.glyphs.map((glyph) => (glyph + extension.deltaGlyphId) & 0xffff)]);
+            for (const { extension } of written[index].subtables) assert.equal(extension.substFormat, 1);
             assert.equal(written[index].lookupType, 7);
             assert.deepEqual(actual, expected);
         }

@@ -80,8 +80,9 @@ describe('item-variation-store.mjs', function() {
         });
         const one = gpos.make(table(1)).encode().length;
         const many = gpos.make(table(20)).encode();
-        // 19 more first glyphs cost a coverage entry and a PairSet offset each.
-        assert.equal(many.length - one, 19 * 4);
+        // 19 more first glyphs cost a PairSet offset each (the PairSets are shared); the 20
+        // consecutive first glyphs become one coverage range (format 2, 4 bytes more than one glyph).
+        assert.equal(many.length - one, 19 * 2 + 4);
         const parsed = gpos.parse(view(many)).lookups[0].subtables[0];
         assert.equal(parsed.pairSets.length, 20);
         for (const set of parsed.pairSets) {

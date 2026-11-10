@@ -125,8 +125,9 @@ function makeSfntTable(tables) {
     for (let i = 0; i < tables.length; i += 1) {
         const t = tables[i];
         check.argument(t.tableName.length === 4, 'Table name' + t.tableName + ' is invalid.');
-        const tableLength = t.sizeOf();
-        const tableRecord = makeTableRecord(t.tableName, computeCheckSum(t.encode()), offset, tableLength);
+        const tableBytes = t.encode();
+        const tableLength = tableBytes.length;
+        const tableRecord = makeTableRecord(t.tableName, computeCheckSum(tableBytes), offset, tableLength);
         const tableRecordRec = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (tableRecord));
         recordFields.push({name: String(tableRecordRec.tag) + ' Table Record', type: 'RECORD', value: tableRecord});
         tableFields.push({name: t.tableName + ' table', type: 'RECORD', value: t});

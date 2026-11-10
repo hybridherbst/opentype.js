@@ -72,7 +72,7 @@ function lookupCoverage(glyphIndex, coverage) {
 function singleSubstitutionFormat1(glyphIndex, subtable) {
     let substituteIndex = lookupCoverage(glyphIndex, /** @type {Record<string, unknown>} */ (subtable.coverage));
     if (substituteIndex === -1) return null;
-    return glyphIndex + /** @type {number} */ (subtable.deltaGlyphId);
+    return (glyphIndex + /** @type {number} */ (subtable.deltaGlyphId)) & 0xffff;
 }
 
 /**
@@ -303,7 +303,7 @@ function chainingSubstitutionFormat3(contextParams, subtable) {
                     lookup = this.getLookupMethod(lookupTable, subtable);
                 }
 
-                if (substitutionType === '12') {
+                if (substitutionType === '11' || substitutionType === '12') {
                     const glyphIndex = contextParams.get(lookupRecord.sequenceIndex);
                     const substitution = lookup(glyphIndex);
                     if (substitution) substitutions.push(substitution);
@@ -427,7 +427,7 @@ function contextSubstitutionFormat3(contextParams, subtable) {
                 lookup = this.getLookupMethod(lookupTable, subtable);
             }
 
-            if (substitutionType === '12') {
+            if (substitutionType === '11' || substitutionType === '12') {
                 const glyphIndex = contextParams.get(lookupRecord.sequenceIndex);
                 const substitution = lookup(glyphIndex);
                 if (substitution) substitutions.push(substitution);

@@ -1,5 +1,6 @@
 import assert from 'assert';
 import { unhex, unhexArray } from '../testutil.mjs';
+import { firstLookupSubtableBytes } from '../testutil.mjs';
 import gsub from '../../src/tables/gsub.mjs';
 
 // Helper that builds a minimal GSUB table to test a lookup subtable.
@@ -14,7 +15,7 @@ function parseLookup(lookupType, subTableData) {
 }
 
 function makeLookup(lookupType, data) {
-    return gsub.make({
+    return firstLookupSubtableBytes(gsub.make({
         version: 1,
         scripts: [],
         features: [],
@@ -23,7 +24,7 @@ function makeLookup(lookupType, data) {
             lookupFlag: 0,
             subtables: [data]
         }]
-    }).encode().slice(0x1a);                             // sub table start offset: 0x1a
+    }).encode());
 }
 
 describe('tables/gsub.mjs', function() {

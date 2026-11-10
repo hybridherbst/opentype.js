@@ -337,7 +337,19 @@ function parseGsubTable(data, start) {
 // GSUB Writing //////////////////////////////////////////////
 const subtableMakers = new Array(9);
 
+// Written as format 1 (one glyph id delta) when every covered glyph moves by the same
+// delta, else as format 2 (a substitute per glyph), whichever the subtable was given as.
 subtableMakers[1] = function makeLookup1(subtable) {
+    if (subtable.substFormat === 2) {
+        const glyphs = table.coverageGlyphs(subtable.coverage);
+        const substitutes = subtable.substitute;
+        if (glyphs && glyphs.length > 0 && Array.isArray(substitutes) && substitutes.length === glyphs.length) {
+            const delta = (substitutes[0] - glyphs[0]) & 0xffff;
+            if (glyphs.every((glyph, i) => ((substitutes[i] - glyph) & 0xffff) === delta)) {
+                subtable = { substFormat: 1, coverage: subtable.coverage, deltaGlyphId: delta >= 0x8000 ? delta - 0x10000 : delta };
+            }
+        }
+    }
     if (subtable.substFormat === 1) {
         return new table.Table('substitutionTable', [
             {name: 'substFormat', type: 'USHORT', value: 1},
@@ -602,23 +614,25 @@ subtableMakers[7] = function makeLookup7(subtable) {
  */
 function makeGsubTable(gsub) {
     const hasFeatureVariations = gsub.variations && gsub.variations.length > 0;
-    /** @type {Array<{name: string, type: string, value?: unknown}>} */
-    const tableFields = [
-        {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
-        {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
-        {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
-        {name: 'lookups', type: 'TABLE', value: new table.LookupList(gsub.lookups, subtableMakers)}
-    ];
-
-    if (hasFeatureVariations) {
-        tableFields.push({
-            name: 'featureVariations',
-            type: 'OFFSET32',
-            value: featureVariationsTable.make(gsub.variations)
-        });
-    }
-
-    return new table.Table('GSUB', tableFields);
+    /** @param {Array<{lookupType: number, lookupFlag: number, subtables: unknown[], markFilteringSet?: number}>} lookups */
+    const build = (lookups) => {
+        /** @type {Array<{name: string, type: string, value?: unknown}>} */
+        const tableFields = [
+            {name: 'version', type: 'ULONG', value: hasFeatureVariations ? 0x00010001 : 0x10000},
+            {name: 'scripts', type: 'TABLE', value: new table.ScriptList(gsub.scripts)},
+            {name: 'features', type: 'TABLE', value: new table.FeatureList(gsub.features)},
+            {name: 'lookups', type: 'TABLE', value: new table.LookupList(lookups, subtableMakers)}
+        ];
+        if (hasFeatureVariations) {
+            tableFields.push({
+                name: 'featureVariations',
+                type: 'OFFSET32',
+                value: featureVariationsTable.make(gsub.variations)
+            });
+        }
+        return new table.Table('GSUB', tableFields);
+    };
+    return table.makeLayoutTableWithinReach(build, gsub.lookups, 7);
 }
 
 export default { parse: parseGsubTable, make: makeGsubTable };
