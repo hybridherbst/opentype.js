@@ -183,6 +183,16 @@ function parseGlyph(glyph, data, start) {
                 component.yScale = p.parseF2Dot14();
             }
 
+            // SCALED_COMPONENT_OFFSET (Apple) without UNSCALED_COMPONENT_OFFSET:
+            // the offset is transformed by the component matrix. Normalize it
+            // to the unscaled (Microsoft) meaning, which is what `dx`/`dy`
+            // carry everywhere else, so the component renders the same.
+            if ((flags & 0x0800) && !(flags & 0x1000) && component.matchedPoints === undefined) {
+                const { dx, dy } = component;
+                component.dx = component.xScale * dx + component.scale10 * dy;
+                component.dy = component.scale01 * dx + component.yScale * dy;
+            }
+
             glyph.components.push(component);
             moreComponents = !!(flags & 32);
         }
@@ -748,8 +758,8 @@ function encodeCompositeGlyph(glyph) {
         componentDataSize += 4;
         
         // Determine argument size (dx, dy)
-        const dx = component.dx || 0;
-        const dy = component.dy || 0;
+        const dx = Math.round(component.dx || 0);
+        const dy = Math.round(component.dy || 0);
         const needsWordArgs = dx < -128 || dx > 127 || dy < -128 || dy > 127;
         componentDataSize += needsWordArgs ? 4 : 2;
         
@@ -789,8 +799,8 @@ function encodeCompositeGlyph(glyph) {
         const component = glyph.components[i];
         const isLast = i === glyph.components.length - 1;
         
-        const dx = component.dx || 0;
-        const dy = component.dy || 0;
+        const dx = Math.round(component.dx || 0);
+        const dy = Math.round(component.dy || 0);
         const needsWordArgs = dx < -128 || dx > 127 || dy < -128 || dy > 127;
         
         const xScale = component.xScale !== undefined ? component.xScale : 1;
@@ -810,6 +820,10 @@ function encodeCompositeGlyph(glyph) {
         if (hasSimpleScale) flags |= 0x0008; // WE_HAVE_A_SCALE
         if (hasXYScale) flags |= 0x0040; // WE_HAVE_AN_X_AND_Y_SCALE
         if (hasMatrix) flags |= 0x0080; // WE_HAVE_A_TWO_BY_TWO
+        // Renderers disagree on whether a transformed component's offset is
+        // scaled when neither flag is set. `dx`/`dy` are always the unscaled
+        // offset (added after the matrix), so say so explicitly.
+        if (hasMatrix || hasXYScale || hasSimpleScale) flags |= 0x1000; // UNSCALED_COMPONENT_OFFSET
         
         view.setUint16(offset, flags); offset += 2;
         view.setUint16(offset, component.glyphIndex); offset += 2;
