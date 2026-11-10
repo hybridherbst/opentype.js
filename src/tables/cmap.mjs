@@ -354,23 +354,76 @@ function buildFormat13Groups(mappings) {
     return groups;
 }
 
-function buildFormat4Segments(mappings) {
-    const segments = [];
-    for (const mapping of mappings) {
-        if (mapping.codePoint > 0xFFFF || mapping.codePoint === 0xFFFF) continue;
-        const delta = (mapping.glyphIndex - mapping.codePoint) & 0xFFFF;
-        const signedDelta = delta > 0x7FFF ? delta - 0x10000 : delta;
-        const previous = segments[segments.length - 1];
-        if (previous && mapping.codePoint === previous.end + 1 && signedDelta === previous.delta) {
-            previous.end = mapping.codePoint;
-        } else {
-            segments.push({
-                start: mapping.codePoint,
-                end: mapping.codePoint,
-                delta: signedDelta
-            });
+/**
+ * Split a run of consecutive character codes into segments as fontTools' cmap format 4
+ * compiler does: a sub-run with consecutive glyph ids gets a segment of its own (an
+ * idDelta, no glyphIdArray entries) when that is smaller, which it is when it is longer
+ * than 4 codes at an end of the run or 8 inside it (a segment costs 8 bytes, a
+ * glyphIdArray entry 2).
+ * @param {Array<{codePoint: number, glyphIndex: number}>} run
+ * @returns {Array<Array<{codePoint: number, glyphIndex: number}>>}
+ */
+function splitFormat4Run(run) {
+    if (run.length === 1) return [run];
+    /** @type {Array<[number, number]>} */
+    const ordered = [];
+    let begin = -1;
+    for (let i = 1; i < run.length; i++) {
+        if (run[i].glyphIndex === run[i - 1].glyphIndex + 1) {
+            if (begin < 0) begin = i - 1;
+        } else if (begin >= 0) {
+            ordered.push([begin, i - 1]);
+            begin = -1;
         }
     }
+    if (begin >= 0) ordered.push([begin, run.length - 1]);
+    const last = run.length - 1;
+    if (ordered.length === 1 && ordered[0][0] === 0 && ordered[0][1] === last) return [run];
+    const kept = ordered.filter(([b, e]) => e - b + 1 > (b === 0 || e === last ? 4 : 8));
+    if (kept.length === 0) return [run];
+    const segments = [];
+    let next = 0;
+    for (const [b, e] of kept) {
+        if (b > next) segments.push(run.slice(next, b));
+        segments.push(run.slice(b, e + 1));
+        next = e + 1;
+    }
+    if (next <= last) segments.push(run.slice(next));
+    return segments;
+}
+
+/**
+ * Format 4 segments of the BMP mappings: runs of consecutive codes, split where
+ * consecutive glyph ids make an idDelta segment smaller; a segment whose glyph ids are
+ * not consecutive stores them in the glyphIdArray (`glyphIds`). Ends with the 0xFFFF
+ * segment.
+ * @param {Array<{codePoint: number, glyphIndex: number}>} mappings - sorted by code point
+ * @returns {Array<{start: number, end: number, delta: number, glyphIds?: number[]}>}
+ */
+function buildFormat4Segments(mappings) {
+    const segments = [];
+    /** @type {Array<{codePoint: number, glyphIndex: number}>} */
+    let run = [];
+    const flush = () => {
+        for (const part of splitFormat4Run(run)) {
+            const start = part[0].codePoint;
+            const end = part[part.length - 1].codePoint;
+            const consecutive = part.every((mapping, i) => mapping.glyphIndex === part[0].glyphIndex + i);
+            if (consecutive) {
+                const delta = (part[0].glyphIndex - start) & 0xFFFF;
+                segments.push({ start, end, delta: delta > 0x7FFF ? delta - 0x10000 : delta });
+            } else {
+                segments.push({ start, end, delta: 0, glyphIds: part.map((mapping) => mapping.glyphIndex) });
+            }
+        }
+        run = [];
+    };
+    for (const mapping of mappings) {
+        if (mapping.codePoint >= 0xFFFF) continue;
+        if (run.length > 0 && mapping.codePoint !== run[run.length - 1].codePoint + 1) flush();
+        run.push(mapping);
+    }
+    if (run.length > 0) flush();
     segments.push({
         start: 0xFFFF,
         end: 0xFFFF,
@@ -379,11 +432,21 @@ function buildFormat4Segments(mappings) {
     return segments;
 }
 
+/**
+ * @param {Array<{glyphIds?: number[]}>} segments
+ * @returns {number}
+ */
 function format4LengthForSegments(segments) {
-    return 14 + segments.length * 8 + 2;
+    let glyphIdCount = 0;
+    for (const segment of segments) glyphIdCount += segment.glyphIds ? segment.glyphIds.length : 0;
+    return 16 + segments.length * 8 + glyphIdCount * 2;
 }
 
-function makeFormat4Fields(segments) {
+/**
+ * @param {Array<{start: number, end: number, delta: number, glyphIds?: number[]}>} segments
+ * @returns {import('../table.mjs').Table}
+ */
+function makeFormat4Subtable(segments) {
     const segCount = segments.length;
     const segCountX2 = segCount * 2;
     const searchRange = Math.pow(2, Math.floor(Math.log(segCount) / Math.log(2))) * 2;
@@ -407,13 +470,26 @@ function makeFormat4Fields(segments) {
     for (let i = 0; i < segments.length; i++) {
         fields.push({name: 'idDelta_' + i, type: 'SHORT', value: segments[i].delta});
     }
+    // idRangeOffset counts from its own position to the segment's first glyphIdArray entry.
+    let glyphIdIndex = 0;
     for (let i = 0; i < segments.length; i++) {
-        fields.push({name: 'idRangeOffset_' + i, type: 'USHORT', value: 0});
+        const glyphIds = segments[i].glyphIds;
+        fields.push({name: 'idRangeOffset_' + i, type: 'USHORT', value: glyphIds ? 2 * (segCount - i + glyphIdIndex) : 0});
+        if (glyphIds) glyphIdIndex += glyphIds.length;
     }
-    return fields;
+    let glyphIdArrayIndex = 0;
+    for (const segment of segments) {
+        for (const glyphId of segment.glyphIds || []) fields.push({name: 'glyphId_' + glyphIdArrayIndex++, type: 'USHORT', value: glyphId});
+    }
+    return new table.Table('cmap4', fields);
 }
 
-function makeFormat12or13Fields(format, groups) {
+/**
+ * @param {number} format
+ * @param {Array<{startCharCode: number, endCharCode: number, startGlyphID?: number, glyphID?: number}>} groups
+ * @returns {import('../table.mjs').Table}
+ */
+function makeFormat12or13Subtable(format, groups) {
     const fields = [
         {name: 'cmap' + format + 'Format', type: 'USHORT', value: format},
         {name: 'cmap' + format + 'Reserved', type: 'USHORT', value: 0},
@@ -431,18 +507,13 @@ function makeFormat12or13Fields(format, groups) {
             value: format === 13 ? group.glyphID : group.startGlyphID
         });
     }
-    return fields;
-}
-
-function appendFields(target, fields) {
-    for (let i = 0; i < fields.length; i++) {
-        target.push(fields[i]);
-    }
+    return new table.Table('cmap' + format, fields);
 }
 
 // Make a Unicode cmap table. Format 4 is emitted for BMP compatibility when it
 // fits; format 12 is used for sequential full-Unicode runs, and format 13 is
-// used for many-to-one ranges such as LastResort-style fonts.
+// used for many-to-one ranges such as LastResort-style fonts. The encoding
+// records point to their subtables with Offset32 fields.
 function makeCmapTable(glyphs) {
     const mappings = collectUnicodeMappings(glyphs);
     const hasNonBmpMapping = mappings.some((mapping) => mapping.codePoint > 0xFFFF);
@@ -462,53 +533,30 @@ function makeCmapTable(glyphs) {
         format4Length = format4LengthForSegments(format4Segments);
     }
 
-    const numTables = needsFullSubtable ? 2 : 1;
-    const firstSubtableOffset = 4 + numTables * 8;
-    const fullFirst = needsFullSubtable && fullFormat === 13 && format4Segments.length === 1;
-    const fullLength = 16 + fullGroups.length * 12;
-    const fullOffset = fullFirst ? firstSubtableOffset : firstSubtableOffset + format4Length;
-    const format4Offset = fullFirst ? firstSubtableOffset + fullLength : firstSubtableOffset;
+    /** @type {Array<{platformID: number, encodingID: number, subtable: import('../table.mjs').Table}>} */
+    const records = [{ platformID: 3, encodingID: 1, subtable: makeFormat4Subtable(format4Segments) }];
+    if (needsFullSubtable) {
+        records.push({
+            platformID: fullFormat === 13 ? 0 : 3,
+            encodingID: fullFormat === 13 ? 6 : 10,
+            subtable: makeFormat12or13Subtable(fullFormat, fullGroups)
+        });
+    }
+    // Encoding records are sorted by platform and encoding ID.
+    records.sort((a, b) => a.platformID - b.platformID || a.encodingID - b.encodingID);
+    const numTables = records.length;
+    /** @type {Array<{name: string, type: string, value: unknown}>} */
     const cmapTable = [
         {name: 'version', type: 'USHORT', value: 0},
         {name: 'numTables', type: 'USHORT', value: numTables}
     ];
-
-    if (needsFullSubtable) {
-        if (fullFirst) {
-            cmapTable.push(
-                {name: 'fullPlatformID', type: 'USHORT', value: 0},
-                {name: 'fullEncodingID', type: 'USHORT', value: 6},
-                {name: 'fullOffset', type: 'ULONG', value: fullOffset},
-                {name: 'platformID', type: 'USHORT', value: 3},
-                {name: 'encodingID', type: 'USHORT', value: 1},
-                {name: 'offset', type: 'ULONG', value: format4Offset}
-            );
-        } else {
-            cmapTable.push(
-                {name: 'platformID', type: 'USHORT', value: 3},
-                {name: 'encodingID', type: 'USHORT', value: 1},
-                {name: 'offset', type: 'ULONG', value: format4Offset},
-                {name: 'fullPlatformID', type: 'USHORT', value: fullFormat === 13 ? 0 : 3},
-                {name: 'fullEncodingID', type: 'USHORT', value: fullFormat === 13 ? 6 : 10},
-                {name: 'fullOffset', type: 'ULONG', value: fullOffset}
-            );
-        }
-    } else {
+    for (let i = 0; i < records.length; i++) {
+        const record = records[i];
         cmapTable.push(
-            {name: 'platformID', type: 'USHORT', value: 3},
-            {name: 'encodingID', type: 'USHORT', value: 1},
-            {name: 'offset', type: 'ULONG', value: format4Offset}
+            {name: 'platformID_' + i, type: 'USHORT', value: record.platformID},
+            {name: 'encodingID_' + i, type: 'USHORT', value: record.encodingID},
+            {name: 'subtable_' + i, type: 'OFFSET32', value: record.subtable}
         );
-    }
-
-    if (fullFirst) {
-        appendFields(cmapTable, makeFormat12or13Fields(fullFormat, fullGroups));
-        appendFields(cmapTable, makeFormat4Fields(format4Segments));
-    } else {
-        appendFields(cmapTable, makeFormat4Fields(format4Segments));
-        if (needsFullSubtable) {
-            appendFields(cmapTable, makeFormat12or13Fields(fullFormat, fullGroups));
-        }
     }
 
     const result = /** @type {CmapBuildTable} */ (new table.Table('cmap', cmapTable));

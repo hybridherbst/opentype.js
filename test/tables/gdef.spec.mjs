@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { unhex } from '../testutil.mjs';
+import { unhex, classDefPairs } from '../testutil.mjs';
 import gdef from '../../src/tables/gdef.mjs';
 
 describe('tables/gdef.mjs', function() {
@@ -87,7 +87,7 @@ describe('tables/gdef.mjs', function() {
         const bytes = gdef.make(source).encode();
         const parsed = gdef.parse(new DataView(Uint8Array.from(bytes).buffer));
         assert.equal(parsed.version, 1.2);
-        assert.deepEqual(parsed.markAttachClassDef.ranges.map(({ start, end, classId }) => [start, end, classId]), [[3, 3, 1], [4, 5, 2]]);
+        assert.deepEqual(classDefPairs(parsed.markAttachClassDef), [[3, 1], [4, 2], [5, 2]]);
         assert.deepEqual(parsed.markGlyphSets, [{ format: 1, glyphs: [3, 5] }, { format: 1, glyphs: [4] }]);
     });
 

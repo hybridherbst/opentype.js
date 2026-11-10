@@ -49,9 +49,10 @@ describe('table.mjs', function() {
 
     it('should make a ClassDefFormat1 table', function() {
         // https://docs.microsoft.com/en-us/typography/opentype/spec/chapter2#example-7-classdefformat1-table-class-array
+        // The leading class-0 glyph of the spec example is the default and is not written.
         const expectedData = unhexArray(
-            '0001 0032 001A' +
-            '0000 0001 0000 0001 0000 0001 0002 0001 0000 0002 0001 0001 0000' +
+            '0001 0033 0019' +
+            '0001 0000 0001 0000 0001 0002 0001 0000 0002 0001 0001 0000' +
             '0000 0000 0002 0002 0000 0000 0001 0000 0000 0000 0000 0002 0001'
         );
         assert.deepEqual(new table.ClassDef({

@@ -149,4 +149,40 @@ function enableMockCanvas() {
     window.document = global.document;
 }
 
-export { hex, unhex, unhexArray, createMockObject, enableMockCanvas };
+/**
+ * The non-zero glyph classes of a parsed ClassDef in either format, as sorted
+ * [glyph, class] pairs: writers choose the smaller format, so tests compare classes.
+ */
+function classDefPairs(classDef) {
+    const pairs = [];
+    if (classDef.format === 1) {
+        classDef.classes.forEach((classId, i) => { if (classId) pairs.push([classDef.startGlyph + i, classId]); });
+    } else {
+        for (const range of classDef.ranges) {
+            for (let glyph = range.start; glyph <= range.end; glyph++) if (range.classId) pairs.push([glyph, range.classId]);
+        }
+    }
+    return pairs.sort((a, b) => a[0] - b[0]);
+}
+
+/** The glyphs of a parsed Coverage in either format, in coverage-index order. */
+function coverageList(coverage) {
+    if (coverage.format === 1) return coverage.glyphs.slice();
+    const glyphs = [];
+    for (const range of coverage.ranges) for (let glyph = range.start; glyph <= range.end; glyph++) glyphs[range.index + glyph - range.start] = glyph;
+    return glyphs;
+}
+
+/**
+ * The bytes from the first subtable of the first lookup of an encoded GSUB/GPOS table
+ * on, found through its offsets (identical objects such as an empty ScriptList and
+ * FeatureList are stored once, so positions are not fixed).
+ */
+function firstLookupSubtableBytes(bytes) {
+    const u16 = (at) => (bytes[at] << 8) | bytes[at + 1];
+    const lookupList = u16(8);
+    const lookup = lookupList + u16(lookupList + 2);
+    return bytes.slice(lookup + u16(lookup + 6));
+}
+
+export { hex, unhex, unhexArray, createMockObject, enableMockCanvas, classDefPairs, coverageList, firstLookupSubtableBytes };

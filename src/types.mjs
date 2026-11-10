@@ -1128,67 +1128,6 @@ function isTableLike(value) {
 }
 
 /**
- * @typedef {{bytes?: Array<number>, size?: number, deferredForParent: OffsetRelocation[]}} OffsetTarget
- * @typedef {{fieldName: string, patchPos: number, ownerStart: number, width: number, targetScope: string, appendPhase: number, target: OffsetTarget}} OffsetRelocation
- */
-
-/**
- * @param {unknown} target
- * @returns {{bytes: Array<number>, deferredForParent: OffsetRelocation[]}}
- */
-function encodeOffsetTarget(target) {
-    if (target === null || target === undefined) {
-        return { bytes: [], deferredForParent: [] };
-    }
-    if (isTableLike(target)) {
-        const tableTarget = /** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string}} */ (target);
-        if (tableTarget.fields === null) {
-            return { bytes: [], deferredForParent: [] };
-        }
-        return encodeTableNode(tableTarget);
-    }
-    if (Array.isArray(target) || target instanceof Uint8Array) {
-        return { bytes: Array.from(target), deferredForParent: [] };
-    }
-    if (typeof target === 'object' && target && 'type' in target && 'value' in target) {
-        return {
-            bytes: encode.OBJECT(/** @type {{type: string, value: unknown}|Array<{type: string, value: unknown}>} */ (target)),
-            deferredForParent: []
-        };
-    }
-    check.argument(false, 'Unsupported offset target type.');
-    return { bytes: [], deferredForParent: [] };
-}
-
-/**
- * @param {unknown} target
- * @returns {{size: number, deferredForParent: OffsetRelocation[]}}
- */
-function sizeOfOffsetTarget(target) {
-    if (target === null || target === undefined) {
-        return { size: 0, deferredForParent: [] };
-    }
-    if (isTableLike(target)) {
-        const tableTarget = /** @type {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>}} */ (target);
-        if (tableTarget.fields === null) {
-            return { size: 0, deferredForParent: [] };
-        }
-        return sizeOfTableNode(tableTarget);
-    }
-    if (Array.isArray(target) || target instanceof Uint8Array) {
-        return { size: target.length, deferredForParent: [] };
-    }
-    if (typeof target === 'object' && target && 'type' in target && 'value' in target) {
-        return {
-            size: sizeOf.OBJECT(/** @type {{type: string, value: unknown}|Array<{type: string, value: unknown}>} */ (target)),
-            deferredForParent: []
-        };
-    }
-    check.argument(false, 'Unsupported offset target type.');
-    return { size: 0, deferredForParent: [] };
-}
-
-/**
  * @param {Array<number>} bytes
  * @param {number} position
  * @param {number} width
@@ -1217,224 +1156,361 @@ function writeOffset(bytes, position, width, value) {
 }
 
 /**
- * @param {OffsetRelocation[]} targetEntries
- * @param {OffsetRelocation[]} sourceEntries
- * @param {number} baseOffset
- */
-function appendDeferredEntries(targetEntries, sourceEntries, baseOffset) {
-    for (let i = 0; i < sourceEntries.length; i += 1) {
-        const entry = sourceEntries[i];
-        targetEntries.push({
-            fieldName: entry.fieldName,
-            patchPos: baseOffset + entry.patchPos,
-            ownerStart: baseOffset + entry.ownerStart,
-            width: entry.width,
-            targetScope: entry.targetScope,
-            appendPhase: entry.appendPhase,
-            target: entry.target
-        });
-    }
-}
-
-/**
- * @param {OffsetRelocation[]} resolveNow
- * @param {OffsetRelocation[]} bubbleUp
- * @param {OffsetRelocation[]} sourceEntries
- * @param {number} baseOffset
- * @param {boolean} resolveRootScoped
- */
-function routeDeferredEntries(resolveNow, bubbleUp, sourceEntries, baseOffset, resolveRootScoped) {
-    const adjustedEntries = [];
-    appendDeferredEntries(adjustedEntries, sourceEntries, baseOffset);
-    for (let i = 0; i < adjustedEntries.length; i += 1) {
-        const entry = adjustedEntries[i];
-        if (entry.targetScope === 'parent' || (resolveRootScoped && entry.targetScope === 'root')) {
-            resolveNow.push(entry);
-        } else {
-            bubbleUp.push(entry);
-        }
-    }
-}
-
-/**
- * @param {Array<{appendPhase: number}>} queue
- * @returns {number}
- */
-function findNextAppendIndex(queue) {
-    let bestIndex = 0;
-    let bestPhase = queue[0].appendPhase;
-    for (let i = 1; i < queue.length; i += 1) {
-        if (queue[i].appendPhase < bestPhase) {
-            bestIndex = i;
-            bestPhase = queue[i].appendPhase;
-        }
-    }
-    return bestIndex;
-}
-
-/**
- * @param {Record<string, unknown> & {width: number}} relocation
+ * @param {{width: number}} relocation
  * @returns {number}
  */
 function getMaxOffsetForRelocation(relocation) {
     return relocation.width === 2 ? 0xFFFF : relocation.width === 3 ? 0xFFFFFF : 0xFFFFFFFF;
 }
 
-/** Subtables up to this size are candidates for sharing: devices, anchors, coverages and
- * PairSets, the ones fonts repeat. Larger ones are rarely identical, and keying them
- * would encode whole lookups again in every size pass. */
-const MAX_SHARED_SUBTABLE_BYTES = 2048;
+/**
+ * One serialized object of a table graph: its own bytes (offset fields zeroed) and its
+ * offsets to other objects. Offsets always count from the start of the object holding
+ * the field; `scope` and `phase` only decide where the target is laid out.
+ * @typedef {{pos: number, width: number, child: number, scope: string, phase: number, fieldName: string}} GraphLink
+ * @typedef {{bytes: Array<number>, links: GraphLink[], kind: string, canon: number}} GraphNode
+ * @typedef {'global' | 'siblings'} ShareMode
+ * @typedef {{nodes: GraphNode[], canonical: Map<string, number>, shareMode: ShareMode}} TableGraph
+ * @typedef {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}> | null, tableName?: string}} EncodableTable
+ */
 
 /**
- * Exact content key of an encoded subtable.
- * @param {Array<number>} bytes
+ * Exact content key of a serialized object: its own bytes and the canonical ids of the
+ * objects its offsets point to. Equal keys mean equal subgraphs; as in fontTools, the
+ * kind of table does not matter (an empty ScriptList and FeatureList are one object).
+ * @param {GraphNode} node
+ * @param {GraphNode[]} nodes
  * @returns {string}
  */
-function bytesKey(bytes) {
-    let key = '';
+function graphNodeKey(node, nodes) {
+    let key = '\u0000';
+    const bytes = node.bytes;
     for (let i = 0; i < bytes.length; i += 8192) {
         key += String.fromCharCode.apply(null, bytes.slice(i, i + 8192));
+    }
+    key += '\u0000';
+    for (let i = 0; i < node.links.length; i += 1) {
+        const link = node.links[i];
+        key += link.pos + ',' + link.width + ',' + nodes[link.child].canon + ',' + link.scope + ',' + link.phase + ';';
     }
     return key;
 }
 
 /**
- * Identical subtables behind 16-bit offsets in one table's scope are stored once and
- * shared (as fontTools does): coverage, device, anchor or PairSet tables written twice
- * would only make layout tables larger. A subtable with offsets resolved by an
- * ancestor is position dependent and never shared. The size pass encodes the same
- * subtables to make the same decisions. Only subtables of the same kind share (two
- * coverage tables, two device tables), never, say, an empty script and feature list.
- * @param {{width: number, targetScope: string}} relocation
- * @param {{bytes: Array<number>, deferredForParent: OffsetRelocation[]}} encoded
- * @param {string} tableName
- * @returns {string | null}
+ * Add a node, or return the identical node already in the graph. Every node gets a
+ * canonical id (the first structurally equal node). In 'global' mode identical objects
+ * anywhere in the table are one node, as in fontTools' packer; 'siblings' mode keeps
+ * them apart and only merges equal offsets of one parent (see buildGraphNode).
+ * Empty objects are never merged.
+ * @param {TableGraph} graph
+ * @param {GraphNode} node
+ * @returns {number}
  */
-function sharedSubtableKey(relocation, encoded, tableName) {
-    if (relocation.width !== 2 || relocation.targetScope !== 'local') return null;
-    if (encoded.deferredForParent.length > 0 || encoded.bytes.length === 0 || encoded.bytes.length > MAX_SHARED_SUBTABLE_BYTES) return null;
-    return tableName + '\u0000' + bytesKey(encoded.bytes);
+function internGraphNode(graph, node) {
+    const id = graph.nodes.length;
+    if (node.bytes.length === 0) {
+        node.canon = id;
+        graph.nodes.push(node);
+        return id;
+    }
+    const key = graphNodeKey(node, graph.nodes);
+    const existing = graph.canonical.get(key);
+    if (existing !== undefined && graph.shareMode === 'global') return existing;
+    node.canon = existing === undefined ? id : existing;
+    if (existing === undefined) graph.canonical.set(key, id);
+    graph.nodes.push(node);
+    return id;
 }
 
 /**
- * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}>, tableName?: string}} table
- * @returns {{bytes: Array<number>, deferredForParent: OffsetRelocation[]}}
+ * @param {TableGraph} graph
+ * @param {unknown} target
+ * @returns {number}
  */
-function encodeTableNode(table) {
-    let d = [];
-    const length = (table.fields || []).length;
-    const currentScopeEntries = [];
-    const deferredForAncestor = [];
+function buildGraphTarget(graph, target) {
+    if (isTableLike(target)) return buildGraphNode(graph, /** @type {EncodableTable} */ (target));
+    /** @type {Array<number>} */
+    let bytes;
+    if (Array.isArray(target) || target instanceof Uint8Array) {
+        bytes = Array.from(target);
+    } else if (typeof target === 'object' && target && 'type' in target && 'value' in target) {
+        bytes = encode.OBJECT(/** @type {{type: string, value: unknown}|Array<{type: string, value: unknown}>} */ (target));
+    } else {
+        check.argument(false, 'Unsupported offset target type.');
+        bytes = [];
+    }
+    return internGraphNode(graph, { bytes, links: [], kind: '', canon: -1 });
+}
 
-    for (let i = 0; i < length; i += 1) {
-        const field = table.fields[i];
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isOffsetTargetPresent(value) {
+    return value !== null && value !== undefined && !(isTableLike(value) && /** @type {{fields?: unknown}} */ (value).fields === null);
+}
+
+/**
+ * @param {TableGraph} graph
+ * @param {EncodableTable} table
+ * @returns {number}
+ */
+function buildGraphNode(graph, table) {
+    /** @type {Array<number>} */
+    const bytes = [];
+    /** @type {GraphLink[]} */
+    const links = [];
+    /** @type {Map<number, number> | null} */
+    const siblings = graph.shareMode === 'siblings' ? new Map() : null;
+    const fields = table.fields || [];
+    for (let i = 0; i < fields.length; i += 1) {
+        const field = fields[i];
         let value = table[field.name];
         if (value === undefined) {
             value = field.value;
         }
-
-        const offsetWidth = getOffsetFieldWidth(field.type);
-        if (offsetWidth > 0) {
-            const patchPos = d.length;
-            for (let j = 0; j < offsetWidth; j += 1) {
-                d.push(0);
-            }
-            if (value !== null && value !== undefined && !(isTableLike(value) && /** @type {{fields?: Array<unknown> | null}} */ (value).fields === null)) {
-                const relocation = {
-                    fieldName: field.name,
-                    patchPos,
-                    ownerStart: 0,
-                    width: offsetWidth,
-                    targetScope: field.targetScope || 'local',
-                    appendPhase: field.appendPhase || 0,
-                    target: encodeOffsetTarget(value),
-                    tableTarget: isTableLike(value) ? String(/** @type {{tableName?: string}} */ (value).tableName || '') : null
-                };
-                if (relocation.targetScope === 'parent' || relocation.targetScope === 'root') {
-                    deferredForAncestor.push(relocation);
-                } else {
-                    currentScopeEntries.push(relocation);
+        const width = getOffsetFieldWidth(field.type);
+        if (width > 0) {
+            const pos = bytes.length;
+            for (let j = 0; j < width; j += 1) bytes.push(0);
+            if (isOffsetTargetPresent(value)) {
+                let child = buildGraphTarget(graph, value);
+                if (siblings) {
+                    const canon = graph.nodes[child].canon;
+                    const sibling = siblings.get(canon);
+                    if (sibling !== undefined && graph.nodes[child].bytes.length > 0) child = sibling;
+                    else siblings.set(canon, child);
                 }
+                links.push({ pos, width, child, scope: field.targetScope || 'local', phase: field.appendPhase || 0, fieldName: field.name });
             }
             continue;
         }
-
         const encodingFunction = encode[field.type];
         check.argument(encodingFunction !== undefined, 'No encoding function for field type ' + field.type + ' (' + field.name + ')');
-        const bytes = encodingFunction(value);
-        for (let j = 0; j < bytes.length; j++) {
-            d.push(bytes[j]);
-        }
+        const encoded = encodingFunction(value);
+        for (let j = 0; j < encoded.length; j++) bytes.push(encoded[j]);
     }
-
-    /** @type {Map<string, number>} */
-    const sharedOffsets = new Map();
-    while (currentScopeEntries.length > 0) {
-        const relocation = currentScopeEntries.splice(findNextAppendIndex(currentScopeEntries), 1)[0];
-        const shareKey = typeof relocation.tableTarget === 'string' ? sharedSubtableKey(relocation, relocation.target, relocation.tableTarget) : null;
-        const sharedOffset = shareKey === null ? undefined : sharedOffsets.get(shareKey);
-        if (sharedOffset !== undefined) {
-            writeOffset(d, relocation.patchPos, relocation.width, sharedOffset);
-            continue;
-        }
-        const offset = d.length;
-        // Offsets count from the table holding the field: this one for local fields, a
-        // descendant (ownerStart) for fields deferred to this scope with targetScope 'parent'.
-        const relativeOffset = offset - relocation.ownerStart;
-        const maxOffset = getMaxOffsetForRelocation(relocation);
-        check.argument(relativeOffset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
-        if (shareKey !== null) sharedOffsets.set(shareKey, relativeOffset);
-        writeOffset(d, relocation.patchPos, relocation.width, relativeOffset);
-        for (let j = 0; j < relocation.target.bytes.length; j++) {
-            d.push(relocation.target.bytes[j]);
-        }
-        routeDeferredEntries(currentScopeEntries, deferredForAncestor, relocation.target.deferredForParent, offset, false);
-    }
-
-    return { bytes: d, deferredForParent: deferredForAncestor };
+    return internGraphNode(graph, { bytes, links, kind: String(table.tableName || ''), canon: -1 });
 }
 
 /**
- * Convert a table object to bytes.
- * A table contains a list of fields containing the metadata (name, type and default value).
- * The table itself has the field values set as attributes.
- * Offset-bearing fields (`TABLE`, `OFFSET16`, `OFFSET24`, `OFFSET32`) are laid
- * out structurally as relocations within the containing table graph instead of
- * being rediscovered and patched by ad hoc post-processing.
- * By default, offset-bearing fields are laid out locally inside the current
- * table, which matches the historical `TABLE` serializer behavior. Explicit
- * `targetScope: 'parent'` or `targetScope: 'root'` defer the referenced bytes
- * to an ancestor table when a format needs headers and payloads to live at
- * different structural levels, as with GSUB/GPOS extension wrappers.
- * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}>, tableName?: string}} table
- * @returns {Array}
+ * The objects a node lays out after itself, in order: its local offsets, then the
+ * 'parent'-scoped offsets of each of those children (extension subtables of the
+ * Lookup tables in a LookupList), ordered by append phase as they are reached.
+ * @param {GraphNode[]} nodes
+ * @param {number} id
+ * @returns {number[]}
+ */
+function graphLayoutChildren(nodes, id) {
+    /** @type {Map<number, GraphLink[]>} */
+    const buckets = new Map();
+    /** @type {Map<number, number>} */
+    const cursors = new Map();
+    /** @param {GraphLink} link */
+    const enqueue = (link) => {
+        let bucket = buckets.get(link.phase);
+        if (!bucket) {
+            bucket = [];
+            buckets.set(link.phase, bucket);
+            cursors.set(link.phase, 0);
+        }
+        bucket.push(link);
+    };
+    for (const link of nodes[id].links) if (link.scope === 'local') enqueue(link);
+    const order = [];
+    for (;;) {
+        let phase = Infinity;
+        for (const [p, bucket] of buckets) {
+            if (/** @type {number} */ (cursors.get(p)) < bucket.length && p < phase) phase = p;
+        }
+        if (phase === Infinity) break;
+        const cursor = /** @type {number} */ (cursors.get(phase));
+        const link = /** @type {GraphLink[]} */ (buckets.get(phase))[cursor];
+        cursors.set(phase, cursor + 1);
+        order.push(link.child);
+        if (link.scope === 'local') {
+            for (const deferred of nodes[link.child].links) if (deferred.scope === 'parent') enqueue(deferred);
+        }
+    }
+    return order;
+}
+
+/**
+ * Lay out the graph as fontTools' packer does: a depth-first order in which every
+ * object follows all objects that point to it (a shared object follows its last
+ * parent), so all offsets are forward. 'root'-scoped targets (extension subtables'
+ * payloads) form a region after everything that reaches them.
+ * @param {GraphNode[]} nodes
+ * @param {number} rootId
+ * @returns {{regions: Array<Map<number, number>>, order: Array<{region: number, id: number}>, size: number}}
+ */
+function layoutTableGraph(nodes, rootId) {
+    /** @type {Array<Map<number, number>>} */
+    const regions = [];
+    /** @type {Array<{region: number, id: number}>} */
+    const order = [];
+    let offset = 0;
+    let roots = [rootId];
+    while (roots.length > 0) {
+        /** @type {Set<number>} */
+        const visited = new Set();
+        /** @type {number[]} */
+        const post = [];
+        /** @param {number[]} children */
+        const gatherChildren = (children) => {
+            /** @type {Map<number, number>} */
+            const first = new Map();
+            for (let i = 0; i < children.length; i += 1) if (!first.has(children[i])) first.set(children[i], i);
+            for (let i = children.length - 1; i >= 0; i -= 1) {
+                const child = children[i];
+                if (first.get(child) === i && !visited.has(child)) gather(child);
+            }
+        };
+        /** @param {number} id */
+        const gather = (id) => {
+            visited.add(id);
+            gatherChildren(graphLayoutChildren(nodes, id));
+            post.push(id);
+        };
+        gatherChildren(roots);
+        const region = regions.length;
+        /** @type {Map<number, number>} */
+        const positions = new Map();
+        /** @type {number[]} */
+        const nextRoots = [];
+        /** @type {Set<number>} */
+        const nextSeen = new Set();
+        for (let i = post.length - 1; i >= 0; i -= 1) {
+            const id = post[i];
+            positions.set(id, offset);
+            order.push({ region, id });
+            offset += nodes[id].bytes.length;
+            for (const link of nodes[id].links) {
+                if (link.scope === 'root' && !nextSeen.has(link.child)) {
+                    nextSeen.add(link.child);
+                    nextRoots.push(link.child);
+                }
+            }
+        }
+        regions.push(positions);
+        roots = nextRoots;
+    }
+    return { regions, order, size: offset };
+}
+
+/**
+ * @param {GraphLink} link
+ * @param {number} region
+ * @returns {number}
+ */
+function linkTargetRegion(link, region) {
+    return link.scope === 'root' ? region + 1 : region;
+}
+
+/**
+ * Lay out a table graph, giving an object that is out of 16-bit reach of one of its
+ * parents a copy of its own near that parent (a shared object is only stored once
+ * where every parent reaches it). Returns null when an offset cannot be resolved.
+ * @param {TableGraph} graph
+ * @param {number} rootId
+ * @returns {{layout: ReturnType<typeof layoutTableGraph>, overflow: null} | {layout: null, overflow: {kind: string, fieldName: string, max: number}}}
+ */
+function resolveTableGraphLayout(graph, rootId) {
+    const nodes = graph.nodes;
+    for (let pass = 0; ; pass += 1) {
+        const layout = layoutTableGraph(nodes, rootId);
+        /** @type {Map<number, number>} */
+        const references = new Map();
+        for (const { id } of layout.order) {
+            for (const link of nodes[id].links) references.set(link.child, (references.get(link.child) || 0) + 1);
+        }
+        /** @type {Array<{owner: number, link: GraphLink}>} */
+        const overflowing = [];
+        for (const { region, id } of layout.order) {
+            const ownerPos = /** @type {number} */ (layout.regions[region].get(id));
+            for (const link of nodes[id].links) {
+                const targetPos = layout.regions[linkTargetRegion(link, region)].get(link.child);
+                const relative = /** @type {number} */ (targetPos) - ownerPos;
+                if (relative < 0 || relative > getMaxOffsetForRelocation(link)) overflowing.push({ owner: id, link });
+            }
+        }
+        if (overflowing.length === 0) return { layout, overflow: null };
+        const unsharable = overflowing.find(({ link }) => (references.get(link.child) || 0) < 2);
+        if (unsharable || pass >= 32) {
+            const { owner, link } = unsharable || overflowing[0];
+            return { layout: null, overflow: { kind: nodes[owner].kind, fieldName: link.fieldName, max: getMaxOffsetForRelocation(link) } };
+        }
+        /** @type {Map<string, number>} */
+        const copies = new Map();
+        for (const { owner, link } of overflowing) {
+            const copyKey = owner + ':' + link.child;
+            let copy = copies.get(copyKey);
+            if (copy === undefined) {
+                const source = nodes[link.child];
+                copy = nodes.length;
+                nodes.push({ bytes: source.bytes, links: source.links.map((l) => Object.assign({}, l)), kind: source.kind, canon: source.canon });
+                copies.set(copyKey, copy);
+            }
+            link.child = copy;
+        }
+    }
+}
+
+/**
+ * @param {EncodableTable} table
+ * @param {ShareMode} shareMode
+ * @returns {{nodes: GraphNode[], layout: ReturnType<typeof layoutTableGraph> | null, overflow: {kind: string, fieldName: string, max: number} | null}}
+ */
+function packTable(table, shareMode) {
+    /** @type {TableGraph} */
+    const graph = { nodes: [], canonical: new Map(), shareMode };
+    const rootId = buildGraphNode(graph, table);
+    const resolved = resolveTableGraphLayout(graph, rootId);
+    return { nodes: graph.nodes, layout: resolved.layout, overflow: resolved.overflow };
+}
+
+/**
+ * Serialize a table and every object it points to.
+ *
+ * The table is turned into a graph of objects (offset-bearing fields `TABLE`,
+ * `OFFSET16`, `OFFSET24`, `OFFSET32` are its edges) in which identical objects
+ * (coverage, class definition, device, anchor, PairSet, whole subtables or lookups)
+ * are stored once and pointed to from every parent, as fontTools' packer does. The
+ * objects are then laid out in a depth-first order where every offset is forward;
+ * an object a 16-bit offset cannot reach is copied next to that parent. If that
+ * cannot resolve every offset, the table is laid out with only the offsets of one
+ * parent sharing, the way it was before global sharing. `targetScope: 'parent'`
+ * lays a target out after the referencing object's parent's own children, and
+ * `targetScope: 'root'` after all of the table (GSUB/GPOS extension payloads);
+ * `appendPhase` orders a parent's children.
+ * @param {EncodableTable} table
+ * @returns {Array<number>}
  */
 function encodeTable(table) {
-    const encoded = encodeTableNode(table);
-    const deferredForRoot = [];
-    const unresolved = [];
-    routeDeferredEntries(deferredForRoot, unresolved, encoded.deferredForParent, 0, true);
-
-    for (let i = 0; i < deferredForRoot.length; i += 1) {
-        const relocation = deferredForRoot[i];
-        const targetStart = encoded.bytes.length;
-        const relativeOffset = targetStart - relocation.ownerStart;
-        const maxOffset = getMaxOffsetForRelocation(relocation);
-        check.argument(relativeOffset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
-        writeOffset(encoded.bytes, relocation.patchPos, relocation.width, relativeOffset);
-        for (let j = 0; j < relocation.target.bytes.length; j++) {
-            encoded.bytes.push(relocation.target.bytes[j]);
-        }
-        routeDeferredEntries(deferredForRoot, unresolved, relocation.target.deferredForParent, targetStart, true);
+    let packed = packTable(table, 'global');
+    if (!packed.layout) packed = packTable(table, 'siblings');
+    if (!packed.layout) {
+        const overflow = /** @type {{kind: string, fieldName: string, max: number}} */ (packed.overflow);
+        check.argument(false, 'Table ' + (overflow.kind || table.tableName) + ' offset for ' + overflow.fieldName + ' exceeds ' + overflow.max + '.');
     }
-
-    check.argument(unresolved.length === 0, 'Table ' + table.tableName + ' has unresolved ancestor-scoped offsets.');
-    return encoded.bytes;
+    const layout = /** @type {ReturnType<typeof layoutTableGraph>} */ (packed.layout);
+    const nodes = packed.nodes;
+    const bytes = new Array(layout.size);
+    for (const { region, id } of layout.order) {
+        const node = nodes[id];
+        const start = /** @type {number} */ (layout.regions[region].get(id));
+        for (let i = 0; i < node.bytes.length; i += 1) bytes[start + i] = node.bytes[i];
+        for (const link of node.links) {
+            const targetPos = /** @type {number} */ (layout.regions[linkTargetRegion(link, region)].get(link.child));
+            writeOffset(bytes, start + link.pos, link.width, targetPos - start);
+        }
+    }
+    return bytes;
 }
 
 /**
  * Convert a table object to bytes.
- * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>, tableName?: string}} table
+ * @param {EncodableTable} table
  * @returns {Array}
  */
 encode.TABLE = function(table) {
@@ -1442,97 +1518,31 @@ encode.TABLE = function(table) {
 };
 
 /**
- * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown, targetScope?: string, appendPhase?: number}>, tableName?: string}} table
- * @returns {{size: number, deferredForParent: OffsetRelocation[]}}
+ * The size of a table as encode.TABLE writes it, shared objects counted once.
+ * @param {EncodableTable} table
+ * @returns {number}
  */
-function sizeOfTableNode(table) {
-    let numBytes = 0;
-    const length = (table.fields || []).length;
-    const currentScopeEntries = [];
-    const deferredForAncestor = [];
-
-    for (let i = 0; i < length; i += 1) {
-        const field = table.fields[i];
+sizeOf.TABLE = function(table) {
+    let size = 0;
+    const fields = table.fields || [];
+    for (let i = 0; i < fields.length; i += 1) {
+        const field = fields[i];
         let value = table[field.name];
         if (value === undefined) {
             value = field.value;
         }
-
-        const offsetWidth = getOffsetFieldWidth(field.type);
-        if (offsetWidth > 0) {
-            const patchPos = numBytes;
-            numBytes += offsetWidth;
-            if (value !== null && value !== undefined && !(isTableLike(value) && /** @type {{fields?: Array<unknown> | null}} */ (value).fields === null)) {
-                const relocation = {
-                    fieldName: field.name,
-                    patchPos,
-                    ownerStart: 0,
-                    width: offsetWidth,
-                    targetScope: field.targetScope || 'local',
-                    appendPhase: field.appendPhase || 0,
-                    target: sizeOfOffsetTarget(value),
-                    /** @type {string | null} */
-                    shareKey: null
-                };
-                if (offsetWidth === 2 && relocation.targetScope === 'local' && isTableLike(value)
-                    && relocation.target.size <= MAX_SHARED_SUBTABLE_BYTES && relocation.target.deferredForParent.length === 0) {
-                    relocation.shareKey = sharedSubtableKey(relocation, encodeOffsetTarget(value), String(/** @type {{tableName?: string}} */ (value).tableName || ''));
-                }
-                if (relocation.targetScope === 'parent' || relocation.targetScope === 'root') {
-                    deferredForAncestor.push(relocation);
-                } else {
-                    currentScopeEntries.push(relocation);
-                }
-            }
+        const width = getOffsetFieldWidth(field.type);
+        if (width > 0) {
+            // Objects behind offsets may be shared: only the packed table knows its size.
+            if (isOffsetTargetPresent(value)) return encodeTable(table).length;
+            size += width;
             continue;
         }
-
         const sizeOfFunction = sizeOf[field.type];
         check.argument(sizeOfFunction !== undefined, 'No sizeOf function for field type ' + field.type + ' (' + field.name + ')');
-        numBytes += sizeOfFunction(value);
+        size += sizeOfFunction(value);
     }
-
-    /** @type {Set<string>} */
-    const sharedSubtables = new Set();
-    while (currentScopeEntries.length > 0) {
-        const relocation = currentScopeEntries.splice(findNextAppendIndex(currentScopeEntries), 1)[0];
-        if (typeof relocation.shareKey === 'string') {
-            if (sharedSubtables.has(relocation.shareKey)) continue;
-            sharedSubtables.add(relocation.shareKey);
-        }
-        const offset = numBytes;
-        const maxOffset = getMaxOffsetForRelocation(relocation);
-        check.argument(offset - (relocation.ownerStart || 0) <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
-        numBytes += relocation.target.size;
-        routeDeferredEntries(currentScopeEntries, deferredForAncestor, relocation.target.deferredForParent, offset, false);
-    }
-
-    return { size: numBytes, deferredForParent: deferredForAncestor };
-}
-
-/**
- * @param {Record<string, unknown> & {fields?: Array<{name: string, type: string, value?: unknown}>}} table
- * @returns {number}
- */
-sizeOf.TABLE = function(table) {
-    const sized = sizeOfTableNode(table);
-    let numBytes = sized.size;
-    const deferredForRoot = [];
-    const unresolved = [];
-    routeDeferredEntries(deferredForRoot, unresolved, sized.deferredForParent, 0, true);
-
-    for (let i = 0; i < deferredForRoot.length; i += 1) {
-        const relocation = deferredForRoot[i];
-        const targetStart = numBytes;
-        const relativeOffset = targetStart - relocation.ownerStart;
-        const maxOffset = getMaxOffsetForRelocation(relocation);
-        check.argument(relativeOffset <= maxOffset, 'Table ' + table.tableName + ' offset for ' + relocation.fieldName + ' exceeds ' + maxOffset + '.');
-        numBytes += relocation.target.size;
-        routeDeferredEntries(deferredForRoot, unresolved, relocation.target.deferredForParent, targetStart, true);
-    }
-
-    check.argument(unresolved.length === 0, 'Table ' + table.tableName + ' has unresolved ancestor-scoped offsets.');
-    return numBytes;
+    return size;
 };
 
 encode.RECORD = encode.TABLE;

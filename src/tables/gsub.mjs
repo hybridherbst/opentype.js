@@ -337,7 +337,19 @@ function parseGsubTable(data, start) {
 // GSUB Writing //////////////////////////////////////////////
 const subtableMakers = new Array(9);
 
+// Written as format 1 (one glyph id delta) when every covered glyph moves by the same
+// delta, else as format 2 (a substitute per glyph), whichever the subtable was given as.
 subtableMakers[1] = function makeLookup1(subtable) {
+    if (subtable.substFormat === 2) {
+        const glyphs = table.coverageGlyphs(subtable.coverage);
+        const substitutes = subtable.substitute;
+        if (glyphs && glyphs.length > 0 && Array.isArray(substitutes) && substitutes.length === glyphs.length) {
+            const delta = (substitutes[0] - glyphs[0]) & 0xffff;
+            if (glyphs.every((glyph, i) => ((substitutes[i] - glyph) & 0xffff) === delta)) {
+                subtable = { substFormat: 1, coverage: subtable.coverage, deltaGlyphId: delta >= 0x8000 ? delta - 0x10000 : delta };
+            }
+        }
+    }
     if (subtable.substFormat === 1) {
         return new table.Table('substitutionTable', [
             {name: 'substFormat', type: 'USHORT', value: 1},

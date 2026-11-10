@@ -93,30 +93,84 @@ function recordList(itemName, records, itemCallback) {
 // Common Layout Tables
 
 /**
+ * The glyphs of a coverage table in coverage-index order, or null when they are not
+ * strictly increasing (then the given format and order are written as they are).
+ * @param {Record<string, unknown>} coverageTable
+ * @returns {number[] | null}
+ */
+function coverageGlyphs(coverageTable) {
+    /** @type {number[]} */
+    let glyphs;
+    if (coverageTable.format === 1) {
+        glyphs = /** @type {number[]} */ (coverageTable.glyphs || []);
+    } else if (coverageTable.format === 2) {
+        glyphs = [];
+        for (const range of /** @type {Array<{start: number, end: number, index?: number, startCoverageIndex?: number}>} */ (coverageTable.ranges || [])) {
+            const index = range.index ?? range.startCoverageIndex ?? glyphs.length;
+            if (index !== glyphs.length || range.end < range.start) return null;
+            for (let glyph = range.start; glyph <= range.end; glyph++) glyphs.push(glyph);
+        }
+    } else {
+        return null;
+    }
+    for (let i = 0; i < glyphs.length; i++) {
+        if (!Number.isInteger(glyphs[i]) || (i > 0 && glyphs[i] <= glyphs[i - 1])) return null;
+    }
+    return glyphs;
+}
+
+/**
+ * Consecutive glyph runs of a sorted glyph list as coverage RangeRecords.
+ * @param {number[]} glyphs
+ * @returns {Array<{start: number, end: number, index: number}>}
+ */
+function coverageRanges(glyphs) {
+    const ranges = [];
+    for (let i = 0; i < glyphs.length; i++) {
+        const last = ranges[ranges.length - 1];
+        if (last && glyphs[i] === last.end + 1) last.end = glyphs[i];
+        else ranges.push({ start: glyphs[i], end: glyphs[i], index: i });
+    }
+    return ranges;
+}
+
+/**
+ * A Coverage table in the smaller of its two formats (format 2 when its range records
+ * take fewer bytes than the glyph array, as fontTools chooses). The given format only
+ * describes the glyphs; a coverage whose glyphs are not in increasing order is written
+ * as given.
  * @exports opentype.Coverage
  * @class
  * @param {Record<string, unknown>} coverageTable
  * @constructor
  */
 function Coverage(coverageTable) {
-    if (coverageTable.format === 1) {
+    check.assert(coverageTable.format === 1 || coverageTable.format === 2, 'Coverage format must be 1 or 2.');
+    const glyphs = coverageGlyphs(coverageTable);
+    let format = coverageTable.format;
+    let list = /** @type {number[]} */ (coverageTable.glyphs);
+    let ranges = /** @type {Array<{start: number, end: number, index?: number, startCoverageIndex?: number}>} */ (coverageTable.ranges);
+    if (glyphs) {
+        ranges = coverageRanges(glyphs);
+        list = glyphs;
+        format = ranges.length * 3 < glyphs.length ? 2 : 1;
+    }
+    if (format === 1) {
         Table.call(this, 'coverageTable',
             [{name: 'coverageFormat', type: 'USHORT', value: 1}]
-                .concat(ushortList('glyph', coverageTable.glyphs))
+                .concat(ushortList('glyph', list))
         );
-    } else if (coverageTable.format === 2) {
+    } else {
         Table.call(this, 'coverageTable',
             [{name: 'coverageFormat', type: 'USHORT', value: 2}]
-                .concat(recordList('rangeRecord', coverageTable.ranges, function(RangeRecord, i) {
+                .concat(recordList('rangeRecord', ranges, function(RangeRecord, i) {
                     return [
                         {name: 'startGlyphID' + i, type: 'USHORT', value: RangeRecord.start},
                         {name: 'endGlyphID' + i, type: 'USHORT', value: RangeRecord.end},
-                        {name: 'startCoverageIndex' + i, type: 'USHORT', value: RangeRecord.index},
+                        {name: 'startCoverageIndex' + i, type: 'USHORT', value: RangeRecord.index ?? RangeRecord.startCoverageIndex},
                     ];
                 }))
         );
-    } else {
-        check.assert(false, 'Coverage format must be 1 or 2.');
     }
 }
 Coverage.prototype = Object.create(Table.prototype);
@@ -251,6 +305,35 @@ LookupList.prototype = Object.create(Table.prototype);
 LookupList.prototype.constructor = LookupList;
 
 /**
+ * Glyph → class (non-zero classes only) of a class definition, or null when its ranges
+ * are unsorted or overlap (then it is written as given).
+ * @param {Record<string, unknown>} classDefTable
+ * @returns {Array<[number, number]> | null} sorted [glyph, class] pairs
+ */
+function classDefAssignments(classDefTable) {
+    /** @type {Array<[number, number]>} */
+    const pairs = [];
+    if (classDefTable.format === 1) {
+        const start = Number(classDefTable.startGlyph) || 0;
+        const classes = /** @type {number[]} */ (classDefTable.classes || []);
+        for (let i = 0; i < classes.length; i++) if (classes[i]) pairs.push([start + i, classes[i]]);
+        return pairs;
+    }
+    if (classDefTable.format !== 2) return null;
+    let previousEnd = -1;
+    for (const range of /** @type {Array<{start: number, end: number, classId: number}>} */ (classDefTable.ranges || [])) {
+        if (!(range.start > previousEnd) || range.end < range.start) return null;
+        previousEnd = range.end;
+        if (!range.classId) continue;
+        for (let glyph = range.start; glyph <= range.end; glyph++) pairs.push([glyph, range.classId]);
+    }
+    return pairs;
+}
+
+/**
+ * A ClassDef table in the smaller of its two formats: format 1 (a class array from the
+ * first to the last classified glyph) or format 2 (ranges of one class). Class 0 is the
+ * default and is not written. The given format only describes the classes.
  * @exports opentype.ClassDef
  * @class
  * @param {Record<string, unknown>} classDefTable
@@ -259,18 +342,37 @@ LookupList.prototype.constructor = LookupList;
  * @see https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2#class-definition-table
  */
 function ClassDef(classDefTable) {
-    if (classDefTable.format === 1) {
+    check.assert(classDefTable.format === 1 || classDefTable.format === 2, 'Class format must be 1 or 2.');
+    const pairs = classDefAssignments(classDefTable);
+    let format = classDefTable.format;
+    let startGlyph = /** @type {number} */ (classDefTable.startGlyph);
+    let classes = /** @type {number[]} */ (classDefTable.classes);
+    let ranges = /** @type {Array<{start: number, end: number, classId: number}>} */ (classDefTable.ranges);
+    if (pairs) {
+        ranges = [];
+        for (const [glyph, classId] of pairs) {
+            const last = ranges[ranges.length - 1];
+            if (last && last.end === glyph - 1 && last.classId === classId) last.end = glyph;
+            else ranges.push({ start: glyph, end: glyph, classId });
+        }
+        startGlyph = pairs.length ? pairs[0][0] : 0;
+        const span = pairs.length ? pairs[pairs.length - 1][0] - startGlyph + 1 : 0;
+        classes = new Array(span).fill(0);
+        for (const [glyph, classId] of pairs) classes[glyph - startGlyph] = classId;
+        format = 6 + 2 * span < 4 + 6 * ranges.length ? 1 : 2;
+    }
+    if (format === 1) {
         Table.call(this, 'classDefTable',
             [
                 {name: 'classFormat', type: 'USHORT', value: 1},
-                {name: 'startGlyphID', type: 'USHORT', value: classDefTable.startGlyph}
+                {name: 'startGlyphID', type: 'USHORT', value: startGlyph}
             ]
-                .concat(ushortList('glyph', classDefTable.classes))
+                .concat(ushortList('glyph', classes))
         );
-    } else if (classDefTable.format === 2) {
+    } else {
         Table.call(this, 'classDefTable',
             [{name: 'classFormat', type: 'USHORT', value: 2}]
-                .concat(recordList('rangeRecord', classDefTable.ranges, function(RangeRecord, i) {
+                .concat(recordList('rangeRecord', ranges, function(RangeRecord, i) {
                     return [
                         {name: 'startGlyphID' + i, type: 'USHORT', value: RangeRecord.start},
                         {name: 'endGlyphID' + i, type: 'USHORT', value: RangeRecord.end},
@@ -278,8 +380,6 @@ function ClassDef(classDefTable) {
                     ];
                 }))
         );
-    } else {
-        check.assert(false, 'Class format must be 1 or 2.');
     }
 }
 ClassDef.prototype = Object.create(Table.prototype);
@@ -301,4 +401,6 @@ export default {
     ushortList,
     tableList,
     recordList,
+    coverageGlyphs,
+    coverageRanges,
 };

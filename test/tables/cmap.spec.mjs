@@ -137,8 +137,10 @@ describe('tables/cmap.mjs', function() {
             ]);
 
             const t = makeCmapTable(glyphs);
-            // Different deltas → 2 separate segments + terminator = 3
-            assert.equal(t.segments.length, 3);
+            // Different deltas: one segment whose glyph ids are in the glyphIdArray (2 bytes
+            // each, smaller than a second 8-byte segment) + terminator = 2
+            assert.equal(t.segments.length, 2);
+            assert.deepEqual(t.segments[0].glyphIds, [1, 3]);
         });
 
         it('merges segments near 0xFFFF as long as end does not reach the BMP terminator', function() {
