@@ -7,7 +7,7 @@ import table from '../table.mjs';
 import { encodeItemVariationStore } from './hvar.mjs';
 
 /**
- * @typedef {{ name: string, type: string, value: number | null | InstanceType<typeof table.ClassDef>, appendPhase?: number }} GdefHeaderField
+ * @typedef {{ name: string, type: string, value: number | null | InstanceType<typeof table.ClassDef> | InstanceType<typeof table.Table>, appendPhase?: number }} GdefHeaderField
  */
 
 var attachList = function() {
@@ -42,9 +42,10 @@ var ligCaretList = function() {
     };
 };
 
+// MarkGlyphSetsDef: format 1, then Offset32 coverage tables (one per mark glyph set).
 var markGlyphSets = function() {
-    this.parseUShort(); // Version
-    return this.parseList(Parser.pointer(Parser.coverage));
+    this.parseUShort(); // Format
+    return this.parseList(Parser.pointer32(Parser.coverage));
 };
 
 function parseGDEFTable(data, start) {
@@ -79,7 +80,7 @@ function makeGDEFTable(gdef, fvar) {
     const hasAttachList = !!gdef.attachList;
     const hasLigCaretList = !!gdef.ligCaretList;
     const hasMarkAttachClassDef = !!gdef.markAttachClassDef;
-    const hasMarkGlyphSets = !!gdef.markGlyphSets;
+    const hasMarkGlyphSets = Array.isArray(gdef.markGlyphSets) && gdef.markGlyphSets.length > 0;
     const hasItemVariationStore = !!gdef.itemVariationStore && !!fvar;
 
     if (!hasClassDef &&
@@ -105,7 +106,15 @@ function makeGDEFTable(gdef, fvar) {
     ];
 
     if (version >= 1.2) {
-        fields.push({ name: 'markGlyphSetsDefOffset', type: 'USHORT', value: 0 });
+        const sets = hasMarkGlyphSets ? /** @type {Array<Record<string, unknown>>} */ (gdef.markGlyphSets) : [];
+        const markGlyphSetsTable = sets.length > 0
+            ? new table.Table('markGlyphSetsDef', [
+                { name: 'format', type: 'USHORT', value: 1 },
+                { name: 'markGlyphSetCount', type: 'USHORT', value: sets.length },
+                ...sets.map((coverage, index) => ({ name: 'coverage' + index, type: 'OFFSET32', value: new table.Coverage(coverage) }))
+            ])
+            : null;
+        fields.push({ name: 'markGlyphSetsDef', type: 'TABLE', value: markGlyphSetsTable });
     }
     if (version >= 1.3) {
         fields.push({
