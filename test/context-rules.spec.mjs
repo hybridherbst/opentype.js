@@ -73,6 +73,7 @@ function randomRules(rnd, count) {
     const classes = [[1, 2, 3], [4, 5], [6], [7, 8, 9, 10], [11]];
     const pick = () => {
         const kind = rnd();
+        if (kind < 0.03) return [];
         if (kind < 0.6) return classes[Math.floor(rnd() * classes.length)].slice();
         if (kind < 0.85) return [1 + Math.floor(rnd() * 11)];
         return [...new Set([1 + Math.floor(rnd() * 11), 1 + Math.floor(rnd() * 11)])];
@@ -152,8 +153,9 @@ describe('encodeChainContextRules', function() {
         for (const glyph of [5, 9, 0, 39, 17]) assert.deepStrictEqual(applying(explicit, [3, glyph], 0, 'posFormat'), applying(subtables, [3, glyph], 0, 'posFormat'));
     });
 
-    it('drops rules with a position no glyph fills', function() {
-        assert.deepStrictEqual(encodeChainContextRules([{ backtrack: [[]], input: [[1]], lookahead: [], lookupRecords: [] }]), []);
+    it('keeps a rule with a position no glyph fills as a coverage subtable of its own', function() {
+        assert.deepStrictEqual(encodeChainContextRules([{ backtrack: [[]], input: [[1]], lookahead: [], lookupRecords: [] }]),
+            [{ substFormat: 3, backtrackCoverage: [{ format: 1, glyphs: [] }], inputCoverage: [{ format: 1, glyphs: [1] }], lookaheadCoverage: [], lookupRecords: [] }]);
     });
 
     it('keeps a class-based subtable within the 16-bit offset limit', function() {

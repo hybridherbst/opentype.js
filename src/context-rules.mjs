@@ -362,14 +362,19 @@ export function encodeChainContextRules(rules, options = {}) {
                 lookupRecords: rule.lookupRecords || [],
                 keys: { backtrack: backtrack.map(keyOf), input: input.map(keyOf), lookahead: lookahead.map(keyOf) }
             };
-        })
-        // A position no glyph can fill never matches: the rule can never apply.
-        .filter((rule) => [...rule.backtrack, ...rule.input, ...rule.lookahead].every((glyphs) => glyphs.length > 0));
+        });
 
     /** @type {Array<ClassGroup | {lone: typeof normalized[number]}>} */
     const groups = [];
     let group = new ClassGroup();
     for (const rule of normalized) {
+        // A position no glyph fills never matches: the rule is written as it is, alone.
+        if ([...rule.backtrack, ...rule.input, ...rule.lookahead].some((glyphs) => glyphs.length === 0)) {
+            if (group.rules.length > 0) groups.push(group);
+            group = new ClassGroup();
+            groups.push({ lone: rule });
+            continue;
+        }
         if (group.add(rule, maxSize)) continue;
         if (group.rules.length > 0) groups.push(group);
         group = new ClassGroup();
