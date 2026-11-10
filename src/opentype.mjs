@@ -730,3 +730,4 @@ export { unicodeToGlyphName } from './encoding.mjs';
 export { normalizeAxisValue, denormalizeAxisValue, applyAvarMapping, invertAvarMapping, normalizeCoordinates } from './variation-coordinates.mjs';
 export { findDuplicateGlyphNames, postGlyphNames } from './tables/post.mjs';
 export { optimizeItemVariationStore, remapVariationIndexes } from './item-variation-store.mjs';
+export { encodeChainContextRules } from './context-rules.mjs';
