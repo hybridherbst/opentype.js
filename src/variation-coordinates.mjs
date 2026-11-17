@@ -82,16 +82,83 @@ export function invertAvarMapping(mapped, axisValueMaps, preferred = mapped, tol
 }
 
 /**
+ * Scalar of one ItemVariationStore region at normalized coordinates (the
+ * OpenType region scalar: product of the per-axis tent factors).
+ * @param {{regionAxes: Array<{startCoord: number, peakCoord: number, endCoord: number}>}} region
+ * @param {number[]} normalized
+ * @returns {number}
+ */
+export function variationRegionScalar(region, normalized) {
+    let scalar = 1;
+    const regionAxes = region?.regionAxes || [];
+    for (let i = 0; i < regionAxes.length; i++) {
+        const {startCoord: start, peakCoord: peak, endCoord: end} = regionAxes[i];
+        if (start > peak || peak > end || (start < 0 && end > 0) || peak === 0) continue;
+        const value = normalized[i] || 0;
+        if (value === peak) continue;
+        if (value <= start || value >= end) return 0;
+        scalar *= value < peak ? (value - start) / (peak - start) : (end - value) / (end - peak);
+    }
+    return scalar;
+}
+
+/**
+ * Delta of one ItemVariationStore row at normalized coordinates.
+ * @param {{variationRegions: Array<{regionAxes: Array<{startCoord: number, peakCoord: number, endCoord: number}>}>, itemVariationSubtables: Array<{regionIndexes: number[], deltaSets: number[][]}>}} store
+ * @param {number} outerIndex
+ * @param {number} innerIndex
+ * @param {number[]} normalized
+ * @returns {number}
+ */
+export function itemVariationDelta(store, outerIndex, innerIndex, normalized) {
+    const subtable = store?.itemVariationSubtables?.[outerIndex];
+    const deltas = subtable?.deltaSets?.[innerIndex];
+    if (!deltas) return 0;
+    let total = 0;
+    for (let column = 0; column < subtable.regionIndexes.length; column++) {
+        const delta = deltas[column];
+        if (!delta) continue;
+        total += delta * variationRegionScalar(store.variationRegions[subtable.regionIndexes[column]], normalized);
+    }
+    return total;
+}
+
+/**
+ * Apply avar version 2's cross-axis mapping to segment-mapped coordinates. Every
+ * axis's delta (F2DOT14 units in the avar ItemVariationStore) is evaluated at the
+ * same input vector; results are clamped to -1..1. Coordinates without avar2 data
+ * are returned unchanged.
+ * https://learn.microsoft.com/en-us/typography/opentype/spec/avar#avar-version-2
+ * @param {number[]} normalized segment-mapped coordinates, in axis order
+ * @param {{itemVariationStore?: object, axisIndexMap?: {map?: Array<{outerIndex: number, innerIndex: number}>}}|null} [avar]
+ * @returns {number[]}
+ */
+export function applyAvar2Mapping(normalized, avar) {
+    const store = avar?.itemVariationStore;
+    if (!store) return normalized;
+    const map = avar.axisIndexMap?.map;
+    return normalized.map((value, axisIndex) => {
+        const entry = map?.length ? map[Math.min(axisIndex, map.length - 1)] : {outerIndex: 0, innerIndex: axisIndex};
+        const delta = itemVariationDelta(store, entry.outerIndex, entry.innerIndex, normalized);
+        if (!delta) return value;
+        // Renderers add the delta in F2DOT14 units (HarfBuzz rounds it).
+        return Math.max(-1, Math.min(1, value + Math.round(delta) / 16384));
+    });
+}
+
+/**
  * Normalized, avar-mapped coordinates for user-space coordinates, in axis order.
- * Missing axes take their default.
+ * Missing axes take their default. avar version 2 data, when present, is applied
+ * after the segment maps.
  * @param {Record<string, number>} coords user-space values by axis tag
  * @param {Array<{tag: string, minValue: number, defaultValue: number, maxValue: number}>} axes fvar axes
- * @param {{axisSegmentMaps?: Array<{axisValueMaps: Array<{fromCoordinate: number, toCoordinate: number}>}>}|null} [avar]
+ * @param {{axisSegmentMaps?: Array<{axisValueMaps: Array<{fromCoordinate: number, toCoordinate: number}>}>, itemVariationStore?: object, axisIndexMap?: object}|null} [avar]
  * @returns {number[]}
  */
 export function normalizeCoordinates(coords, axes, avar = null) {
-    return axes.map((axis, index) => applyAvarMapping(
+    const mapped = axes.map((axis, index) => applyAvarMapping(
         normalizeAxisValue(coords?.[axis.tag] ?? axis.defaultValue, axis),
         avar?.axisSegmentMaps?.[index]?.axisValueMaps,
     ));
+    return avar?.itemVariationStore ? applyAvar2Mapping(mapped, avar) : mapped;
 }

@@ -201,7 +201,7 @@ export class VariationProcessor {
      * @param {{deltas: number[], deltasY: number[], peakTuple?: number[], privatePoints: number[], sharedTupleRecordsIndex?: number, intermediateStartTuple?: number[], intermediateEndTuple?: number[]}} header - Header information from the variation data.
      * @param {number} factor - The scaling factor for the transformation.
      */
-    transformComponents(glyph, transformedPoints, coords, tuplePoints, header, factor) {
+    transformComponents(glyph, transformedPoints, coords, tuplePoints, header, factor, options = {}) {
         let pointsIndex = 0;
         for(let c = 0; c < /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */ (/** @type {unknown} */ (glyph)).components.length; c++) {
             const component = /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */ (/** @type {unknown} */ (glyph)).components[c];
@@ -211,10 +211,11 @@ export class VariationProcessor {
             // When tuplePoints lists specific points, look up component index c in that list.
             const deltaIndex = tuplePoints.length === 0 ? c : tuplePoints.indexOf(c);
             if(deltaIndex > -1 && deltaIndex < header.deltas.length) {
-                componentTransform.dx += otRound(header.deltas[deltaIndex] * factor);
-                componentTransform.dy += otRound(header.deltasY[deltaIndex] * factor);
+                const round = options.round === false ? (value => value) : otRound;
+                componentTransform.dx += round(header.deltas[deltaIndex] * factor);
+                componentTransform.dy += round(header.deltasY[deltaIndex] * factor);
             }
-            const transformedComponentPoints = transformPoints(this.getTransform(componentGlyph, coords).points, componentTransform);
+            const transformedComponentPoints = transformPoints(this.getTransform(componentGlyph, coords, options).points, componentTransform);
             transformedPoints.splice(pointsIndex, transformedComponentPoints.length, ...transformedComponentPoints);
             pointsIndex += componentGlyph.points.length;
         }
@@ -244,11 +245,11 @@ export class VariationProcessor {
      * @param {Record<string, number>} coords
      * @param {Array<{glyphIndex: number, dx: number, dy: number, xScale?: number, yScale?: number, scale01?: number, scale10?: number}>} componentTransforms
      */
-    renderCompositeComponents(glyph, transformedPoints, coords, componentTransforms) {
+    renderCompositeComponents(glyph, transformedPoints, coords, componentTransforms, options = {}) {
         let pointsIndex = 0;
         for (let c = 0; c < /** @type {{ components: Array<{glyphIndex: number}> }} */ (/** @type {unknown} */ (glyph)).components.length; c++) {
             const componentGlyph = this.font.glyphs.get(componentTransforms[c].glyphIndex);
-            const transformedComponentPoints = transformPoints(this.getTransform(componentGlyph, coords).points, componentTransforms[c]);
+            const transformedComponentPoints = transformPoints(this.getTransform(componentGlyph, coords, options).points, componentTransforms[c]);
             transformedPoints.splice(pointsIndex, transformedComponentPoints.length, ...transformedComponentPoints);
             pointsIndex += componentGlyph.points.length;
         }
@@ -262,14 +263,14 @@ export class VariationProcessor {
      * @param {Array<{x: number, y: number, onCurve?: boolean, lastPointOfContour?: boolean}>} transformedPoints - Points to be transformed in place.
      * @param {Record<string, number>} coords - Variation coordinates.
      */
-    transformComponentsSimple(glyph, transformedPoints, coords) {
+    transformComponentsSimple(glyph, transformedPoints, coords, options = {}) {
         let pointsIndex = 0;
         for(let c = 0; c < /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */ (/** @type {unknown} */ (glyph)).components.length; c++) {
             const component = /** @type {{ components: Array<{glyphIndex: number, dx: number, dy: number}> }} */ (/** @type {unknown} */ (glyph)).components[c];
             const componentGlyph = this.font.glyphs.get(component.glyphIndex);
             const componentTransform = copyComponent(component);
             // No gvar deltas to apply - just use the base component transform (dx, dy)
-            const transformedComponentPoints = transformPoints(this.getTransform(componentGlyph, coords).points, componentTransform);
+            const transformedComponentPoints = transformPoints(this.getTransform(componentGlyph, coords, options).points, componentTransform);
             transformedPoints.splice(pointsIndex, transformedComponentPoints.length, ...transformedComponentPoints);
             pointsIndex += componentGlyph.points.length;
         }
@@ -400,10 +401,10 @@ export class VariationProcessor {
         }
 
         if (compositeComponentTransforms && args.glyph) {
-            this.renderCompositeComponents(args.glyph, transformedPoints, coords, compositeComponentTransforms);
+            this.renderCompositeComponents(args.glyph, transformedPoints, coords, compositeComponentTransforms, {round: args.round});
         }
 
-        if (flavor === 'gvar') {
+        if (flavor === 'gvar' && args.round !== false) {
             for (let i = 0; i < transformedPoints.length; i++) {
                 transformedPoints[i].x = otRound(transformedPoints[i].x);
                 transformedPoints[i].y = otRound(transformedPoints[i].y);
@@ -422,9 +423,11 @@ export class VariationProcessor {
      * Retrieves a transformed copy of a glyph based on the provided variation coordinates, or the glyph itself if no variation was applied
      * @param {Glyph} glyph - Glyph or index of glyph to transform.
      * @param {Record<string, number>} [coords] - Variation coords object (will fall back to variation coords in the defaultRenderOptions)
+     * @param {{round?: boolean}} [options] - `round: false` keeps the exact (fractional) outline
+     *   coordinates instead of rounding points and component offsets to integers.
      * @returns {Glyph} - The transformed glyph.
      */
-    getTransform(glyph, coords) {
+    getTransform(glyph, coords, options = {}) {
         if(Number.isInteger(glyph)) {
             glyph = this.font.glyphs.get(glyph);
         }
@@ -447,7 +450,7 @@ export class VariationProcessor {
 
                 if(variationData) {
                     const glyphPoints = glyph.points;
-                    let transformedPoints = this.applyTupleVariationStore(variationData, glyphPoints, coords, 'gvar', { glyph });
+                    let transformedPoints = this.applyTupleVariationStore(variationData, glyphPoints, coords, 'gvar', { glyph, round: options.round });
                     const transformedPath = getPath(transformedPoints);
                     // Preserve unitsPerEm from the original glyph's path for correct scaling
                     /** @type {{ unitsPerEm?: number }} */ (transformedPath).unitsPerEm = glyph.path && /** @type {{ unitsPerEm?: number }} */ (glyph.path).unitsPerEm ? /** @type {{ unitsPerEm?: number }} */ (glyph.path).unitsPerEm : this.font.unitsPerEm;
@@ -458,7 +461,7 @@ export class VariationProcessor {
                 // This ensures component glyphs get their variation applied even when the composite itself has no gvar deltas
                 if (glyph.isComposite && (!variationData || !variationData.headers || !variationData.headers.length)) {
                     const transformedPoints = glyph.points.map(copyPoint);
-                    this.transformComponentsSimple(glyph, transformedPoints, coords);
+                    this.transformComponentsSimple(glyph, transformedPoints, coords, options);
                     const transformedPath = getPath(transformedPoints);
                     /** @type {{ unitsPerEm?: number }} */ (transformedPath).unitsPerEm = glyph.path && /** @type {{ unitsPerEm?: number }} */ (glyph.path).unitsPerEm ? /** @type {{ unitsPerEm?: number }} */ (glyph.path).unitsPerEm : this.font.unitsPerEm;
                     transformedGlyph = new Glyph(Object.assign({}, glyph, {points: transformedPoints, path: transformedPath}));

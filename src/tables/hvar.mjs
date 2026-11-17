@@ -202,7 +202,7 @@ export function encodeItemVariationStore(store) {
  * @param {object} indexMap - The delta set index map
  * @returns {Array} Encoded bytes
  */
-function encodeDeltaSetIndexMap(indexMap) {
+export function encodeDeltaSetIndexMap(indexMap) {
     if (!indexMap || !indexMap.map || indexMap.map.length === 0) {
         return [];
     }
@@ -270,7 +270,7 @@ function encodeDeltaSetIndexMap(indexMap) {
     // Map entries
     const innerMask = (1 << innerBitCount) - 1;
     for (const entry of map) {
-        const value = (entry.outerIndex << innerBitCount) | (entry.innerIndex & innerMask);
+        const value = entry.outerIndex * 2 ** innerBitCount + (entry.innerIndex & innerMask);
         if (entrySize === 1) {
             result.push(value & 0xFF);
         } else if (entrySize === 2) {

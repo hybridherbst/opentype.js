@@ -1057,7 +1057,7 @@ Parser.prototype.parseDeltaSetIndexMap = function() {
             throw new Error(`Invalid entry size of ${entrySize}`);
         }
     
-        const outerIndex = entry >> bitCount;
+        const outerIndex = entry >>> bitCount;
         const innerIndex = entry & ((1 << bitCount) - 1);
         map.push({ outerIndex, innerIndex });
     }

@@ -22,6 +22,7 @@ import gvar from './tables/gvar.mjs';
 import cvar from './tables/cvar.mjs';
 import avar from './tables/avar.mjs';
 import hvar from './tables/hvar.mjs';
+import mvar from './tables/mvar.mjs';
 import glyf, { pathToPoints, cubicToQuadratics } from './tables/glyf.mjs';
 import gdef from './tables/gdef.mjs';
 import gpos, { packPairPosFormat1Lookup } from './tables/gpos.mjs';
@@ -390,6 +391,7 @@ function parseBuffer(buffer, opt={}) {
     let gsubTableEntry;
     let hmtxTableEntry;
     let hvarTableEntry;
+    let mvarTableEntry;
     let kernTableEntry;
     let locaTableEntry;
     let nameTableEntry;
@@ -449,6 +451,9 @@ function parseBuffer(buffer, opt={}) {
             }
             case 'HVAR':
                 hvarTableEntry = tableEntry;
+                break;
+            case 'MVAR':
+                mvarTableEntry = tableEntry;
                 break;
             case 'hmtx':
                 hmtxTableEntry = tableEntry;
@@ -632,6 +637,14 @@ function parseBuffer(buffer, opt={}) {
         font.tables.hvar = hvar.parse(hvarTable.data, hvarTable.offset, font.tables.fvar);
     }
 
+    if (mvarTableEntry) {
+        if (!fvarTableEntry) {
+            console.warn('This font provides an MVAR table, but no fvar table, which is required for variable fonts.');
+        }
+        const mvarTable = uncompressTable(data, mvarTableEntry);
+        font.tables.mvar = mvar.parse(mvarTable.data, mvarTable.offset);
+    }
+
     if (metaTableEntry) {
         const metaTable = uncompressTable(data, metaTableEntry);
         font.tables.meta = meta.parse(metaTable.data, metaTable.offset);
@@ -727,7 +740,8 @@ export {
 };
 
 export { unicodeToGlyphName } from './encoding.mjs';
-export { normalizeAxisValue, denormalizeAxisValue, applyAvarMapping, invertAvarMapping, normalizeCoordinates } from './variation-coordinates.mjs';
+export { MVAR_VALUE_TAGS } from './tables/mvar.mjs';
+export { normalizeAxisValue, denormalizeAxisValue, applyAvarMapping, invertAvarMapping, normalizeCoordinates, applyAvar2Mapping, itemVariationDelta, variationRegionScalar } from './variation-coordinates.mjs';
 export { findDuplicateGlyphNames, postGlyphNames } from './tables/post.mjs';
 export { optimizeItemVariationStore, remapVariationIndexes } from './item-variation-store.mjs';
 export { encodeChainContextRules } from './context-rules.mjs';

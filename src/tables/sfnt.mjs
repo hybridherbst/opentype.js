@@ -32,6 +32,7 @@ import avar from './avar.mjs';
 import cvar from './cvar.mjs';
 import gvar from './gvar.mjs';
 import hvar from './hvar.mjs';
+import mvar from './mvar.mjs';
 import gasp from './gasp.mjs';
 import kern from './kern.mjs';
 import svg from './svg.mjs';
@@ -685,6 +686,7 @@ function fontToSfntTable(font, options = {}) {
         fvar, 
         gvar,
         hvar,
+        mvar,
         gasp,
         svg,
     };
