@@ -82,6 +82,15 @@ describe('path.js', function() {
         assert.equal(path.toPathData(3), expectedResult2);
     });
 
+    it('should round coordinates whose fractional part prints in exponent form', function() {
+        const path = new Path();
+        path.moveTo(0, 54.000000000000014);
+        path.lineTo(1.0000000000000002, 3);
+        path.lineTo(2, 2.9999999999999996);
+        assert.equal(path.toPathData({ decimalPlaces: 1, flipY: false }), 'M0 54L1 3L2 3');
+        assert.equal(path.toPathData({ decimalPlaces: 2, flipY: true }), 'M0 3L1 54L2 54');
+    });
+
     it('should not optimize SVG paths if parameter is set falsy', function() {
         const unoptimizedResult = 'M0 50L0 250L50 250L100 250L150 250L200 250L200 50L0 50ZM250 50L250 250L300 250L350 250L400 250L450 250L450 50L250 50Z';
         assert.equal(testPath2.toPathData({optimize: false, flipY: false}), unoptimizedResult);

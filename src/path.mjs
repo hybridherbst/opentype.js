@@ -44,7 +44,12 @@ function roundDecimal(float, places) {
         return integerPart + roundedDecimalPart;
     }
     
-    const roundedDecimalPart = +(Math.round(/** @type {number} */ (/** @type {unknown} */ (decimalPart + 'e+' + places))) + 'e-' + places);
+    // Shift by exponent arithmetic rather than multiplication (1.005 → 1.01), keeping any
+    // exponent already in the number's string form: a tiny remainder such as 1.4e-14 would
+    // otherwise become the unparseable "1.4e-14e+2".
+    const [mantissa, exponent = '0'] = String(decimalPart).split('e');
+    const shifted = Math.round(Number(mantissa + 'e' + (Number(exponent) + places)));
+    const roundedDecimalPart = Number(shifted + 'e-' + places);
     decimalRoundingCache[places][decimalPart] = roundedDecimalPart;
 
     return integerPart + roundedDecimalPart;
