@@ -112,11 +112,12 @@ function makeMvarTable(mvar) {
         {name: 'valueRecordCount', type: 'USHORT', value: records.length},
         {name: 'itemVariationStoreOffset', type: 'USHORT', value: storeOffset},
     ]);
-    records.forEach((record, i) => {
+    for (let i = 0; i < records.length; i++) {
+        const record = records[i];
         result.fields.push({name: `valueTag_${i}`, type: 'TAG', value: record.valueTag});
         result.fields.push({name: `deltaSetOuterIndex_${i}`, type: 'USHORT', value: record.deltaSetOuterIndex});
         result.fields.push({name: `deltaSetInnerIndex_${i}`, type: 'USHORT', value: record.deltaSetInnerIndex});
-    });
+    }
     result.fields.push({name: 'itemVariationStore', type: 'LITERAL', value: storeBytes});
     return result;
 }
