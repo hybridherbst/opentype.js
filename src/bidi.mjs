@@ -85,6 +85,8 @@ function reverseArabicSentences() {
     for(let i = 0; i < ranges.length; i++) {
         const range = ranges[i];
         let rangeTokens = this.tokenizer.getRangeTokens(range);
+        // Positioning works in logical order: each reversed token remembers its run.
+        for (const token of rangeTokens) token.rtlRun = i;
         this.tokenizer.replaceRange(
             range.startIndex,
             range.endOffset,
@@ -307,15 +309,27 @@ Bidi.prototype.getBidiText = function (text) {
  * @param {string} text an input text
  */
 Bidi.prototype.getTextGlyphs = function (text) {
+    return this.getTextGlyphRuns(text).indexes;
+};
+
+/**
+ * Glyph indexes in visual order, with the right-to-left run each glyph belongs to
+ * (-1 for left to right): a run is stored reversed, and positioning reads it back in
+ * logical order.
+ * @param {string} text
+ * @returns {{indexes: number[], rtlRuns: number[]}}
+ */
+Bidi.prototype.getTextGlyphRuns = function (text) {
     this.processText(text);
-    let indexes = [];
+    const indexes = [], rtlRuns = [];
     for (let i = 0; i < this.tokenizer.tokens.length; i++) {
         const token = this.tokenizer.tokens[i];
         if (token.state.deleted) continue;
         const index = token.activeState.value;
         indexes.push(Array.isArray(index) ? index[0] : index);
+        rtlRuns.push(token.rtlRun ?? -1);
     }
-    return indexes;
+    return { indexes, rtlRuns };
 };
 
 export default Bidi;

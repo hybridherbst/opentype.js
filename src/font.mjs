@@ -383,7 +383,62 @@ Font.prototype.updateFeatures = function (options) {
  * @param  {GlyphRenderOptions} [options]
  * @return {number[]}
  */
+/**
+ * Unicode normalization against the font, as shaping engines do it: a character the
+ * font lacks is decomposed (canonically) when the font has all of its parts (Ĝ → G +
+ * U+0302), and a base takes each following mark into a precomposed character the font
+ * has (A + U+0302 → Â), until a mark does not compose (it blocks the ones after it, so
+ * stacked marks keep their order).
+ * @param  {string} s
+ * @return {string}
+ */
+Font.prototype.normalizeForFont = function(s) {
+    const has = (ch) => this.charToGlyphIndex(ch) > 0;
+    // Canonical combining class order, read from Unicode's own reordering: `a` sorts before
+    // `b` when NFD puts it first. Equal classes (and class 0) keep their order.
+    const before = (a, b) => (b + a).normalize('NFD') === a + b;
+    const isMark = (ch) => /\p{M}/u.test(ch);
+    // 1. Decompose what the font lacks, where it has every part.
+    const chars = [];
+    for (const ch of s) {
+        const nfd = ch.normalize('NFD');
+        chars.push(...(!has(ch) && nfd !== ch && [...nfd].every(has) ? [...nfd] : [ch]));
+    }
+    // 2. Canonical order within each run of marks (stable insertion sort).
+    for (let i = 1; i < chars.length; i++) {
+        if (!isMark(chars[i])) continue;
+        for (let j = i; j > 0 && isMark(chars[j - 1]) && before(chars[j], chars[j - 1]); j--) {
+            [chars[j - 1], chars[j]] = [chars[j], chars[j - 1]];
+        }
+    }
+    // 3. Compose each mark into its base where the font has the result and no mark kept
+    //    between them blocks it (one of the same or a higher class, or class 0).
+    const out = [];
+    let base = -1, kept = [];
+    for (const ch of chars) {
+        if (!isMark(ch)) { base = out.length; kept = []; out.push(ch); continue; }
+        if (base >= 0 && kept.every((k) => before(k, ch))) {
+            const composed = (out[base] + ch).normalize('NFC');
+            if ([...composed].length === 1 && has(composed)) { out[base] = composed; continue; }
+        }
+        kept.push(ch);
+        out.push(ch);
+    }
+    return out.join('');
+};
+
 Font.prototype.stringToGlyphIndexes = function(s, options) {
+    return this.stringToGlyphRuns(s, options).indexes;
+};
+
+/**
+ * Glyph indexes in visual order, and per glyph its right-to-left run (-1 for left to right).
+ * @param  {string} s
+ * @param  {GlyphRenderOptions} [options]
+ * @return {{indexes: number[], rtlRuns: number[]}}
+ */
+Font.prototype.stringToGlyphRuns = function(s, options) {
+    s = this.normalizeForFont(s);
     const bidi = new Bidi();
 
     // Create and register 'glyphIndex' state modifier
@@ -397,7 +452,7 @@ Font.prototype.stringToGlyphIndexes = function(s, options) {
 
     bidi.applyFeatures(this, features);
 
-    return bidi.getTextGlyphs(s);
+    return bidi.getTextGlyphRuns(s);
 };
 
 /**
@@ -537,16 +592,25 @@ Font.prototype.forEachGlyph = function(text, x, y, fontSize, options, callback) 
     
     options = Object.assign({}, this.defaultRenderOptions, options);
     const fontScale = 1 / this.unitsPerEm * fontSize;
-    const glyphs = this.stringToGlyphs(text, options);
-    let kerningLookups;
-    if (options.kerning) {
-        const script = options.script || /** @type {{getDefaultScriptName: Function}} */ (/** @type {unknown} */ (this.position)).getDefaultScriptName();
-        kerningLookups = this.position.getKerningTables(script, options.language);
-    }
+    const runs = this.stringToGlyphRuns(text, options);
+    const notdef = this.glyphs.get(0);
+    const glyphs = runs.indexes.map((index) => this.glyphs.get(index) || notdef);
+    // GPOS: every positioning lookup of the default horizontal features (kern, mark, mkmk,
+    // curs, dist, abvm, blwm), each switchable off by `features` (`kerning: false` drops kern).
+    // A font without GPOS uses its kern table.
+    const features = /** @type {Record<string, boolean>} */ (options.features || {});
+    const positions = this.tables.gpos ? this.position.getVisualPositions(runs.indexes, runs.rtlRuns, {
+        // A run's script is its text's: the left-to-right part takes its first strong script.
+        script: options.script || this.position.getTextScript(text, (tag) => tag !== 'arab'),
+        language: options.language,
+        features: ['abvm', 'blwm', 'curs', 'dist', 'kern', 'mark', 'mkmk'].filter((tag) => features[tag] !== false && (tag !== 'kern' || options.kerning)),
+        coords: explicitVariation || undefined,
+    }) : null;
     
     for (let i = 0; i < glyphs.length; i += 1) {
         const glyph = glyphs[i];
-        callback.call(this, glyph, x, y, fontSize, options);
+        const position = positions ? positions[i] : null;
+        callback.call(this, glyph, x + (position ? position.xOffset * fontScale : 0), y - (position ? position.yOffset * fontScale : 0), fontSize, options);
         
         // Get advance width - apply HVAR variation delta if explicit variation is passed
         let advanceWidth = glyph.advanceWidth;
@@ -566,13 +630,10 @@ Font.prototype.forEachGlyph = function(text, x, y, fontSize, options, callback) 
             x += advanceWidth * fontScale;
         }
 
-        if (options.kerning && i < glyphs.length - 1) {
-            // We should apply position adjustment lookups in a more generic way.
-            // Here we only use the xAdvance value.
-            const kerningValue = kerningLookups ?
-                this.position.getKerningValue(kerningLookups, glyph.index, glyphs[i + 1].index) :
-                this.getKerningValue(glyph, glyphs[i + 1]);
-            x += kerningValue * fontScale;
+        if (position) {
+            x += position.xAdvance * fontScale;
+        } else if (options.kerning && i < glyphs.length - 1) {
+            x += this.getKerningValue(glyph, glyphs[i + 1]) * fontScale;
         }
 
         if (options.letterSpacing) {
