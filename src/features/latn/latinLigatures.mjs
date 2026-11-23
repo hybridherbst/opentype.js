@@ -12,19 +12,26 @@ import { getContextParams } from '../commonFeatureUtils.mjs';
  */
 function latinLigature(range, tag = 'liga') {
     const script = 'latn';
-    let tokens = this.tokenizer.getRangeTokens(range);
-    let contextParams = getContextParams(tokens, 0);
-    for(let index = 0; index < contextParams.context.length; index++) {
-        contextParams.setCurrentIndex(index);
-        let substitutions = this.query.lookupFeature({
-            tag, script, contextParams
-        });
-        if (substitutions.length) {
-            for(let i = 0; i < substitutions.length; i++) {
-                const action = substitutions[i];
-                applySubstitution(action, tokens, index);
+    const feature = this.query.getFeature({ tag, script });
+    if (!feature) return;
+    // Lookup by lookup, each over the whole word, as OpenType applies them: a fraction's second
+    // lookup sees the slash its first one turned into a fraction slash.
+    const lookupCount = this.query.getFeatureLookups(feature).length;
+    for (let lookupIndex = 0; lookupIndex < lookupCount; lookupIndex++) {
+        let tokens = this.tokenizer.getRangeTokens(range);
+        let contextParams = getContextParams(tokens, 0);
+        for(let index = 0; index < contextParams.context.length; index++) {
+            contextParams.setCurrentIndex(index);
+            let substitutions = this.query.lookupFeature({
+                tag, script, contextParams, lookupIndex
+            });
+            if (substitutions.length) {
+                for(let i = 0; i < substitutions.length; i++) {
+                    const action = substitutions[i];
+                    applySubstitution(action, tokens, index);
+                }
+                contextParams = getContextParams(tokens, 0);
             }
-            contextParams = getContextParams(tokens, 0);
         }
     }
 }

@@ -613,6 +613,7 @@ FeatureQuery.prototype.getLookupMethod = function(lookupTable, subtable) {
  * @property {string} tag feature tag
  * @property {string} script feature script
  * @property {ContextParams} contextParams context params
+ * @property {number} [lookupIndex] only this lookup of the feature
  */
 
 /**
@@ -635,7 +636,10 @@ FeatureQuery.prototype.lookupFeature = function (query) {
             `for script '${query.script}'.`
         );
     }
-    const lookups = this.getFeatureLookups(feature);
+    // `lookupIndex`: only that lookup of the feature (OpenType runs each lookup over the whole
+    // run before the next; a caller applying them in that order asks for one at a time).
+    const featureLookups = this.getFeatureLookups(feature);
+    const lookups = query.lookupIndex === undefined ? featureLookups : featureLookups.slice(query.lookupIndex, query.lookupIndex + 1);
     const substitutions = [].concat(contextParams.context);
     lookupLoop:
     for (let l = 0; l < lookups.length; l++) {

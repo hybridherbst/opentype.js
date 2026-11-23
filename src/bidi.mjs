@@ -193,24 +193,27 @@ function applyArabicRequireLigatures() {
 /**
  * Apply required arabic ligatures
  */
+/** Latin features that apply first, in this order; every other enabled tag (smcp, c2sc, onum,
+ * tnum, frac, case, ss01 …) follows in the order it was requested. */
+const LATIN_FEATURE_ORDER = ['locl', 'calt', 'liga', 'dlig', 'clig'];
+
+/**
+ * Apply every enabled Latin GSUB feature to each Latin word: calt and the ligatures first, then
+ * the rest (small caps, figure styles, fractions, case forms, stylistic sets). Each feature's
+ * lookups run as FeatureQuery finds them, single, multiple, ligature and contextual alike.
+ */
 function applyLatinLigatures() {
-    const hasLiga = this.hasFeatureEnabled('latn', 'liga');
-    const hasDlig = this.hasFeatureEnabled('latn', 'dlig');
-    const hasClig = this.hasFeatureEnabled('latn', 'clig');
-    const hasCalt = this.hasFeatureEnabled('latn', 'calt');
-    
-    if (!hasLiga && !hasDlig && !hasClig && !hasCalt) return;
-    
+    const enabled = this.featuresTags.latn || [];
+    const tags = [
+        ...LATIN_FEATURE_ORDER.filter(tag => enabled.includes(tag)),
+        ...enabled.filter(tag => !LATIN_FEATURE_ORDER.includes(tag) && tag !== 'ccmp' && tag !== 'rlig'),
+    ];
+    if (!tags.length) return;
+
     checkGlyphIndexStatus.call(this);
     const ranges = this.tokenizer.getContextRanges('latinWord');
     for(let i = 0; i < ranges.length; i++) {
-        const range = ranges[i];
-        // Apply each enabled ligature feature in order
-        // Note: calt (contextual alternates) should be applied before other ligatures
-        if (hasCalt) latinLigature.call(this, range, 'calt');
-        if (hasLiga) latinLigature.call(this, range, 'liga');
-        if (hasDlig) latinLigature.call(this, range, 'dlig');
-        if (hasClig) latinLigature.call(this, range, 'clig');
+        for (const tag of tags) latinLigature.call(this, ranges[i], tag);
     }
 }
 

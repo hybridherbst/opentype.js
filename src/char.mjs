@@ -42,10 +42,10 @@ export function isThaiChar(c) {
  */
 export function isLatinChar(c) {
     if (!c) return false;
-    // A-Z (65-90), a-z (97-122), and ASCII punctuation/symbols (33-64, 91-96, 123-126)
-    // This covers !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~ which may be part of ligatures
-    const code = c.charCodeAt(0);
-    return (code >= 33 && code <= 126);
+    // Latin letters of every block (é, ß, ł, ŋ …), and what Latin text sets between them: figures,
+    // punctuation and symbols (Common) and combining marks (Inherited); not white space, which
+    // ends a word. ASCII alone left accented letters out of every Latin feature (smcp on café).
+    return /^[\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]$/u.test(c) && !/^\s$/u.test(c);
 }
 
 /**
